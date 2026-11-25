@@ -24,8 +24,8 @@ export function includeSupportedDocumentMimeTypes(values: readonly string[]): st
 }
 
 /**
- * Làm sạch tên multipart và sửa trường hợp UTF-8 bị middleware giải mã nhầm Latin-1.
- * Nếu phép chuyển đổi không round-trip chính xác, hàm giữ nguyên chuỗi đã chuẩn hóa NFC.
+ * Làm sạch tên multipart và sửa trường hợp UTF-8 (kể cả NFD từ macOS) bị middleware giải mã nhầm Latin-1.
+ * Kiểm tra round-trip UTF-8 trên chuỗi thô trước khi chuẩn hóa NFC để không rơi lại mojibake với tên NFD.
  */
 export function normalizeMultipartFileName(value: string): string {
   const safeValue = value.replace(/[\0\r\n]/g, "").trim().normalize("NFC");
@@ -37,18 +37,27 @@ export function normalizeMultipartFileName(value: string): string {
     bytes.push(byte);
   }
   const source = Buffer.from(bytes);
-  const decoded = source.toString("utf8").normalize("NFC");
-  return !decoded.includes("\uFFFD") && Buffer.from(decoded, "utf8").equals(source) ? decoded : safeValue;
+  const rawDecoded = source.toString("utf8");
+  return !rawDecoded.includes("\uFFFD") && Buffer.from(rawDecoded, "utf8").equals(source)
+    ? rawDecoded.normalize("NFC")
+    : safeValue;
 }
 
-/** Tạo Content-Disposition có fallback ASCII và filename* UTF-8 cho tên tiếng Việt. */
+/** Mã hóa giá trị tên tệp theo RFC 5987 (UTF-8 percent-encoding đầy đủ). */
+function encodeRfc5987Value(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/** Tạo Content-Disposition có fallback ASCII và filename* UTF-8 chuẩn NFC cho tên tiếng Việt. */
 export function fileContentDisposition(mode: "inline" | "attachment", fileName: string): string {
   const normalized = normalizeMultipartFileName(fileName) || "hoc-lieu";
   const fallback = normalized
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^A-Za-z0-9._ -]/g, "_")
     .replace(/\s+/g, " ")
     .trim() || "hoc-lieu";
-  return `${mode}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(normalized)}`;
+  return `${mode}; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987Value(normalized)}`;
 }

@@ -3,6 +3,7 @@ import { usePagination } from "@/shared/ui/ui";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
 import type { AcademicCalendarEvent, Assignment, AssignmentSubmission, ClassAnnouncement, GradebookRow, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useSearchParams } from "next/navigation";
@@ -317,7 +318,7 @@ export function useAcademicModel() {
           roleCode: session.roleCode,
           body: JSON.stringify({
             ...assignmentForm,
-            dueAt: new Date(assignmentForm.dueAt).toISOString(),
+            dueAt: localDateTimeToIso(assignmentForm.dueAt),
             ...(editingAssignment
               ? { expectedVersion: editingAssignment.version }
               : {}),
@@ -352,7 +353,7 @@ export function useAcademicModel() {
       title: item.title,
       description: item.description,
       instructions: item.instructions,
-      dueAt: new Date(item.dueAt).toISOString().slice(0, 16),
+      dueAt: toLocalDateTimeInput(item.dueAt),
       maxScore: item.maxScore,
       rubric: item.rubric.map(({ title, description, maxPoints }) => ({
         title,
@@ -367,16 +368,12 @@ export function useAcademicModel() {
   function openLifecycle(item: Assignment, mode: "EXTEND" | "CLOSE"): void {
     setLifecycleAssignment(item);
     setLifecycleMode(mode);
-    const minimumDueAt = new Date(Date.now() + 60_000)
-      .toISOString()
-      .slice(0, 16);
+    const minimumDueAt = toLocalDateTimeInput(Date.now() + 60_000);
     setLifecycleMinDueAt(minimumDueAt);
     setLifecycleDueAt(
-      new Date(
+      toLocalDateTimeInput(
         Math.max(Date.now() + 60_000, new Date(item.dueAt).getTime() + 60_000),
-      )
-        .toISOString()
-        .slice(0, 16),
+      ),
     );
     setLifecycleReason("");
   }
@@ -395,7 +392,7 @@ export function useAcademicModel() {
             reason: lifecycleReason,
             expectedVersion: lifecycleAssignment.version,
             ...(lifecycleMode === "EXTEND"
-              ? { dueAt: new Date(lifecycleDueAt).toISOString() }
+              ? { dueAt: localDateTimeToIso(lifecycleDueAt) }
               : {}),
           }),
         },

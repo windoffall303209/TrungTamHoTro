@@ -232,7 +232,7 @@ export class EngagementController {
     @UploadedFile() file?: { originalname: string; mimetype: string; size: number; buffer: Buffer },
   ): Promise<SupportAttachment> {
     if (!file) throw new BadRequestException("Cần chọn một tệp bằng chứng.");
-    return this.learning.addSupportAttachment(ticketId, { originalName: file.originalname, mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
+    return this.learning.addSupportAttachment(ticketId, { originalName: normalizeMultipartFileName(file.originalname), mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session.roleCode, session.user.id);
   }
 
   @Get("support/tickets/:ticketId/attachments/:attachmentId") @RequireAuthentication() @Header("Content-Security-Policy", USER_FILE_CSP)

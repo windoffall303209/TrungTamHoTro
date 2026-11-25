@@ -22,6 +22,7 @@ import {
 import { AiProviderService, type AiProviderConfig, type AiProviderType } from "../ai/ai-provider.service.js";
 import { OutboxDeliveryService } from "../../../infrastructure/outbox-delivery.service.js";
 import { USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
+import { fileContentDisposition } from "../../../infrastructure/file-transfer.js";
 import { AllowDuringMaintenance } from "../operations/allow-during-maintenance.decorator.js";
 
 class ConfigureAiTaskDto {
@@ -98,7 +99,7 @@ export class SystemController {
   /** Chạy xuất dữ liệu theo danh mục và định dạng. */
   @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto, @CurrentSession() session: AuthenticatedSession): Promise<DataExport> { return this.system.runExport(input.category, input.format, session.user.id); }
   /** Stream tệp export còn hạn sau khi xác minh checksum tại thời điểm tải. */
-  @Get("exports/:exportId/download") @RequirePermissions("system:configure") @Header("Content-Security-Policy", USER_FILE_CSP) async downloadExport(@Param("exportId") exportId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId, session.user.id); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: `attachment; filename="${file.filename}"` }); }
+  @Get("exports/:exportId/download") @RequirePermissions("system:configure") @Header("Content-Security-Policy", USER_FILE_CSP) async downloadExport(@Param("exportId") exportId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId, session.user.id); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition("attachment", file.filename) }); }
   /** Tìm audit theo từ khóa, actor, action, target và khoảng thời gian. */
   @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string, @Query("actor") actor?: string, @Query("action") action?: string, @Query("target") target?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<AuditEvent[]> { return this.system.listAudit({ query, actor, action, target, from, to }); }
 

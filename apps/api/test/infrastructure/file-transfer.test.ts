@@ -8,10 +8,22 @@ describe("file transfer", () => {
     expect(normalizeMultipartFileName("Bài giảng xác suất.docx")).toBe("Bài giảng xác suất.docx");
   });
 
-  it("tạo Content-Disposition tương thích và giữ tên UTF-8", () => {
-    const disposition = fileContentDisposition("attachment", "Bài giảng xác suất.pdf");
-    expect(disposition).toContain('filename="Bai giang xac suat.pdf"');
-    expect(disposition).toContain("filename*=UTF-8''B%C3%A0i%20gi%E1%BA%A3ng%20x%C3%A1c%20su%E1%BA%A5t.pdf");
+  it("chuẩn hóa đúng tên tệp NFD từ macOS cả khi truyền thẳng lẫn khi bị Multer giải mã Latin-1", () => {
+    const nfc = "Bài tập tiếng Việt (chương 1).pdf";
+    const nfd = nfc.normalize("NFD");
+    expect(nfd).not.toBe(nfc);
+    expect(normalizeMultipartFileName(nfd)).toBe(nfc);
+    const nfdLatin1Mojibake = Buffer.from(nfd, "utf8").toString("latin1");
+    expect(normalizeMultipartFileName(nfdLatin1Mojibake)).toBe(nfc);
+  });
+
+  it("tạo Content-Disposition tương thích và giữ tên UTF-8 chuẩn NFC kèm mã hóa RFC 5987", () => {
+    const nfd = "Bài giảng xác suất (đề 1)!.pdf".normalize("NFD");
+    const disposition = fileContentDisposition("attachment", nfd);
+    expect(disposition).toContain('filename="Bai giang xac suat _de 1__.pdf"');
+    expect(disposition).toContain(
+      "filename*=UTF-8''B%C3%A0i%20gi%E1%BA%A3ng%20x%C3%A1c%20su%E1%BA%A5t%20%28%C4%91%E1%BB%81%201%29%21.pdf",
+    );
   });
 
   it("bật sẵn cả DOC và DOCX trong chính sách học liệu", () => {

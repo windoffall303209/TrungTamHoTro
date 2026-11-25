@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../../generated/prisma/client.js";
+import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
 import {
   AssignmentSubmissionView,
   AssignmentView,
@@ -79,7 +80,7 @@ export function mapSubmission(
       .filter((item) => !item.removedAt)
       .map((item) => ({
         id: item.id,
-        originalName: item.originalName,
+        originalName: normalizeMultipartFileName(item.originalName),
         mimeType: item.mimeType,
         sizeBytes: Number(item.sizeBytes),
         createdAt: item.createdAt.toISOString(),

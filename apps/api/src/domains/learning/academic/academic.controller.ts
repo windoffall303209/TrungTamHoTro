@@ -16,6 +16,7 @@ import {
 } from "@nestjs/common";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
+import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import {
@@ -272,7 +273,7 @@ export class AcademicController {
         file.mimeType.startsWith("image/"));
     return new StreamableFile(file.buffer, {
       type: file.mimeType,
-      disposition: `${preview ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      disposition: fileContentDisposition(preview ? "inline" : "attachment", file.fileName),
       length: file.buffer.length,
     });
   }
@@ -412,7 +413,7 @@ export class AcademicController {
     if (files.some((file) => !file.buffer))
       throw new BadRequestException("Không đọc được dữ liệu tệp tải lên.");
     return files.map((file) => ({
-      originalName: file.originalname,
+      originalName: normalizeMultipartFileName(file.originalname),
       mimeType: file.mimetype,
       size: file.size,
       buffer: file.buffer,

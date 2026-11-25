@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "../../../../generated/prisma/client.js";
-import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../../infrastructure/file-transfer.js";
+import { DEFAULT_MATERIAL_MIME_TYPES, normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
 import {
   id,
   MaterialSearchResult,
@@ -679,7 +679,7 @@ export async function replaceMaterialFile(
       const updated = await prisma.material.update({
         where: { id: materialId },
         data: {
-          name: upload.originalName.trim(),
+          name: normalizeMultipartFileName(upload.originalName),
           objectKey: stored.objectKey,
           checksum: stored.checksum,
           mimeType: upload.mimeType,
@@ -745,7 +745,7 @@ export async function replaceMaterialFile(
     Boolean(quarantineReason),
   );
   Object.assign(current, {
-    name: upload.originalName.trim(),
+    name: normalizeMultipartFileName(upload.originalName),
     mimeType: upload.mimeType,
     sizeBytes: upload.size,
     folder: input.folder.trim(),

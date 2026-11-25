@@ -12,6 +12,7 @@ import { SearchableSelect } from "@/shared/ui/searchable-select";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
 import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
@@ -75,8 +76,8 @@ export default function CoursesPage() {
     setClassForm({
       ...blankClass,
       code: autoCode,
-      startAt: now.toISOString().slice(0, 16),
-      endAt: future.toISOString().slice(0, 16),
+      startAt: toLocalDateTimeInput(now),
+      endAt: toLocalDateTimeInput(future),
     });
     setMode("class");
   };
@@ -244,8 +245,8 @@ export default function CoursesPage() {
       const autoCode = classForm.code?.trim() || `LOP-${Math.floor(1000 + Math.random() * 9000)}`;
       const now = new Date();
       const future = new Date(Date.now() + 180 * 86400000);
-      const startAt = classForm.startAt ? new Date(classForm.startAt).toISOString() : now.toISOString();
-      const endAt = classForm.endAt ? new Date(classForm.endAt).toISOString() : future.toISOString();
+      const startAt = classForm.startAt ? localDateTimeToIso(classForm.startAt) : now.toISOString();
+      const endAt = classForm.endAt ? localDateTimeToIso(classForm.endAt) : future.toISOString();
 
       await apiRequest("/manager/classes", {
         method: "POST",

@@ -2,6 +2,7 @@
 import { useMaterialSearch } from "@/features/materials/material-search";
 import { persistentAiRequestId } from "@/lib/ai-request-key";
 import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso } from "@/lib/date-time";
 import { eligibleExamQuestions } from "@/lib/exam-question-selection";
 import type {
   AiGeneratedExamResult,
@@ -447,8 +448,8 @@ export function useExamsModel() {
               score: form.scoreAllocations[questionId] ?? 0,
             })),
             expectedVersion: editingExam?.version,
-            openAt: new Date(form.openAt).toISOString(),
-            closeAt: new Date(form.closeAt).toISOString(),
+            openAt: localDateTimeToIso(form.openAt),
+            closeAt: localDateTimeToIso(form.closeAt),
           }),
         },
       );
@@ -509,8 +510,8 @@ export function useExamsModel() {
               ? [{ type: item.type, count: aiConfig.distribution[item.type] }]
               : [],
           ),
-          openAt: new Date(form.openAt).toISOString(),
-          closeAt: new Date(form.closeAt).toISOString(),
+          openAt: localDateTimeToIso(form.openAt),
+          closeAt: localDateTimeToIso(form.closeAt),
         }),
       );
       const requestId = await persistentAiRequestId(session.user.id, payload);

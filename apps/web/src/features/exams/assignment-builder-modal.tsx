@@ -19,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api-client";
+import { toLocalDateTimeInput } from "@/lib/date-time";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 
@@ -91,9 +92,9 @@ const essayFileFormats = [
   { mime: "image/webp", extensions: ["webp"] },
 ] as const;
 
-// Chuyển thời điểm UTC thành giá trị datetime-local theo giờ máy người dùng.
+// Chuyển thời điểm sang giá trị datetime-local theo giờ máy người dùng.
 function formatLocalDateTime(date: Date): string {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return toLocalDateTimeInput(date);
 }
 
 // Tạo giá trị datetime-local cách hiện tại một số ngày.

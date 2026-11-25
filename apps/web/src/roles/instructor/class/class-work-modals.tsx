@@ -19,6 +19,7 @@ import {
 import { QuestionImage } from "@/features/questions/question-image";
 import { toLocalDateTimeInput } from "@/features/exams/exams.shared";
 import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso, parseLocalDateTimeInput } from "@/lib/date-time";
 import type { RoleCode } from "@/lib/app-types";
 import type { Assignment, Exam, ExamAttempt, Material, Question } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
@@ -921,8 +922,10 @@ export function ClassExamEditModal({
       notify("Tên bài tập cần từ 3 đến 255 ký tự.", "error");
       return;
     }
-    const openMs = new Date(openAt).getTime();
-    const closeMs = new Date(closeAt).getTime();
+    const parsedOpen = parseLocalDateTimeInput(openAt);
+    const parsedClose = parseLocalDateTimeInput(closeAt);
+    const openMs = parsedOpen ? parsedOpen.getTime() : NaN;
+    const closeMs = parsedClose ? parsedClose.getTime() : NaN;
     const classEndMs = classEndAt ? Date.parse(classEndAt) : NaN;
     if (!Number.isFinite(openMs) || !Number.isFinite(closeMs) || closeMs <= openMs) {
       notify("Thời gian đóng đề phải hợp lệ và muộn hơn thời gian mở.", "error");
@@ -1071,8 +1074,8 @@ export function ClassExamEditModal({
           questionIds: finalQuestionIds,
           durationMinutes: finalDuration,
           totalScore: finalTotalScore,
-          openAt: new Date(openAt).toISOString(),
-          closeAt: new Date(closeAt).toISOString(),
+          openAt: localDateTimeToIso(openAt),
+          closeAt: localDateTimeToIso(closeAt),
           attemptLimit,
           shuffleQuestions,
           ...(exam.randomSeed ? { randomSeed: exam.randomSeed } : {}),
@@ -1480,12 +1483,7 @@ export function ClassAssignmentEditModal({
     if (!assignment) return;
     setTitle(assignment.title);
     setInstructions(assignment.instructions || "");
-    const due = new Date(assignment.dueAt);
-    setDueAt(
-      Number.isFinite(due.getTime())
-        ? new Date(due.getTime() - due.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-        : "",
-    );
+    setDueAt(toLocalDateTimeInput(assignment.dueAt));
     setMaxScore(assignment.maxScore);
     setHidden(Boolean(assignment.hidden));
     setRubric(assignment.rubric.map((entry) => ({ ...entry })));
@@ -1511,7 +1509,7 @@ export function ClassAssignmentEditModal({
     if (saving || isClosed) return;
     const trimmedTitle = title.trim();
     const trimmedInstructions = instructions.trim();
-    const parsedDue = new Date(dueAt);
+    const parsedDue = parseLocalDateTimeInput(dueAt);
     const classEndMs = classEndAt ? Date.parse(classEndAt) : NaN;
     if (trimmedTitle.length < 3 || trimmedTitle.length > 255) {
       notify("Tiêu đề bài tập cần từ 3 đến 255 ký tự.", "error");
@@ -1521,7 +1519,7 @@ export function ClassAssignmentEditModal({
       notify("Nội dung đề bài / hướng dẫn cần từ 5 đến 10.000 ký tự.", "error");
       return;
     }
-    if (!Number.isFinite(parsedDue.getTime()) || parsedDue.getTime() <= Date.now()) {
+    if (!parsedDue || parsedDue.getTime() <= Date.now()) {
       notify("Hạn nộp phải nằm ở tương lai.", "error");
       return;
     }

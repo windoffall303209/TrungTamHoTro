@@ -2,6 +2,7 @@
 
 import { InlineFilePreview } from "@/features/academic/inline-file-preview";
 import { SubmissionFile } from "@/features/academic/submission-file";
+import { parseLocalDateTimeInput } from "@/lib/date-time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
@@ -1027,9 +1028,9 @@ export function InstructorClassWorkspace({
 
     const now = Date.now();
     const classEnd = new Date(item.endAt).getTime();
-    const openAt = data.settings.hasStartAt ? new Date(data.settings.startAt).getTime() : now;
+    const openAt = data.settings.hasStartAt ? (parseLocalDateTimeInput(data.settings.startAt)?.getTime() ?? NaN) : now;
     const dueAt = data.settings.hasDueAt
-      ? new Date(data.settings.dueAt).getTime()
+      ? (parseLocalDateTimeInput(data.settings.dueAt)?.getTime() ?? NaN)
       : Math.min(now + 7 * 86400000, classEnd);
     if (![classEnd, openAt, dueAt].every(Number.isFinite) || classEnd <= now ||
       dueAt <= now || dueAt <= openAt || dueAt > classEnd) {
@@ -1881,8 +1882,8 @@ export function InstructorClassWorkspace({
       return false;
     }
     const openAt = new Date();
-    const closeAt = manualExamDueAt ? new Date(manualExamDueAt) : new Date(openAt.getTime() + 7 * 86400000);
-    if (!Number.isFinite(closeAt.getTime()) || closeAt <= openAt) {
+    const closeAt = manualExamDueAt ? parseLocalDateTimeInput(manualExamDueAt) : new Date(openAt.getTime() + 7 * 86400000);
+    if (!closeAt || closeAt <= openAt) {
       notify("Hạn đóng đề thi phải hợp lệ và muộn hơn thời điểm mở đề.", "error");
       return false;
     }

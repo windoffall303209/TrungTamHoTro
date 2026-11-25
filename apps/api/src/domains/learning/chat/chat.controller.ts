@@ -30,6 +30,7 @@ import type {
 } from "./chat.types.js";
 import type { Observable } from "rxjs";
 import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
+import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
 
 @ApiTags("Chat")
 @Controller("chat")
@@ -128,7 +129,7 @@ export class ChatController {
       conversationId,
       input,
       files.map((file) => ({
-        originalName: file.originalname,
+        originalName: normalizeMultipartFileName(file.originalname),
         mimeType: file.mimetype,
         size: file.size,
         buffer: file.buffer,
@@ -173,7 +174,7 @@ export class ChatController {
     const inline = action === "preview" && isInlineSafeMime(file.mimeType);
     return new StreamableFile(file.buffer, {
       type: file.mimeType,
-      disposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+      disposition: fileContentDisposition(inline ? "inline" : "attachment", file.fileName),
       length: file.buffer.length,
     });
   }

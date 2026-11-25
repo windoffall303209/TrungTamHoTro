@@ -358,7 +358,8 @@ export async function addSupportAttachment(
       `Tệp bằng chứng bị từ chối: ${quarantineReason}`,
     );
   const attachmentId = id("support-attachment");
-  const safeExtension = extname(upload.originalName)
+  const normalizedName = normalizeMultipartFileName(upload.originalName);
+  const safeExtension = extname(normalizedName)
     .toLowerCase()
     .replace(/[^.a-z0-9]/g, "");
   const objectKey = `support/${ticketId}/${attachmentId}${safeExtension}`;
@@ -384,7 +385,7 @@ export async function addSupportAttachment(
           id: attachmentId,
           ticketId,
           uploaderId,
-          name: upload.originalName,
+          name: normalizedName,
           objectKey: stored.objectKey,
           mimeType: upload.mimeType,
           sizeBytes: upload.size,
@@ -394,7 +395,7 @@ export async function addSupportAttachment(
       return {
         id: row.id,
         ticketId: row.ticketId,
-        name: row.name,
+        name: normalizeMultipartFileName(row.name),
         mimeType: row.mimeType,
         sizeBytes: Number(row.sizeBytes),
         checksum: row.checksum,
@@ -416,7 +417,7 @@ export async function addSupportAttachment(
   const attachment: SupportAttachment = {
     id: attachmentId,
     ticketId,
-    name: upload.originalName,
+    name: normalizedName,
     mimeType: upload.mimeType,
     sizeBytes: upload.size,
     checksum,

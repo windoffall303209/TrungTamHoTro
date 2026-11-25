@@ -21,6 +21,7 @@ import type {
 import { Observable } from "rxjs";
 import { DatabaseEventsService } from "../../../database/database-events.service.js";
 import { assertSafeUpload } from "../../../infrastructure/file-signature.js";
+import { normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
 
 type ConversationRow = Prisma.ChatConversationGetPayload<{
   include: {
@@ -559,7 +560,7 @@ export class ChatService {
               id: `chat-file-${randomUUID()}`,
               messageId: message.id,
               objectKey: file.objectKey,
-              originalName: file.originalName,
+              originalName: normalizeMultipartFileName(file.originalName),
               mimeType: file.mimeType,
               sizeBytes: file.size,
               checksum: file.checksum,
@@ -1025,7 +1026,7 @@ export class ChatService {
         : undefined,
       attachments: row.attachments.map((item) => ({
         id: item.id,
-        originalName: item.originalName,
+        originalName: normalizeMultipartFileName(item.originalName),
         mimeType: item.mimeType,
         sizeBytes: Number(item.sizeBytes),
         canPreview:

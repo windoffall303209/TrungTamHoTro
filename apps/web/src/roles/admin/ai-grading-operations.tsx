@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
+import { parseLocalDateTimeInput, toLocalDateTimeInput } from "@/lib/date-time";
 import { useApp } from "@/providers/app-provider";
 
 type State = "RETRY_AUTHORIZED" | "GENERATING" | "UNCERTAIN" | "READY" | "CLAIMED" | "SAVING" | "COMPLETED";
@@ -20,7 +21,7 @@ const labels: Record<State, string> = { RETRY_AUTHORIZED: "Đã cho phép thử 
 
 /** Định dạng thời gian máy người dùng cho input datetime-local mà không làm lệch múi giờ. */
 function localDateTimeValue(date = new Date()): string {
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return toLocalDateTimeInput(date);
 }
 
 /** Giới hạn panel cho admin; đổi danh tính sẽ hủy trạng thái và dữ liệu phiên trước. */
@@ -99,8 +100,8 @@ function OperationsPanel({ domain }: { domain: Domain }) {
     event.preventDefault();
     if (!reconciling || reconcileBusy) return;
     if (!confirmed) { setReconcileError("Cần xác nhận đã kiểm tra provider trước khi mở lại tác vụ."); return; }
-    const verifiedAt = new Date(checkedAt);
-    if (!Number.isFinite(verifiedAt.getTime())) { setReconcileError("Thời điểm kiểm tra bằng chứng AI không hợp lệ."); return; }
+    const verifiedAt = parseLocalDateTimeInput(checkedAt);
+    if (!verifiedAt) { setReconcileError("Thời điểm kiểm tra bằng chứng AI không hợp lệ."); return; }
     setReconcileBusy(true); setReconcileError(""); setNotice("");
     try {
       const updated = await apiRequest<Row>(`/admin/ai-operations/${domain}/${encodeURIComponent(reconciling.id)}/reconcile-not-processed`, {

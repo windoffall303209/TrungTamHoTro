@@ -63,13 +63,13 @@ export async function apiRequest<T>(
   return data;
 }
 
-/** Đọc tên tệp Unicode theo RFC 5987 hoặc filename thường từ Content-Disposition. */
+/** Đọc tên tệp Unicode theo RFC 5987 hoặc filename thường từ Content-Disposition và chuẩn hóa NFC. */
 export function apiFileName(disposition: string, fallback = "hoc-lieu"): string {
   const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   if (encodedName) {
-    try { return decodeURIComponent(encodedName); } catch { return fallback; }
+    try { return decodeURIComponent(encodedName).normalize("NFC"); } catch { return fallback.normalize("NFC"); }
   }
-  return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback;
+  return (disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback).normalize("NFC");
 }
 
 /** Tải blob có xác thực, tạo anchor tạm và thu hồi object URL sau khi bắt đầu download. */

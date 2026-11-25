@@ -18,14 +18,13 @@ import {
 } from "@/shared/ui/ui";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import {
   GOOGLE_MEET_URL_ERROR,
   normalizeGoogleMeetUrlInput,
-  toLocalDateInputValue,
-  toLocalTimeInputValue,
 } from "@/features/class-detail/live-session-utils";
 import { hasPermission } from "@/lib/access-control";
 import { safeExternalUrl } from "@/lib/safe-content";
@@ -277,8 +276,8 @@ export default function LiveClassesPage() {
           roleCode: session.roleCode,
           body: JSON.stringify({
             title: form.title,
-            startsAt: new Date(form.startsAt).toISOString(),
-            endsAt: new Date(form.endsAt).toISOString(),
+            startsAt: localDateTimeToIso(form.startsAt),
+            endsAt: localDateTimeToIso(form.endsAt),
             provider: form.provider,
             ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
           }),
@@ -296,14 +295,12 @@ export default function LiveClassesPage() {
   };
   /** Chuẩn hóa dữ liệu buổi học vào input datetime-local theo giờ địa phương và mở editor đổi lịch. */
   const openEdit = (item: LiveSession) => {
-    const startDate = new Date(item.startsAt);
-    const endDate = new Date(item.endsAt);
     setEditing(item);
     setForm({
       classId: item.classId,
       title: item.title,
-      startsAt: `${toLocalDateInputValue(startDate)}T${toLocalTimeInputValue(startDate)}`,
-      endsAt: `${toLocalDateInputValue(endDate)}T${toLocalTimeInputValue(endDate)}`,
+      startsAt: toLocalDateTimeInput(item.startsAt),
+      endsAt: toLocalDateTimeInput(item.endsAt),
       provider: item.provider,
       meetingUrl: item.hostUrl || item.attendeeUrl || "",
       reason: "",
@@ -329,8 +326,8 @@ export default function LiveClassesPage() {
           roleCode: session.roleCode,
           body: JSON.stringify({
             title: form.title,
-            startsAt: new Date(form.startsAt).toISOString(),
-            endsAt: new Date(form.endsAt).toISOString(),
+            startsAt: localDateTimeToIso(form.startsAt),
+            endsAt: localDateTimeToIso(form.endsAt),
             provider: form.provider,
             ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
             reason: form.reason,

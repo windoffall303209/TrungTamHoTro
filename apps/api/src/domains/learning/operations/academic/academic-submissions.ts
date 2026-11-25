@@ -28,6 +28,7 @@ import type { AcademicServiceContext } from "../../academic/academic.context.js"
 
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import { assertSafeUpload } from "../../../../infrastructure/file-signature.js";
+import { normalizeMultipartFileName } from "../../../../infrastructure/file-transfer.js";
 import { isAcademicSupervisor } from "./academic-access.js";
 
 // Khóa các bản ghi bài tập, lớp học và ghi danh hợp lệ trước khi cập nhật bài nộp.
@@ -228,7 +229,7 @@ export async function submitAssignment(
               id: `submission-file-${randomUUID()}`,
               submissionId: submission.id,
               objectKey: file.objectKey,
-              originalName: file.originalName,
+              originalName: normalizeMultipartFileName(file.originalName),
               mimeType: file.mimeType,
               sizeBytes: file.size,
               checksum: file.checksum,
