@@ -116,25 +116,33 @@ export async function listAuditPage(
       `%${value.replace(/[\\%_]/g, "\\$&")}%`;
     const conditions: Prisma.Sql[] = [];
     if (filter.actor?.trim()) {
+      const actorPattern = contains(filter.actor.trim());
       conditions.push(
-        Prisma.sql`COALESCE(a.actor_id, 'system') ILIKE ${contains(filter.actor.trim())}`,
+        Prisma.sql`public.wind_audit_search_text(a.actor_id, a.action, a.entity_id, a.entity_type, a.context) ILIKE ${actorPattern}`,
+        Prisma.sql`COALESCE(a.actor_id, 'system') ILIKE ${actorPattern}`,
       );
     }
     if (filter.action?.trim()) {
+      const actionPattern = contains(filter.action.trim());
       conditions.push(
-        Prisma.sql`a.action ILIKE ${contains(filter.action.trim())}`,
+        Prisma.sql`public.wind_audit_search_text(a.actor_id, a.action, a.entity_id, a.entity_type, a.context) ILIKE ${actionPattern}`,
+        Prisma.sql`a.action ILIKE ${actionPattern}`,
       );
     }
     if (filter.target?.trim()) {
+      const targetPattern = contains(filter.target.trim());
       conditions.push(
-        Prisma.sql`COALESCE(a.entity_id, a.entity_type) ILIKE ${contains(filter.target.trim())}`,
+        Prisma.sql`public.wind_audit_search_text(a.actor_id, a.action, a.entity_id, a.entity_type, a.context) ILIKE ${targetPattern}`,
+        Prisma.sql`COALESCE(a.entity_id, a.entity_type) ILIKE ${targetPattern}`,
       );
     }
     if (from) conditions.push(Prisma.sql`a.created_at >= ${from}`);
     if (to) conditions.push(Prisma.sql`a.created_at <= ${to}`);
     if (filter.query?.trim()) {
       const pattern = contains(filter.query.trim());
+      // Prefilter qua GIN pg_trgm rồi giữ nguyên điều kiện OR từng trường để chống khớp chéo ranh giới trường.
       conditions.push(
+        Prisma.sql`public.wind_audit_search_text(a.actor_id, a.action, a.entity_id, a.entity_type, a.context) ILIKE ${pattern}`,
         Prisma.sql`(COALESCE(a.actor_id, 'system') ILIKE ${pattern} OR a.action ILIKE ${pattern} OR COALESCE(a.entity_id, a.entity_type) ILIKE ${pattern} OR COALESCE(a.context::text, '') ILIKE ${pattern})`,
       );
     }
