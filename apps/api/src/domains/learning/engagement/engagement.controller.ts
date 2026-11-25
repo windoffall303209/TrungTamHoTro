@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Header, Optional, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, Headers, Optional, Param, Patch, Post, Query, Req, Res, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -236,10 +238,34 @@ export class EngagementController {
   }
 
   @Get("support/tickets/:ticketId/attachments/:attachmentId") @RequireAuthentication() @Header("Content-Security-Policy", USER_FILE_CSP)
-  /** Đọc bằng chứng sau khi service kiểm tra người gửi hoặc quyền quản lý hỗ trợ. */
-  async readSupportAttachment(@Param("ticketId") ticketId: string, @Param("attachmentId") attachmentId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
-    const file = await this.learning.readSupportAttachment(ticketId, attachmentId, session.roleCode, session.user.id);
-    return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition(isInlineSafeMime(file.mimeType) ? "inline" : "attachment", normalizeMultipartFileName(file.fileName)), length: file.buffer.length });
+  /** Stream bằng chứng hỗ trợ có hỗ trợ HTTP Range sau khi kiểm tra người gửi hoặc quyền quản lý hỗ trợ. */
+  async readSupportAttachment(
+    @Param("ticketId") ticketId: string,
+    @Param("attachmentId") attachmentId: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<StreamableFile> {
+    try {
+      const file = await this.learning.readSupportAttachmentStream(
+        ticketId,
+        attachmentId,
+        session.roleCode,
+        session.user.id,
+        rangeHeader,
+      );
+      return sendRangedStreamableFile(req, res, {
+        stream: file.stream,
+        totalSize: file.totalSize,
+        range: file.range,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        disposition: fileContentDisposition(isInlineSafeMime(file.mimeType) ? "inline" : "attachment", normalizeMultipartFileName(file.fileName)),
+      });
+    } catch (error) {
+      rethrowWithRangeHeaders(res, error);
+    }
   }
 
   @Patch("admin/support/tickets/:ticketId") @RequirePermissions("support:manage")

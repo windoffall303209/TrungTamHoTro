@@ -4,7 +4,8 @@ import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/e
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
 import { randomBytes, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import type { Readable } from "node:stream";
+import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import type { Environment } from "../../../config/environment.js";
 import { PrismaService } from "../../../database/prisma.service.js";
@@ -908,18 +909,32 @@ export class LearningService {
     );
   }
 
-  /** Chuẩn bị luồng đã kiểm chứng với bộ nhớ giới hạn cho HTTP download. */
+  /** Chuẩn bị luồng tải học liệu trực tiếp có kiểm chứng checksum và hỗ trợ HTTP Range. */
   async readMaterialDownloadStream(
-    ...args: Parameters<LearningService["resolveMaterialDownload"]>
+    materialId: string,
+    expires: number,
+    signature: string,
+    role: string,
+    action: MaterialAccessAction = "DOWNLOAD",
+    actorId: string,
+    rangeHeader?: string,
   ): Promise<{
-    stream: ReturnType<typeof createReadStream>;
+    stream: Readable;
     size: number;
+    totalSize: number;
+    range?: ByteRange;
     fileName: string;
     mimeType: string;
   }> {
     return await material_downloads_ops.readMaterialDownloadStream(
       this.operationContext,
-      ...args,
+      materialId,
+      expires,
+      signature,
+      role,
+      action,
+      actorId,
+      rangeHeader,
     );
   }
 
@@ -1955,6 +1970,30 @@ export class LearningService {
       attachmentId,
       role,
       actorId,
+    );
+  }
+
+  /** Mở luồng tải bằng chứng hỗ trợ có hỗ trợ HTTP Range và kiểm chứng checksum. */
+  async readSupportAttachmentStream(
+    ticketId: string,
+    attachmentId: string,
+    role: string,
+    actorId: string,
+    rangeHeader?: string,
+  ): Promise<{
+    stream: Readable;
+    totalSize: number;
+    range?: ByteRange;
+    fileName: string;
+    mimeType: string;
+  }> {
+    return await support_ops.readSupportAttachmentStream(
+      this.operationContext,
+      ticketId,
+      attachmentId,
+      role,
+      actorId,
+      rangeHeader,
     );
   }
 

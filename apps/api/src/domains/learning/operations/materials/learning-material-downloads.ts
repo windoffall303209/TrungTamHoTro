@@ -1,7 +1,8 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { prepareVerifiedDownload } from "../../../../infrastructure/verified-download.js";
+import type { Readable } from "node:stream";
+import type { ByteRange } from "../../../../infrastructure/http-range-stream.js";
+import { openVerifiedObjectStream } from "../../../../infrastructure/verified-download.js";
 import type { AttachmentDocumentPreview } from "../../academic/academic.shared.js";
 import { buildDocumentPreview } from "../academic/academic-document-preview.js";
 import {
@@ -84,25 +85,49 @@ export async function readMaterialDownload(
   return { fileName: file.fileName, mimeType: file.mimeType, buffer };
 }
 
-/** Chuẩn bị luồng đã kiểm chứng với bộ nhớ giới hạn cho HTTP download. */
+/** Chuẩn bị luồng tải học liệu trực tiếp có kiểm chứng checksum và hỗ trợ HTTP Range (không tạo tệp tạm). */
 export async function readMaterialDownloadStream(
   serviceContext: LearningServiceContext,
-  ...args: Parameters<LearningServiceContext["resolveMaterialDownload"]>
+  materialId: string,
+  expires: number,
+  signature: string,
+  role: string,
+  action: MaterialAccessAction = "DOWNLOAD",
+  actorId: string,
+  rangeHeader?: string,
 ): Promise<{
-  stream: ReturnType<typeof createReadStream>;
+  stream: Readable;
   size: number;
+  totalSize: number;
+  range?: ByteRange;
   fileName: string;
   mimeType: string;
 }> {
-  const file = await serviceContext.resolveMaterialDownload(...args);
-  const content = await prepareVerifiedDownload(
-    async () =>
-      serviceContext.objectStorage
-        ? serviceContext.objectStorage.openReadStream(file.objectKey)
-        : createReadStream(serviceContext.resolveObjectPath(file.objectKey)),
-    file.checksum,
+  const file = await serviceContext.resolveMaterialDownload(
+    materialId,
+    expires,
+    signature,
+    role,
+    action,
+    actorId,
   );
-  return { ...content, fileName: file.fileName, mimeType: file.mimeType };
+  const content = await openVerifiedObjectStream({
+    objectStorage: serviceContext.objectStorage,
+    objectKey: file.objectKey,
+    fallbackLocalPath: serviceContext.objectStorage
+      ? undefined
+      : serviceContext.resolveObjectPath(file.objectKey),
+    checksum: file.checksum,
+    rangeHeader,
+  });
+  return {
+    stream: content.stream,
+    size: content.range ? content.range.length : content.totalSize,
+    totalSize: content.totalSize,
+    range: content.range,
+    fileName: file.fileName,
+    mimeType: file.mimeType,
+  };
 }
 
 /** Xác minh chữ ký/quyền và lấy vị trí object, không nạp toàn bộ nội dung vào RAM. */

@@ -5,7 +5,10 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
+import type { Readable } from "node:stream";
 import type { Prisma } from "../../../../generated/prisma/client.js";
+import type { ByteRange } from "../../../../infrastructure/http-range-stream.js";
+import { openVerifiedObjectStream } from "../../../../infrastructure/verified-download.js";
 import {
   paginateArray,
   type PaginatedResult,
@@ -483,6 +486,81 @@ export async function readSupportAttachment(
     fileName: normalizeMultipartFileName(attachment.name),
     mimeType: attachment.mimeType,
     buffer,
+  };
+}
+
+/** Mở luồng tải bằng chứng hỗ trợ trực tiếp với HTTP Range và kiểm chứng checksum không nạp toàn tệp vào RAM. */
+export async function readSupportAttachmentStream(
+  serviceContext: LearningServiceContext,
+  ticketId: string,
+  attachmentId: string,
+  role: string,
+  actorId: string,
+  rangeHeader?: string,
+): Promise<{
+  stream: Readable;
+  totalSize: number;
+  range?: ByteRange;
+  fileName: string;
+  mimeType: string;
+}> {
+  const canManage = serviceContext.canManageSupport(role);
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const attachment = await prisma.supportAttachment.findFirst({
+      where: { id: attachmentId, ticketId },
+      include: { ticket: true },
+    });
+    if (!attachment || (!canManage && attachment.ticket.reporterId !== actorId))
+      throw new NotFoundException(
+        "Không tìm thấy bằng chứng hỗ trợ được phép xem.",
+      );
+    const opened = await openVerifiedObjectStream({
+      objectStorage: serviceContext.objectStorage,
+      objectKey: attachment.objectKey,
+      fallbackLocalPath: serviceContext.objectStorage
+        ? undefined
+        : serviceContext.resolveObjectPath(attachment.objectKey),
+      checksum: attachment.checksum,
+      rangeHeader,
+      mismatchError: () =>
+        new BadRequestException("Checksum bằng chứng hỗ trợ không hợp lệ."),
+    });
+    return {
+      ...opened,
+      fileName: normalizeMultipartFileName(attachment.name),
+      mimeType: attachment.mimeType,
+    };
+  }
+  const ticket = serviceContext.tickets.find((item) => item.id === ticketId);
+  const attachment = ticket?.attachments.find(
+    (item) => item.id === attachmentId,
+  );
+  const objectKey = serviceContext.supportAttachmentFiles.get(attachmentId);
+  if (
+    !ticket ||
+    !attachment ||
+    !objectKey ||
+    (!canManage && ticket.reporterId !== actorId)
+  )
+    throw new NotFoundException(
+      "Không tìm thấy bằng chứng hỗ trợ được phép xem.",
+    );
+  const opened = await openVerifiedObjectStream({
+    objectStorage: serviceContext.objectStorage,
+    objectKey,
+    fallbackLocalPath: serviceContext.objectStorage
+      ? undefined
+      : serviceContext.resolveObjectPath(objectKey),
+    checksum: attachment.checksum,
+    rangeHeader,
+    mismatchError: () =>
+      new BadRequestException("Checksum bằng chứng hỗ trợ không hợp lệ."),
+  });
+  return {
+    ...opened,
+    fileName: normalizeMultipartFileName(attachment.name),
+    mimeType: attachment.mimeType,
   };
 }
 

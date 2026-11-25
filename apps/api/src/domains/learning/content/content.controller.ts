@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, HttpCode, Param, Patch, Post, Put, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, Headers, HttpCode, Param, Patch, Post, Put, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { parseExamPageQuery, type ExamPage } from "../operations/exams/learning-exam-page.js";
@@ -238,22 +240,40 @@ export class ContentController {
   }
 
   @Get("materials/:materialId/download") @RequirePermissions("material:view")
-  /** Xác minh quyền/chữ ký rồi stream học liệu hiện tại. */
+  /** Xác minh quyền/chữ ký rồi stream học liệu hiện tại, hỗ trợ HTTP Range (206/416) và hủy luồng khi ngắt kết nối. */
   @Header("Content-Security-Policy", USER_FILE_CSP)
   async downloadMaterial(
     @Param("materialId") materialId: string,
     @Query("expires") expires: string,
     @Query("signature") signature: string,
     @Query("action") rawAction: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<StreamableFile> {
     const action: MaterialAccessAction = rawAction === "PREVIEW" ? "PREVIEW" : "DOWNLOAD";
-    const download = await this.learning.readMaterialDownloadStream(materialId, Number(expires), signature ?? "", session.roleCode, action, session.user.id);
-    return new StreamableFile(download.stream, {
-      type: download.mimeType,
-      disposition: fileContentDisposition(action === "PREVIEW" && isInlineSafeMime(download.mimeType) ? "inline" : "attachment", download.fileName),
-      length: download.size,
-    });
+    try {
+      const download = await this.learning.readMaterialDownloadStream(
+        materialId,
+        Number(expires),
+        signature ?? "",
+        session.roleCode,
+        action,
+        session.user.id,
+        rangeHeader,
+      );
+      return sendRangedStreamableFile(req, res, {
+        stream: download.stream,
+        totalSize: download.totalSize,
+        range: download.range,
+        fileName: download.fileName,
+        mimeType: download.mimeType,
+        disposition: fileContentDisposition(action === "PREVIEW" && isInlineSafeMime(download.mimeType) ? "inline" : "attachment", download.fileName),
+      });
+    } catch (error) {
+      rethrowWithRangeHeaders(res, error);
+    }
   }
 
   @Get("materials/:materialId/preview-content") @RequirePermissions("material:view")

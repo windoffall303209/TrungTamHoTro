@@ -1,5 +1,7 @@
 import { Injectable, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import type { Readable } from "node:stream";
+import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
 import type { Environment } from "../../../config/environment.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { PrismaService } from "../../../database/prisma.service.js";
@@ -442,6 +444,26 @@ export class SystemService {
       this.operationContext,
       exportId,
       actorId,
+    );
+  }
+
+  /** Mở luồng tải tệp export còn hạn có hỗ trợ HTTP Range và xác minh checksum theo stream. */
+  async downloadExportStream(
+    exportId: string,
+    actorId: string,
+    rangeHeader?: string,
+  ): Promise<{
+    stream: Readable;
+    totalSize: number;
+    range?: ByteRange;
+    filename: string;
+    mimeType: string;
+  }> {
+    return await export_download_ops.downloadExportStream(
+      this.operationContext,
+      exportId,
+      actorId,
+      rangeHeader,
     );
   }
 

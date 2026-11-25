@@ -9,11 +9,15 @@ import {
   Patch,
   Post,
   Query,
+  Req,
+  Res,
   Sse,
   StreamableFile,
   UploadedFiles,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
@@ -159,23 +163,34 @@ export class ChatController {
     );
   }
 
-  /** Mở hoặc tải một tệp chat sau khi kiểm tra membership và thời điểm rời nhóm. */
+  /** Mở hoặc tải một tệp chat theo stream có hỗ trợ HTTP Range (206/416) sau khi kiểm tra membership và thời điểm rời nhóm. */
   @Get("messages/:messageId/attachments/:attachmentId") @Header("Content-Security-Policy", USER_FILE_CSP) async attachment(
     @Param("messageId") messageId: string,
     @Param("attachmentId") attachmentId: string,
     @Query("action") action: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<StreamableFile> {
-    const file = await this.chat.readAttachment(
-      messageId,
-      attachmentId,
-      session,
-    );
-    const inline = action === "preview" && isInlineSafeMime(file.mimeType);
-    return new StreamableFile(file.buffer, {
-      type: file.mimeType,
-      disposition: fileContentDisposition(inline ? "inline" : "attachment", file.fileName),
-      length: file.buffer.length,
-    });
+    try {
+      const file = await this.chat.readAttachmentStream(
+        messageId,
+        attachmentId,
+        session,
+        rangeHeader,
+      );
+      const inline = action === "preview" && isInlineSafeMime(file.mimeType);
+      return sendRangedStreamableFile(req, res, {
+        stream: file.stream,
+        totalSize: file.totalSize,
+        range: file.range,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        disposition: fileContentDisposition(inline ? "inline" : "attachment", file.fileName),
+      });
+    } catch (error) {
+      rethrowWithRangeHeaders(res, error);
+    }
   }
 }

@@ -1443,6 +1443,8 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Xoay trái": "Rotate left",
   "Xoay trái 90 độ": "Rotate left 90 degrees",
   "Yêu cầu đề bài": "Assignment prompt",
+  "Phạm vi byte yêu cầu không hợp lệ.": "Requested byte range is not satisfiable.",
+  "Không thể kết nối Cloudinary để kiểm tra tệp.": "Unable to connect to Cloudinary to inspect the file.",
 };
 
 

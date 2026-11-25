@@ -6,7 +6,10 @@ import {
   Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
+import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
+import { openVerifiedObjectStream } from "../../../infrastructure/verified-download.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
@@ -828,6 +831,48 @@ export class ChatService {
       );
     return {
       buffer: await this.objectStorage.get(attachment.objectKey),
+      fileName: attachment.originalName,
+      mimeType: attachment.mimeType,
+    };
+  }
+
+  /** Mở luồng tải tệp chat có hỗ trợ HTTP Range sau khi đối chiếu membership và thời điểm rời nhóm. */
+  async readAttachmentStream(
+    messageId: string,
+    attachmentId: string,
+    session: AuthenticatedSession,
+    rangeHeader?: string,
+  ): Promise<{
+    stream: Readable;
+    totalSize: number;
+    range?: ByteRange;
+    fileName: string;
+    mimeType: string;
+  }> {
+    const attachment = await this.prisma.chatMessageAttachment.findFirst({
+      where: { id: attachmentId, messageId },
+      include: { message: true },
+    });
+    if (!attachment) throw new NotFoundException("Không tìm thấy tệp chat.");
+    const membership = await this.resolveMembership(
+      attachment.message.conversationId,
+      session.user.id,
+    );
+    if (
+      membership.removedAt &&
+      attachment.message.createdAt > membership.removedAt
+    )
+      throw new NotFoundException(
+        "Không tìm thấy tệp chat trong phạm vi truy cập.",
+      );
+    const opened = await openVerifiedObjectStream({
+      objectStorage: this.objectStorage,
+      objectKey: attachment.objectKey,
+      expectedSize: Number(attachment.sizeBytes),
+      rangeHeader,
+    });
+    return {
+      ...opened,
       fileName: attachment.originalName,
       mimeType: attachment.mimeType,
     };

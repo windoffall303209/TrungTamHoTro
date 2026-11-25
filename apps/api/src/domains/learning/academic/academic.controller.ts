@@ -5,15 +5,20 @@ import {
   Delete,
   Get,
   Header,
+  Headers,
   HttpCode,
   Param,
   Patch,
   Post,
   Query,
+  Req,
+  Res,
   StreamableFile,
   UploadedFiles,
   UseInterceptors,
 } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import { FilesInterceptor } from "@nestjs/platform-express";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
@@ -255,27 +260,38 @@ export class AcademicController {
   @Get("assignment-submissions/:submissionId/attachments/:attachmentId")
   @RequireAuthentication()
   @Header("Content-Security-Policy", USER_FILE_CSP)
-  /** Stream tệp bài nộp với disposition xem nội tuyến hoặc tải xuống. */
+  /** Stream tệp bài nộp có hỗ trợ HTTP Range (206/416) và hủy luồng khi client ngắt kết nối. */
   async readAttachment(
     @Param("submissionId") submissionId: string,
     @Param("attachmentId") attachmentId: string,
     @Query("action") action: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<StreamableFile> {
-    const file = await this.academic.readSubmissionAttachment(
-      submissionId,
-      attachmentId,
-      session,
-    );
-    const preview =
-      action === "preview" &&
-      (file.mimeType === "application/pdf" ||
-        file.mimeType.startsWith("image/"));
-    return new StreamableFile(file.buffer, {
-      type: file.mimeType,
-      disposition: fileContentDisposition(preview ? "inline" : "attachment", file.fileName),
-      length: file.buffer.length,
-    });
+    try {
+      const file = await this.academic.readSubmissionAttachmentStream(
+        submissionId,
+        attachmentId,
+        session,
+        rangeHeader,
+      );
+      const preview =
+        action === "preview" &&
+        (file.mimeType === "application/pdf" ||
+          file.mimeType.startsWith("image/"));
+      return sendRangedStreamableFile(req, res, {
+        stream: file.stream,
+        totalSize: file.totalSize,
+        range: file.range,
+        fileName: file.fileName,
+        mimeType: file.mimeType,
+        disposition: fileContentDisposition(preview ? "inline" : "attachment", file.fileName),
+      });
+    } catch (error) {
+      rethrowWithRangeHeaders(res, error);
+    }
   }
 
   @Get("assignment-submissions/:submissionId/attachments/:attachmentId/preview-content")

@@ -6,7 +6,10 @@ import {
   Logger,
 } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
+import type { ByteRange } from "../../../../infrastructure/http-range-stream.js";
+import { openVerifiedObjectStream } from "../../../../infrastructure/verified-download.js";
 import { validateGradingDefinition } from "../../../system/ai/ai-grading-suggestion.js";
 import {
   AssignmentSubmissionView,
@@ -451,6 +454,110 @@ export async function readSubmissionAttachment(
     checksum,
     submissionRevision: attachment.submission.revision,
   };
+}
+
+/** Mở luồng tải tệp bài nộp có hỗ trợ HTTP Range, kiểm chứng checksum theo stream và tái kiểm tra metadata/quyền trước khi phát byte. */
+export async function readSubmissionAttachmentStream(
+  serviceContext: AcademicServiceContext,
+  submissionId: string,
+  attachmentId: string,
+  session: AuthenticatedSession,
+  rangeHeader?: string,
+  expectedRevision?: number,
+): Promise<{
+  stream: Readable;
+  totalSize: number;
+  range?: ByteRange;
+  fileName: string;
+  mimeType: string;
+  checksum: string;
+  submissionRevision: number;
+}> {
+  if (
+    expectedRevision !== undefined &&
+    (!Number.isInteger(expectedRevision) || expectedRevision < 1)
+  )
+    throw new BadRequestException("Phiên bản bài nộp không hợp lệ.");
+  const attachment =
+    await serviceContext.prisma.assignmentSubmissionAttachment.findFirst({
+      where: { id: attachmentId, submissionId, removedAt: null },
+      include: { submission: { include: { assignment: true } } },
+    });
+  if (!attachment) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+  if (session.roleCode === "LEARNER") {
+    if (attachment.submission.assignment.hidden || attachment.submission.learnerId !== session.user.id)
+      throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+  } else if (!isAcademicSupervisor(session)) {
+    await serviceContext.requireTeachingAccess(
+      attachment.submission.assignment.classId,
+      session,
+    );
+  }
+  if (
+    expectedRevision !== undefined &&
+    attachment.submission.revision !== expectedRevision
+  )
+    throw new ConflictException(
+      "Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.",
+    );
+
+  const opened = await openVerifiedObjectStream({
+    objectStorage: serviceContext.objectStorage,
+    objectKey: attachment.objectKey,
+    checksum: attachment.checksum,
+    expectedSize: Number(attachment.sizeBytes),
+    rangeHeader,
+    mismatchError: () =>
+      new ConflictException(
+        "Tệp bài nộp không khớp bản đã lưu. Không thể sử dụng nội dung; hãy liên hệ quản trị viên.",
+      ),
+  });
+
+  try {
+    const current =
+      await serviceContext.prisma.assignmentSubmissionAttachment.findFirst({
+        where: { id: attachmentId, submissionId, removedAt: null },
+        include: { submission: { include: { assignment: true } } },
+      });
+    if (!current) throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+    if (session.roleCode === "LEARNER") {
+      if (current.submission.assignment.hidden || current.submission.learnerId !== session.user.id)
+        throw new NotFoundException("Không tìm thấy tệp đính kèm.");
+    } else if (!isAcademicSupervisor(session)) {
+      await serviceContext.requireTeachingAccess(
+        current.submission.assignment.classId,
+        session,
+      );
+    }
+    if (
+      current.objectKey !== attachment.objectKey ||
+      current.checksum !== attachment.checksum ||
+      current.sizeBytes !== attachment.sizeBytes ||
+      current.originalName !== attachment.originalName ||
+      current.mimeType !== attachment.mimeType ||
+      current.submission.revision !== attachment.submission.revision ||
+      current.submission.learnerId !== attachment.submission.learnerId ||
+      current.submission.assignment.classId !==
+        attachment.submission.assignment.classId ||
+      current.submission.assignment.version !==
+        attachment.submission.assignment.version
+    )
+      throw new ConflictException(
+        "Bài nộp hoặc tệp đã thay đổi trong lúc tải. Hãy mở lại bài nộp.",
+      );
+    return {
+      stream: opened.stream,
+      totalSize: opened.totalSize,
+      range: opened.range,
+      fileName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      checksum: attachment.checksum,
+      submissionRevision: attachment.submission.revision,
+    };
+  } catch (error) {
+    opened.stream.destroy();
+    throw error;
+  }
 }
 
 /** Liệt kê mọi bài nộp sau khi kiểm tra quyền giảng dạy. */

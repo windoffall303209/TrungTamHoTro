@@ -6,13 +6,20 @@ import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { hashFile, streamToFile } from "./file-streams.js";
-import { mkdir, open, unlink } from "node:fs/promises";
+import { sliceStreamToRange } from "./http-range-stream.js";
+import { mkdir, open, stat, unlink } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { Environment } from "../config/environment.js";
 
 export interface StoredObject {
   objectKey: string;
   checksum: string;
+}
+
+export interface StoredObjectStat {
+  size: number;
+  localPath?: string;
+  mtimeNs?: bigint;
 }
 
 @Injectable()
@@ -107,17 +114,54 @@ export class ObjectStorageService {
     return Buffer.concat(chunks);
   }
 
-  /** Mở nội dung đã xác thực dưới dạng luồng; bên gọi chịu trách nhiệm đọc và hủy luồng. */
-  async openReadStream(objectKey: string): Promise<Readable> {
+  /** Đọc metadata kích thước và đường dẫn cục bộ (nếu có) mà không kéo nội dung tệp vào RAM. */
+  async stat(objectKey: string): Promise<StoredObjectStat> {
     if (!objectKey.startsWith("cloudinary:")) {
-      const file = await open(this.resolveLocalPath(objectKey), "r").catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
-      return file.createReadStream();
+      const localPath = this.resolveLocalPath(objectKey);
+      const info = await stat(localPath, { bigint: true }).catch(() => {
+        throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ.");
+      });
+      return { size: Number(info.size), localPath, mtimeNs: info.mtimeNs };
     }
 
     this.assertCloudinaryConfigured();
     const publicId = this.cloudinaryPublicId(objectKey);
     const url = cloudinary.url(publicId, { resource_type: "raw", type: "authenticated", sign_url: true, secure: true });
-    let response = await fetch(url, { signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+    let response = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(30_000) }).catch(() => {
+      throw new ServiceUnavailableException("Không thể kết nối Cloudinary để kiểm tra tệp.");
+    });
+    if (response.status === 401 || response.status === 403) {
+      const privateUrl = cloudinary.utils.private_download_url(publicId, "", {
+        resource_type: "raw",
+        type: "authenticated",
+        expires_at: Math.floor(Date.now() / 1000) + 60,
+      });
+      await response.body?.cancel();
+      response = await fetch(privateUrl, { method: "HEAD", signal: AbortSignal.timeout(30_000) }).catch(() => {
+        throw new ServiceUnavailableException("Không thể kết nối Cloudinary để kiểm tra tệp.");
+      });
+    }
+    await response.body?.cancel();
+    if (!response.ok) {
+      if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
+      throw new ServiceUnavailableException(`Cloudinary trả về lỗi kiểm tra tệp (${response.status}).`);
+    }
+    const contentLength = Number(response.headers.get("content-length") ?? "-1");
+    return { size: Number.isFinite(contentLength) && contentLength >= 0 ? contentLength : -1 };
+  }
+
+  /** Mở nội dung đã xác thực dưới dạng luồng (hỗ trợ khoảng byte Range); bên gọi chịu trách nhiệm đọc và hủy luồng. */
+  async openReadStream(objectKey: string, range?: { start: number; end: number }): Promise<Readable> {
+    if (!objectKey.startsWith("cloudinary:")) {
+      const file = await open(this.resolveLocalPath(objectKey), "r").catch(() => { throw new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."); });
+      return file.createReadStream(range ? { start: range.start, end: range.end } : undefined);
+    }
+
+    this.assertCloudinaryConfigured();
+    const publicId = this.cloudinaryPublicId(objectKey);
+    const headers: Record<string, string> = range ? { Range: `bytes=${range.start}-${range.end}` } : {};
+    const url = cloudinary.url(publicId, { resource_type: "raw", type: "authenticated", sign_url: true, secure: true });
+    let response = await fetch(url, { headers, signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
     if (response.status === 401 || response.status === 403) {
       // Một số tài khoản Cloudinary chặn URL delivery cho PDF/raw nhưng vẫn cho phép
       // endpoint tải riêng tư đã ký. Dùng endpoint này để không biến upload thành tệp chết.
@@ -127,16 +171,21 @@ export class ObjectStorageService {
         expires_at: Math.floor(Date.now() / 1000) + 60,
       });
       await response.body?.cancel();
-      response = await fetch(privateUrl, { signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
+      response = await fetch(privateUrl, { headers, signal: AbortSignal.timeout(120_000) }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối Cloudinary để tải tệp."); });
     }
-    if (!response.ok) {
+    if (!response.ok && response.status !== 206) {
       // Giải phóng response lỗi để kết nối HTTP không bị giữ đến khi hết timeout.
       await response.body?.cancel();
       if (response.status === 404) throw new NotFoundException("Tệp không còn tồn tại trên Cloudinary.");
       throw new ServiceUnavailableException(`Cloudinary trả về lỗi tải tệp (${response.status}).`);
     }
     if (!response.body) throw new ServiceUnavailableException("Cloudinary trả về tệp rỗng.");
-    return Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
+    const stream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
+    // Nếu upstream bỏ qua header Range và trả 200 OK toàn tệp, tự cắt luồng theo khoảng yêu cầu.
+    if (range && response.status !== 206) {
+      return sliceStreamToRange(stream, range.start, range.end);
+    }
+    return stream;
   }
 
   /** Xóa object; thao tác được coi là thành công nếu object vốn đã không còn tồn tại. */

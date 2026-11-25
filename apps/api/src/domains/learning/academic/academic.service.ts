@@ -1,4 +1,6 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { Readable } from "node:stream";
+import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
@@ -292,6 +294,32 @@ export class AcademicService {
       submissionId,
       attachmentId,
       session,
+      expectedRevision,
+    );
+  }
+
+  /** Mở luồng tải tệp bài nộp có hỗ trợ HTTP Range và kiểm chứng checksum không nạp toàn tệp vào RAM. */
+  async readSubmissionAttachmentStream(
+    submissionId: string,
+    attachmentId: string,
+    session: AuthenticatedSession,
+    rangeHeader?: string,
+    expectedRevision?: number,
+  ): Promise<{
+    stream: Readable;
+    totalSize: number;
+    range?: ByteRange;
+    fileName: string;
+    mimeType: string;
+    checksum: string;
+    submissionRevision: number;
+  }> {
+    return await submissions_ops.readSubmissionAttachmentStream(
+      this.operationContext,
+      submissionId,
+      attachmentId,
+      session,
+      rangeHeader,
       expectedRevision,
     );
   }

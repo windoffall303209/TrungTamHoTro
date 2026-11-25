@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Header, Optional, Param, Patch, Post, Query, Sse, StreamableFile } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Header, Headers, Optional, Param, Patch, Post, Query, Req, Res, Sse, StreamableFile } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import type { Observable } from "rxjs";
 import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
 import { ApiTags } from "@nestjs/swagger";
@@ -98,8 +100,28 @@ export class SystemController {
   @Get("exports") @RequirePermissions("system:configure") listExports(): Promise<DataExport[]> { return this.system.listExports(); }
   /** Chạy xuất dữ liệu theo danh mục và định dạng. */
   @Post("exports") @RequirePermissions("system:configure") runExport(@Body() input: ExportDataDto, @CurrentSession() session: AuthenticatedSession): Promise<DataExport> { return this.system.runExport(input.category, input.format, session.user.id); }
-  /** Stream tệp export còn hạn sau khi xác minh checksum tại thời điểm tải. */
-  @Get("exports/:exportId/download") @RequirePermissions("system:configure") @Header("Content-Security-Policy", USER_FILE_CSP) async downloadExport(@Param("exportId") exportId: string, @CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> { const file = await this.system.downloadExport(exportId, session.user.id); return new StreamableFile(file.buffer, { type: file.mimeType, disposition: fileContentDisposition("attachment", file.filename) }); }
+  /** Stream tệp export còn hạn có hỗ trợ HTTP Range sau khi xác minh checksum tại thời điểm tải. */
+  @Get("exports/:exportId/download") @RequirePermissions("system:configure") @Header("Content-Security-Policy", USER_FILE_CSP) async downloadExport(
+    @Param("exportId") exportId: string,
+    @Headers("range") rangeHeader: string | undefined,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<StreamableFile> {
+    try {
+      const file = await this.system.downloadExportStream(exportId, session.user.id, rangeHeader);
+      return sendRangedStreamableFile(req, res, {
+        stream: file.stream,
+        totalSize: file.totalSize,
+        range: file.range,
+        fileName: file.filename,
+        mimeType: file.mimeType,
+        disposition: fileContentDisposition("attachment", file.filename),
+      });
+    } catch (error) {
+      rethrowWithRangeHeaders(res, error);
+    }
+  }
   /** Tìm audit theo từ khóa, actor, action, target và khoảng thời gian. */
   @Get("audit") @RequirePermissions("system:configure") listAudit(@Query("query") query?: string, @Query("actor") actor?: string, @Query("action") action?: string, @Query("target") target?: string, @Query("from") from?: string, @Query("to") to?: string): Promise<AuditEvent[]> { return this.system.listAudit({ query, actor, action, target, from, to }); }
 
