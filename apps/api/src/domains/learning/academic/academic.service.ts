@@ -6,7 +6,7 @@ import type { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { AcademicServiceContext } from "./academic.context.js";
-import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, AttachmentDocumentPreview, ClassAnnouncementView, GradebookRow, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
+import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, AttachmentDocumentPreview, ClassAnnouncementView, GradebookResponse, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
 import {
   type GradingAiContextMetadata,
   type GradingAnswerSource,
@@ -386,7 +386,7 @@ export class AcademicService {
   async gradebook(
     classId: string,
     session: AuthenticatedSession,
-  ): Promise<GradebookRow[]> {
+  ): Promise<GradebookResponse> {
     return await grading_ops.gradebook(this.operationContext, classId, session);
   }
 

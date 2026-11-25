@@ -34,6 +34,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   const [loadError, setLoadError] = useState("");
   const [auditError, setAuditError] = useState("");
   const auditSequence = useRef(0);
+  const auditControllerRef = useRef<AbortController | null>(null);
   const loadSequence = useRef(0);
 
   const [auditFilter, setAuditFilterState] = useState({
@@ -102,6 +103,9 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   const loadAudit = useCallback(async () => {
     if (!canConfigure || view !== "monitoring") return;
     const sequence = ++auditSequence.current;
+    auditControllerRef.current?.abort();
+    const controller = new AbortController();
+    auditControllerRef.current = controller;
     setAuditError("");
     try {
       const params = new URLSearchParams({
@@ -117,19 +121,18 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
         if (!value) params.delete(key);
       const data = await apiRequest<PaginatedResponse<Audit> | Audit[]>(
         `/system/audit/page?${params.toString()}`,
-        { roleCode: session.roleCode },
+        { roleCode: session.roleCode, signal: controller.signal },
       );
-      if (sequence === auditSequence.current) {
-        if (Array.isArray(data)) {
-          setAudit(data);
-          syncAuditPage({ total: data.length, page: 1, totalPages: 1 });
-        } else {
-          setAudit(Array.isArray(data.items) ? data.items : []);
-          syncAuditPage(data);
-        }
+      if (controller.signal.aborted || sequence !== auditSequence.current) return;
+      if (Array.isArray(data)) {
+        setAudit(data);
+        syncAuditPage({ total: data.length, page: 1, totalPages: 1 });
+      } else {
+        setAudit(Array.isArray(data.items) ? data.items : []);
+        syncAuditPage(data);
       }
     } catch (error) {
-      if (sequence === auditSequence.current)
+      if (!controller.signal.aborted && sequence === auditSequence.current)
         setAuditError(
           error instanceof Error
             ? error.message
@@ -205,6 +208,7 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
     return () => {
       window.clearTimeout(timer);
       auditSequence.current += 1;
+      auditControllerRef.current?.abort();
     };
   }, [loadAudit]);
 

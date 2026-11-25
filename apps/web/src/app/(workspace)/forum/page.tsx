@@ -210,10 +210,15 @@ export default function ForumPage() {
     }
   }, [allowed, searchParams, session.roleCode]);
 
-  // Nạp chủ đề thảo luận phân trang trực tiếp từ DB theo bộ lọc hiện tại.
+  const forumControllerRef = useRef<AbortController | null>(null);
+
+  // Nạp chủ đề thảo luận phân trang trực tiếp từ DB theo bộ lọc hiện tại và hủy request cũ đang bay.
   const load = useCallback(async () => {
     if (!allowed) return;
     const requestId = ++forumRequestId.current;
+    forumControllerRef.current?.abort();
+    const controller = new AbortController();
+    forumControllerRef.current = controller;
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -228,9 +233,9 @@ export default function ForumPage() {
 
       const topicResult = await apiRequest<PaginatedResponse<ForumTopic> | ForumTopic[]>(
         `/forum/topics/page?${params.toString()}`,
-        { roleCode: session.roleCode },
+        { roleCode: session.roleCode, signal: controller.signal },
       );
-      if (requestId !== forumRequestId.current) return;
+      if (controller.signal.aborted || requestId !== forumRequestId.current) return;
       const topicItems = Array.isArray(topicResult)
         ? topicResult
         : Array.isArray(topicResult.items)
@@ -252,11 +257,11 @@ export default function ForumPage() {
         }
       }
     } catch (error) {
-      if (requestId === forumRequestId.current) {
+      if (!controller.signal.aborted && requestId === forumRequestId.current) {
         notify(error instanceof Error ? error.message : "Không tải được diễn đàn.", "error");
       }
     } finally {
-      if (requestId === forumRequestId.current) setLoading(false);
+      if (!controller.signal.aborted && requestId === forumRequestId.current) setLoading(false);
     }
   }, [
     allowed,
@@ -278,13 +283,19 @@ export default function ForumPage() {
   }, [loadClasses]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
+    const delay = topicSearch.trim() ? 220 : 0;
+    const timer = window.setTimeout(() => void load(), delay);
+    return () => {
+      window.clearTimeout(timer);
+      forumRequestId.current += 1;
+      forumControllerRef.current?.abort();
+    };
+  }, [load, topicSearch]);
 
   useEffect(() => () => {
     postsRequestId.current += 1;
     forumRequestId.current += 1;
+    forumControllerRef.current?.abort();
     classesRequestId.current += 1;
   }, []);
 

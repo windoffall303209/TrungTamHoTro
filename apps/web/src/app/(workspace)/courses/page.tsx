@@ -105,6 +105,7 @@ export default function CoursesPage() {
   const classPagination = useServerPagination(10);
   const { page: coursePage, pageSize: coursePageSize, syncResponse: syncCoursePage } = coursePagination;
   const { page: classPage, pageSize: classPageSize, syncResponse: syncClassPage } = classPagination;
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   /** Nạp danh sách môn học làm tùy chọn cho bộ lọc và biểu mẫu mở lớp của quản lý. */
   const loadCourseOptions = useCallback(async () => {
@@ -123,10 +124,13 @@ export default function CoursesPage() {
     void loadCourseOptions();
   }, [loadCourseOptions]);
 
-  /** Nạp trang dữ liệu đang xem (môn học hoặc lớp học) trực tiếp từ DB theo bộ lọc. */
+  /** Nạp trang dữ liệu đang xem (môn học hoặc lớp học) trực tiếp từ DB theo bộ lọc và hủy request cũ. */
   const load = useCallback(async () => {
     const requestId = ++loadRequestId.current;
     if (!allowed) return;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
     setLoading(true);
     try {
       const isCourseTab = manager && activeTab === "courses";
@@ -142,9 +146,9 @@ export default function CoursesPage() {
         params.set("pageSize", String(coursePageSize));
         const result = await apiRequest<PaginatedResponse<Course>>(
           `/manager/courses/page?${params.toString()}`,
-          { roleCode: session.roleCode },
+          { roleCode: session.roleCode, signal: controller.signal },
         );
-        if (requestId !== loadRequestId.current) return;
+        if (controller.signal.aborted || requestId !== loadRequestId.current) return;
         setPagedCourses(result.items);
         syncCoursePage(result);
       } else {
@@ -152,18 +156,18 @@ export default function CoursesPage() {
         params.set("pageSize", String(classPageSize));
         const result = await apiRequest<PaginatedResponse<LearningClass>>(
           `/classes/page?${params.toString()}`,
-          { roleCode: session.roleCode },
+          { roleCode: session.roleCode, signal: controller.signal },
         );
-        if (requestId !== loadRequestId.current) return;
+        if (controller.signal.aborted || requestId !== loadRequestId.current) return;
         setClasses(result.items);
         syncClassPage(result);
       }
     } catch (error) {
-      if (requestId === loadRequestId.current) {
+      if (!controller.signal.aborted && requestId === loadRequestId.current) {
         notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
       }
     } finally {
-      if (requestId === loadRequestId.current) setLoading(false);
+      if (!controller.signal.aborted && requestId === loadRequestId.current) setLoading(false);
     }
   }, [
     activeTab,
@@ -189,6 +193,7 @@ export default function CoursesPage() {
     return () => {
       window.clearTimeout(timer);
       loadRequestId.current += 1;
+      loadControllerRef.current?.abort();
       versionRequestId.current += 1;
     };
   }, [load, searchQuery]);

@@ -215,7 +215,7 @@ describe("AcademicService", () => {
       ),
     ).toBe(true);
     expect(
-      (await service.gradebook("class-web-01", instructor)).find(
+      (await service.gradebook("class-web-01", instructor)).rows.find(
         (row) => row.learnerId === learner.user.id,
       )?.assignmentEarned,
     ).toBeGreaterThanOrEqual(8.5);

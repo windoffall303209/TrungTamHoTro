@@ -23,7 +23,7 @@ import {
   RequireAuthentication,
   RequirePermissions,
 } from "../../../auth/require-permissions.decorator.js";
-import { AcademicService, type AcademicCalendarEvent, type AssignmentSubmissionView, type AssignmentView, type AttachmentDocumentPreview, type ClassAnnouncementView, type GradebookRow, type GradingQueueGroup, type UploadedAssignmentFile } from "./academic.service.js";
+import { AcademicService, type AcademicCalendarEvent, type AssignmentSubmissionView, type AssignmentView, type AttachmentDocumentPreview, type ClassAnnouncementView, type GradebookResponse, type GradingQueueGroup, type UploadedAssignmentFile } from "./academic.service.js";
 import {
   AcademicQueryDto,
   CloseAssignmentDto,
@@ -351,7 +351,7 @@ export class AcademicController {
   gradebook(
     @Param("classId") classId: string,
     @CurrentSession() session: AuthenticatedSession,
-  ): Promise<GradebookRow[]> {
+  ): Promise<GradebookResponse> {
     return this.academic.gradebook(classId, session);
   }
 

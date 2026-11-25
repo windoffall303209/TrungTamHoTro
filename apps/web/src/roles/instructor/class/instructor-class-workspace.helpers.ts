@@ -219,8 +219,15 @@ function exportCsv(columns: string[], values: Array<Array<string | number>>, fil
 }
 
 /** Xuất bảng điểm (bao gồm điểm cao nhất từng bài kiểm tra nếu có) từ dữ liệu API đang hiển thị. */
-export function exportGradebookCsv(rows: GradebookRow[], className: string): void {
-  const assessments = rows[0]?.assessments ?? [];
+export function exportGradebookCsv(
+  rows: GradebookRow[],
+  className: string,
+  assessmentColumns?: NonNullable<GradebookRow["assessments"]>,
+): void {
+  const assessments =
+    assessmentColumns && assessmentColumns.length > 0
+      ? assessmentColumns
+      : (rows[0]?.assessments ?? []);
   const fileName = `bang-diem-${className.replace(/[^a-zA-Z0-9_-]/g, "-")}.csv`;
   if (assessments.length > 0) {
     const headers = [
@@ -243,20 +250,20 @@ export function exportGradebookCsv(rows: GradebookRow[], className: string): voi
             : "—";
       const cellValues = assessments.map((col) => {
         const cell = row.cells?.find((entry) => entry.assessmentId === col.id);
-        if (!cell) return "—";
+        if (!cell) return "Chưa nộp";
         if (cell.status === "GRADED" && typeof cell.score === "number") return cell.score;
         if (cell.status === "AWAITING_GRADE") return "Chờ chấm";
         if (cell.status === "IN_PROGRESS") return "Đang làm";
         return "Chưa nộp";
       });
-      return [row.learnerName, row.learnerEmail, avg, `${row.totalPercent}%`, ...cellValues];
+      return [row.learnerName, row.learnerEmail ?? "", avg, `${row.totalPercent}%`, ...cellValues];
     });
     exportCsv(headers, dataRows, fileName);
     return;
   }
   exportCsv(
     ["Học sinh", "Email", "Điểm thi", "Tổng điểm thi", "Điểm bài tập", "Tổng điểm bài tập", "Tổng (%)", "Chờ chấm", "Chưa nộp"],
-    rows.map((row) => [row.learnerName, row.learnerEmail, row.examEarned, row.examPossible,
+    rows.map((row) => [row.learnerName, row.learnerEmail ?? "", row.examEarned, row.examPossible,
       row.assignmentEarned, row.assignmentPossible, row.totalPercent, row.awaitingGrade, row.notSubmitted]),
     fileName,
   );

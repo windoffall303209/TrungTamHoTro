@@ -1,11 +1,11 @@
 "use client";
 
-import type { GradebookAssessmentColumn, GradebookRow } from "@/lib/learning-types";
+import type { GradebookAssessmentColumn, GradebookResponse, GradebookRow } from "@/lib/learning-types";
 import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 
 /** Gom danh sách cột bài kiểm tra từ dữ liệu bảng điểm để hiển thị cố định 20/15/65 (tối đa 7 cột nhìn thấy). */
-function resolveAssessmentColumns(rows: GradebookRow[]): GradebookAssessmentColumn[] {
+export function resolveAssessmentColumns(rows: GradebookRow[]): GradebookAssessmentColumn[] {
   const columns: GradebookAssessmentColumn[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
@@ -16,6 +16,24 @@ function resolveAssessmentColumns(rows: GradebookRow[]): GradebookAssessmentColu
     }
   }
   return columns;
+}
+
+/** Chuẩn hóa cả payload sổ điểm gọn mới ({ assessments, rows }) lẫn dạng mảng cũ (GradebookRow[]) thành một cấu trúc đồng nhất. */
+export function normalizeGradebookResponse(
+  payload: GradebookResponse | GradebookRow[],
+): GradebookResponse {
+  if (Array.isArray(payload)) {
+    return {
+      assessments: resolveAssessmentColumns(payload),
+      rows: payload,
+    };
+  }
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const assessments =
+    Array.isArray(payload?.assessments) && payload.assessments.length > 0
+      ? payload.assessments
+      : resolveAssessmentColumns(rows);
+  return { assessments, rows };
 }
 
 /** Tính điểm trung bình thang 10 cho cột Trung bình cố định 15%. */
@@ -29,14 +47,19 @@ function computeRowAverage(row: GradebookRow): number | null {
 /** Bảng điểm chia 2 phần cố định trái (Học sinh 20%, Trung bình 15%) và vùng bài kiểm tra 65% kéo ngang nếu > 7 bài. */
 export function ClassGradebookTable({
   rows,
+  assessments: assessmentsProp,
   loading = false,
   emptyMessage = "Chưa có dữ liệu bảng điểm.",
 }: {
   rows: GradebookRow[];
+  assessments?: GradebookAssessmentColumn[];
   loading?: boolean;
   emptyMessage?: string;
 }) {
-  const assessments = resolveAssessmentColumns(rows);
+  const assessments =
+    assessmentsProp && assessmentsProp.length > 0
+      ? assessmentsProp
+      : resolveAssessmentColumns(rows);
   const hasStructuredAssessments = assessments.length > 0;
   const totalAssessments = assessments.length;
   const visibleSlots = Math.min(Math.max(1, totalAssessments), 7);
@@ -206,7 +229,7 @@ export function ClassGradebookTable({
                             }
                           >
                             <span
-                              className={`inline-flex rounded-full px-2 py-0.5 border font-bold tabular-nums ${getScoreColorClass(cell.score, cell.maxScore)}`}
+                              className={`inline-flex rounded-full px-2 py-0.5 border font-bold tabular-nums ${getScoreColorClass(cell.score, cell.maxScore ?? col.maxScore)}`}
                             >
                               {cell.score}
                             </span>

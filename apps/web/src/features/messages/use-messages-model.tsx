@@ -77,6 +77,7 @@ export function useMessagesModel() {
   const conversationsRequestRef = useRef(0);
   const messagesRequestRef = useRef(0);
   const searchRequestRef = useRef(0);
+  const searchControllerRef = useRef<AbortController | null>(null);
   const directoryRequestRef = useRef(0);
   const sendingRef = useRef(false);
 
@@ -424,6 +425,7 @@ export function useMessagesModel() {
     return () => {
       active = false;
       window.clearTimeout(initialTimer);
+      searchControllerRef.current?.abort();
       unsubscribe();
     };
   }, [loadConversations, loadMessages, notify, selectedId, session.roleCode, session.sessionId, session.user.id]);
@@ -560,25 +562,36 @@ export function useMessagesModel() {
     }
   };
 
-  /** Tìm kiếm từ khóa trong các tin nhắn của hội thoại hiện tại */
+  /** Tìm kiếm từ khóa trong các tin nhắn của hội thoại hiện tại, hủy request cũ đang bay nếu có. */
   const searchConversation = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selectedId || messageQuery.trim().length < 2) return;
     const conversationId = selectedId;
     const requestId = ++searchRequestRef.current;
+    searchControllerRef.current?.abort();
+    const controller = new AbortController();
+    searchControllerRef.current = controller;
     try {
       const rows = await apiRequest<ChatMessage[]>(
         `/chat/conversations/${conversationId}/search?q=${encodeURIComponent(messageQuery)}`,
-        { roleCode: session.roleCode },
+        { roleCode: session.roleCode, signal: controller.signal },
       );
-      if (conversationId !== selectedIdRef.current || requestId !== searchRequestRef.current) return;
+      if (
+        controller.signal.aborted ||
+        conversationId !== selectedIdRef.current ||
+        requestId !== searchRequestRef.current
+      ) return;
       setSearchResults(
         rows
           .map(normalizeChatMessage)
           .filter((item): item is ChatMessage => Boolean(item)),
       );
     } catch (error) {
-      if (conversationId === selectedIdRef.current && requestId === searchRequestRef.current)
+      if (
+        !controller.signal.aborted &&
+        conversationId === selectedIdRef.current &&
+        requestId === searchRequestRef.current
+      )
         notify(
           error instanceof Error ? error.message : "Không tìm được tin nhắn.",
           "error",

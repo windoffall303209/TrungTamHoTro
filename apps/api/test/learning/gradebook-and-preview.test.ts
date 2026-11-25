@@ -234,16 +234,15 @@ describe.skipIf(!enabled)("Bảng điểm tổng hợp theo từng bài (điểm
       ],
     });
 
-    const rows = await service.gradebook("class-web-01", instructorSession);
-    const row = rows.find((item) => item.learnerId === learnerSession.user.id);
+    const result = await service.gradebook("class-web-01", instructorSession);
+    const row = result.rows.find((item) => item.learnerId === learnerSession.user.id);
     expect(row).toBeDefined();
-    expect(row?.assessments?.some((col) => col.id === examId)).toBe(true);
+    expect(result.assessments.some((col) => col.id === examId && col.kind === "EXAM" && col.maxScore === 10)).toBe(true);
+    expect(row?.assessments).toBeUndefined();
     const cell = row?.cells?.find((item) => item.assessmentId === examId);
-    expect(cell).toMatchObject({
+    expect(cell).toEqual({
       assessmentId: examId,
-      kind: "EXAM",
       score: 9.5,
-      maxScore: 10,
       status: "GRADED",
       attemptCount: 3,
     });
@@ -255,19 +254,19 @@ describe.skipIf(!enabled)("Bảng điểm tổng hợp theo từng bài (điểm
     try {
       await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: false } });
       const own = await service.gradebook("class-web-01", learnerSession);
-      expect(own.map((row) => row.learnerId)).toEqual([learnerSession.user.id]);
+      expect(own.rows.map((row) => row.learnerId)).toEqual([learnerSession.user.id]);
 
       await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: true } });
       const shared = await service.gradebook("class-web-01", learnerSession);
-      expect(shared[0]?.learnerId).toBe(learnerSession.user.id);
-      for (const peer of shared.slice(1)) {
+      expect(shared.rows[0]?.learnerId).toBe(learnerSession.user.id);
+      for (const peer of shared.rows.slice(1)) {
         expect(peer.learnerId).toMatch(/^peer-\d+$/);
         expect(peer.learnerEmail).toBeNull();
-        expect(peer.cells?.every((cell) => cell.attemptCount === 0 && ["GRADED", "NOT_SUBMITTED"].includes(cell.status))).toBe(true);
+        expect(peer.cells?.every((cell) => cell.attemptCount === undefined && cell.status === "GRADED")).toBe(true);
       }
 
-      const managerRows = await service.gradebook("class-web-01", managerSession);
-      expect(managerRows.some((row) => row.learnerId === learnerSession.user.id && row.learnerEmail)).toBe(true);
+      const managerResult = await service.gradebook("class-web-01", managerSession);
+      expect(managerResult.rows.some((row) => row.learnerId === learnerSession.user.id && row.learnerEmail)).toBe(true);
     } finally {
       await prisma.learningClass.update({ where: { id: "class-web-01" }, data: { allowPeerGradeViewing: original.allowPeerGradeViewing } });
     }

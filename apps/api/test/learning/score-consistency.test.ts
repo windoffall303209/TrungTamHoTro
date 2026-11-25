@@ -24,11 +24,15 @@ function context(): AcademicServiceContext {
 describe("Thống nhất công thức điểm", () => {
   it("sổ điểm lấy trung bình phần trăm từng bài và bỏ bài ẩn khỏi trung bình", async () => {
     const session = { roleCode: "CENTER_MANAGER", permissions: ["class:view"], user: { id: "usr-m" } } as unknown as AuthenticatedSession;
-    const [row] = await gradebook(context(), "class-1", session);
+    const result = await gradebook(context(), "class-1", session);
+    const [row] = result.rows;
     // (100% + 50%) / 2 = 75%; công thức cộng thô cũ cho (10 + 50) / 110 ≈ 54,55% và tính bài ẩn quá hạn là 0.
+    expect(result.assessments).toHaveLength(3);
+    expect(row!.assessments).toBeUndefined();
     expect(row!.totalPercent).toBe(75);
     expect(row!.notSubmitted).toBe(0);
-    expect(row!.cells).toHaveLength(3);
+    // Chỉ chứa 2 ô có điểm (bài ẩn chưa nộp được lược bỏ ở ma trận thưa).
+    expect(row!.cells).toHaveLength(2);
   });
 
   it("không gắn nguy cơ khi lớp chưa có bài đánh giá nào", () => {

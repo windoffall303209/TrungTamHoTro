@@ -3,18 +3,20 @@
 import { memo, useMemo, useState } from "react";
 import { Download, Search } from "lucide-react";
 import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
-import type { GradebookRow } from "@/lib/learning-types";
+import type { GradebookAssessmentColumn, GradebookRow } from "@/lib/learning-types";
 import { exportGradebookCsv } from "../instructor-class-workspace.helpers";
 
 export interface InstructorGradebookTabProps {
   className: string;
   gradebook: GradebookRow[];
+  assessments?: GradebookAssessmentColumn[];
 }
 
 /** Tab Bảng điểm tổng hợp, cô lập ô tìm kiếm học sinh cục bộ để tránh re-render toàn workspace khi gõ. */
 export const InstructorGradebookTab = memo(function InstructorGradebookTab({
   className,
   gradebook,
+  assessments,
 }: InstructorGradebookTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -50,7 +52,7 @@ export const InstructorGradebookTab = memo(function InstructorGradebookTab({
           </div>
           <button
             type="button"
-            onClick={() => exportGradebookCsv(gradebook, className)}
+            onClick={() => exportGradebookCsv(gradebook, className, assessments)}
             className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Download size={14} />
@@ -60,6 +62,7 @@ export const InstructorGradebookTab = memo(function InstructorGradebookTab({
       </div>
       <ClassGradebookTable
         rows={filteredRows}
+        assessments={assessments}
         emptyMessage={searchQuery ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
       />
     </div>

@@ -4,11 +4,12 @@ import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
-import type { AcademicCalendarEvent, Assignment, AssignmentSubmission, ClassAnnouncement, GradebookRow, LearningClass } from "@/lib/learning-types";
+import type { AcademicCalendarEvent, Assignment, AssignmentSubmission, ClassAnnouncement, GradebookAssessmentColumn, GradebookResponse, GradebookRow, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emptyAssignment } from "./academic.shared";
+import { normalizeGradebookResponse } from "./class-gradebook-table";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình học vụ; giữ nguyên thứ tự hook. */
 export function useAcademicModel() {
@@ -27,9 +28,12 @@ export function useAcademicModel() {
   const [announcements, setAnnouncements] = useState<ClassAnnouncement[]>([]);
 
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [gradebookAssessments, setGradebookAssessments] = useState<GradebookAssessmentColumn[]>([]);
   const loadRequestId = useRef(0);
   const gradebookRequestId = useRef(0);
+  const gradebookControllerRef = useRef<AbortController | null>(null);
   const assignmentRequestId = useRef(0);
+  const assignmentControllerRef = useRef<AbortController | null>(null);
   const [classesResolved, setClassesResolved] = useState(false);
 
   const [selectedClassId, setSelectedClassId] = useState("");
@@ -170,18 +174,25 @@ export function useAcademicModel() {
       }));
       if (canTeach && first) {
         const gradebookId = ++gradebookRequestId.current;
+        gradebookControllerRef.current?.abort();
+        const controller = new AbortController();
+        gradebookControllerRef.current = controller;
         try {
-          const rows = await apiRequest<GradebookRow[]>(
+          const payload = await apiRequest<GradebookResponse | GradebookRow[]>(
             `/academic/classes/${first}/gradebook`,
-            { roleCode: session.roleCode },
+            { roleCode: session.roleCode, signal: controller.signal },
           );
           if (
+            controller.signal.aborted ||
             requestId !== loadRequestId.current ||
             gradebookId !== gradebookRequestId.current
           ) return;
-          setGradebook(rows);
+          const normalized = normalizeGradebookResponse(payload);
+          setGradebookAssessments(normalized.assessments);
+          setGradebook(normalized.rows);
         } catch (gradebookError) {
           if (
+            !controller.signal.aborted &&
             requestId === loadRequestId.current &&
             gradebookId === gradebookRequestId.current
           ) {
@@ -214,6 +225,9 @@ export function useAcademicModel() {
   const loadAssignments = useCallback(async () => {
     const requestId = ++assignmentRequestId.current;
     if (!allowed || !classesResolved) return;
+    assignmentControllerRef.current?.abort();
+    const controller = new AbortController();
+    assignmentControllerRef.current = controller;
     try {
       const params = new URLSearchParams({
         page: String(assignmentPage),
@@ -222,9 +236,9 @@ export function useAcademicModel() {
       if (selectedClassId) params.set("classId", selectedClassId);
       const pageResult = await apiRequest<PaginatedResponse<Assignment> | Assignment[]>(
         `/academic/assignments/page?${params.toString()}`,
-        { roleCode: session.roleCode },
+        { roleCode: session.roleCode, signal: controller.signal },
       );
-      if (requestId !== assignmentRequestId.current) return;
+      if (controller.signal.aborted || requestId !== assignmentRequestId.current) return;
       if (Array.isArray(pageResult)) {
         setAssignments(pageResult);
         syncAssignmentPage({ total: pageResult.length, page: 1, totalPages: 1 });
@@ -233,7 +247,7 @@ export function useAcademicModel() {
         syncAssignmentPage(pageResult);
       }
     } catch (error) {
-      if (requestId === assignmentRequestId.current) {
+      if (!controller.signal.aborted && requestId === assignmentRequestId.current) {
         notify(
           error instanceof Error ? error.message : "Không tải được danh sách bài tập.",
           "error",
@@ -257,6 +271,7 @@ export function useAcademicModel() {
       window.clearTimeout(timer);
       loadRequestId.current += 1;
       gradebookRequestId.current += 1;
+      gradebookControllerRef.current?.abort();
     };
   }, [load]);
 
@@ -265,6 +280,7 @@ export function useAcademicModel() {
     void loadAssignments();
     return () => {
       assignmentRequestId.current += 1;
+      assignmentControllerRef.current?.abort();
     };
   }, [allowed, classesResolved, loadAssignments]);
 
@@ -284,25 +300,33 @@ export function useAcademicModel() {
   /** Chuyển ngữ cảnh lớp và tải lại bài tập/thông báo gắn với lớp đó. */
   async function changeClass(classId: string): Promise<void> {
     const requestId = ++gradebookRequestId.current;
+    gradebookControllerRef.current?.abort();
     selectedClassIdRef.current = classId;
     setSelectedClassId(classId);
     resetAssignmentPage();
     gradebookPagination.resetPage();
-    if (canTeach && classId)
+    if (canTeach && classId) {
+      const controller = new AbortController();
+      gradebookControllerRef.current = controller;
       try {
-        const rows = await apiRequest<GradebookRow[]>(
+        const payload = await apiRequest<GradebookResponse | GradebookRow[]>(
           `/academic/classes/${classId}/gradebook`,
-          { roleCode: session.roleCode },
+          { roleCode: session.roleCode, signal: controller.signal },
         );
-        if (requestId === gradebookRequestId.current) setGradebook(rows);
+        if (!controller.signal.aborted && requestId === gradebookRequestId.current) {
+          const normalized = normalizeGradebookResponse(payload);
+          setGradebookAssessments(normalized.assessments);
+          setGradebook(normalized.rows);
+        }
       } catch (error) {
-        if (requestId === gradebookRequestId.current) {
+        if (!controller.signal.aborted && requestId === gradebookRequestId.current) {
           notify(
             error instanceof Error ? error.message : "Không tải được sổ điểm.",
             "error",
           );
         }
       }
+    }
   }
 
   /** Tạo hoặc cập nhật bài nháp cùng rubric và khóa phiên bản hiện tại. */
@@ -658,6 +682,7 @@ export function useAcademicModel() {
     classes,
     announcements,
     gradebook,
+    gradebookAssessments,
     selectedClassId,
     assignmentForm,
     setAssignmentForm,

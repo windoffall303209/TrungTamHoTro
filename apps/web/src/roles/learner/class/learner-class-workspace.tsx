@@ -43,6 +43,8 @@ import type {
   Material,
   LearnerResult,
   LiveSession,
+  GradebookAssessmentColumn,
+  GradebookResponse,
   GradebookRow,
 } from "@/lib/learning-types";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
@@ -53,7 +55,7 @@ import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { RichText } from "@/shared/ui/ui";
 import { UserAvatar } from "@/shared/ui/user-avatar";
-import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
+import { ClassGradebookTable, normalizeGradebookResponse } from "@/features/academic/class-gradebook-table";
 import { ExamTakingModal, type ExamTakingData } from "./exam-taking-modal";
 import { filterLearnerAssignments, filterLearnerFiles, getLearnerFolderNames } from "./learner-class-workspace.helpers";
 import { detachOpener, safeExternalUrl } from "@/lib/safe-content";
@@ -238,6 +240,7 @@ export function LearnerClassWorkspace({
   const [learnerResults, setLearnerResults] = useState<LearnerResult[]>([]);
   const [classSessions, setClassSessions] = useState<LiveSession[]>([]);
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [gradebookAssessments, setGradebookAssessments] = useState<GradebookAssessmentColumn[]>([]);
   const [gradebookError, setGradebookError] = useState("");
   const [gradebookLoading, setGradebookLoading] = useState(false);
   const [gradebookSearch, setGradebookSearch] = useState("");
@@ -260,10 +263,12 @@ export function LearnerClassWorkspace({
     const controller = new AbortController();
     setGradebookLoading(true);
     setGradebookError("");
-    void apiRequest<GradebookRow[]>(`/academic/classes/${encodeURIComponent(item.id)}/gradebook`, { signal: controller.signal })
-      .then((rows) => {
+    void apiRequest<GradebookResponse | GradebookRow[]>(`/academic/classes/${encodeURIComponent(item.id)}/gradebook`, { signal: controller.signal })
+      .then((payload) => {
         if (active) {
-          setGradebook(rows);
+          const normalized = normalizeGradebookResponse(payload);
+          setGradebookAssessments(normalized.assessments);
+          setGradebook(normalized.rows);
           setGradebookError("");
         }
       })
@@ -1290,6 +1295,7 @@ export function LearnerClassWorkspace({
                 rows={gradebook.filter((row) =>
                   `${row.learnerName} ${row.learnerEmail}`.toLocaleLowerCase().includes(gradebookSearch.toLocaleLowerCase()),
                 )}
+                assessments={gradebookAssessments}
                 loading={gradebookLoading}
                 emptyMessage={gradebookSearch ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
               />

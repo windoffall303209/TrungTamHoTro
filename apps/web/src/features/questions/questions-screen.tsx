@@ -111,6 +111,7 @@ export default function QuestionsPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
   const loadRequestId = useRef(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setFilters((current) => current.courseId === selectedCourseId ? current : { ...current, courseId: selectedCourseId });
@@ -131,10 +132,13 @@ export default function QuestionsPage() {
     return () => { active = false; };
   }, [canView, canViewCourses, session.roleCode]);
 
-  /** Nạp câu hỏi theo trang từ máy chủ dựa trên bộ lọc hiện tại. */
+  /** Nạp câu hỏi theo trang từ máy chủ dựa trên bộ lọc hiện tại và hủy truy vấn cũ đang bay. */
   const load = useCallback(async () => {
     if (!canView) return;
     const requestId = ++loadRequestId.current;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
     setLoading(true);
     const params = new URLSearchParams();
     if (query.trim()) params.set("query", query.trim());
@@ -144,21 +148,21 @@ export default function QuestionsPage() {
     try {
       const pageResult = await apiRequest<PaginatedResponse<Question>>(
         `/instructor/question-bank/questions/page?${params.toString()}`,
-        { roleCode: session.roleCode },
+        { roleCode: session.roleCode, signal: controller.signal },
       );
-      if (requestId !== loadRequestId.current) return;
+      if (controller.signal.aborted || requestId !== loadRequestId.current) return;
       setItems(pageResult.items);
       syncQuestionPage(pageResult);
     } catch (error) {
-      if (requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không tải được câu hỏi.", "error");
+      if (!controller.signal.aborted && requestId === loadRequestId.current) notify(error instanceof Error ? error.message : "Không tải được câu hỏi.", "error");
     } finally {
-      if (requestId === loadRequestId.current) setLoading(false);
+      if (!controller.signal.aborted && requestId === loadRequestId.current) setLoading(false);
     }
   }, [canView, filters, notify, questionPage, questionPageSize, query, session.roleCode, syncQuestionPage]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
-    return () => { clearTimeout(timer); loadRequestId.current += 1; };
+    return () => { clearTimeout(timer); loadRequestId.current += 1; loadControllerRef.current?.abort(); };
   }, [load]);
 
   /** Thu hồi URL xem trước và xóa tệp ảnh chỉ tồn tại cục bộ. */

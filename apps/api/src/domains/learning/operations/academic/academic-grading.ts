@@ -10,6 +10,7 @@ import {
   AssignmentSubmissionView,
   GradebookAssessmentCell,
   GradebookAssessmentColumn,
+  GradebookResponse,
   GradebookRow,
   GradingQueueGroup,
 } from "../../academic/academic.shared.js";
@@ -126,12 +127,12 @@ export async function gradeSubmission(
   return serviceContext.mapSubmission(row);
 }
 
-/** Tổng hợp điểm thi (lấy điểm cao nhất nhiều lượt) và bài tập đã chấm cho từng học viên. */
+/** Tổng hợp điểm thi (lấy điểm cao nhất nhiều lượt) và bài tập đã chấm theo payload gọn không lặp cột đề. */
 export async function gradebook(
   serviceContext: AcademicServiceContext,
   classId: string,
   session: AuthenticatedSession,
-): Promise<GradebookRow[]> {
+): Promise<GradebookResponse> {
   // Học viên luôn xem được dòng điểm của chính mình; khi lớp bật xem chung chỉ thấy điểm ẩn danh của bạn cùng lớp.
   let learnerScope: "ALL" | "SELF" | "PEERS_ANONYMOUS" = "ALL";
   if (session.roleCode === "LEARNER") {
@@ -153,48 +154,102 @@ export async function gradebook(
     // Cấp quản lý được đọc sổ điểm mọi lớp; giảng viên chỉ đọc lớp được phân công.
     await serviceContext.requireTeachingAccess(classId, session);
   }
+  const selfLearnerFilter = learnerScope === "SELF" ? { learnerId: session.user.id } : {};
   const classItem = await serviceContext.prisma.learningClass.findUnique({
     where: { id: classId },
-    include: {
+    select: {
+      id: true,
       enrollments: {
-        where: { status: "ACTIVE" },
-        include: { learner: { select: { displayName: true, email: true } } },
+        where: { status: "ACTIVE", ...selfLearnerFilter },
+        select: {
+          learnerId: true,
+          learner: { select: { displayName: true, email: true } },
+        },
         orderBy: { learner: { displayName: "asc" } },
       },
       exams: {
         where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } },
-        include: { attempts: { orderBy: { attemptNo: "desc" } } },
+        select: {
+          id: true,
+          title: true,
+          totalScore: true,
+          openAt: true,
+          closeAt: true,
+          hidden: true,
+          status: true,
+          // Chỉ chọn trạng thái và điểm, không kéo JSON câu trả lời chi tiết lên RAM.
+          attempts: {
+            where: selfLearnerFilter,
+            select: { learnerId: true, status: true, score: true },
+          },
+        },
       },
       assignments: {
         where: { hidden: session.roleCode === "LEARNER" ? false : undefined, status: { in: ["PUBLISHED", "CLOSED"] } },
-        // Sổ điểm chỉ cần trạng thái và điểm; không kéo nội dung bài luận/nhận xét (tới 20 KB mỗi bài) của cả lớp lên RAM.
-        include: { submissions: { select: { learnerId: true, status: true, score: true } } },
+        select: {
+          id: true,
+          title: true,
+          maxScore: true,
+          dueAt: true,
+          createdAt: true,
+          hidden: true,
+          status: true,
+          // Sổ điểm chỉ cần trạng thái và điểm; không kéo nội dung bài luận/nhận xét (tới 20 KB mỗi bài) của cả lớp lên RAM.
+          submissions: {
+            where: selfLearnerFilter,
+            select: { learnerId: true, status: true, score: true },
+          },
+        },
       },
     },
   });
   if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
   const now = new Date();
   const orderedWorks = [
-    ...classItem.exams.map((exam) => ({
-      id: exam.id,
-      kind: "EXAM" as const,
-      title: exam.title,
-      maxScore: Number(exam.totalScore),
-      dueAt: exam.closeAt.toISOString(),
-      sortTime: exam.openAt.getTime(),
-      exam,
-      assignment: null,
-    })),
-    ...classItem.assignments.map((assignment) => ({
-      id: assignment.id,
-      kind: "ASSIGNMENT" as const,
-      title: assignment.title,
-      maxScore: Number(assignment.maxScore),
-      dueAt: assignment.dueAt.toISOString(),
-      sortTime: assignment.createdAt.getTime(),
-      exam: null,
-      assignment,
-    })),
+    ...classItem.exams.map((exam) => {
+      const attemptsByLearner = new Map<
+        string,
+        Array<{ learnerId: string; status: string; score: unknown }>
+      >();
+      for (const attempt of exam.attempts) {
+        const list = attemptsByLearner.get(attempt.learnerId);
+        if (list) list.push(attempt);
+        else attemptsByLearner.set(attempt.learnerId, [attempt]);
+      }
+      return {
+        id: exam.id,
+        kind: "EXAM" as const,
+        title: exam.title,
+        maxScore: Number(exam.totalScore),
+        dueAt: exam.closeAt.toISOString(),
+        sortTime: exam.openAt.getTime(),
+        exam,
+        attemptsByLearner,
+        assignment: null,
+        submissionsByLearner: null,
+      };
+    }),
+    ...classItem.assignments.map((assignment) => {
+      const submissionsByLearner = new Map<
+        string,
+        { learnerId: string; status: string; score: unknown }
+      >();
+      for (const submission of assignment.submissions) {
+        submissionsByLearner.set(submission.learnerId, submission);
+      }
+      return {
+        id: assignment.id,
+        kind: "ASSIGNMENT" as const,
+        title: assignment.title,
+        maxScore: Number(assignment.maxScore),
+        dueAt: assignment.dueAt.toISOString(),
+        sortTime: assignment.createdAt.getTime(),
+        exam: null,
+        attemptsByLearner: null,
+        assignment,
+        submissionsByLearner,
+      };
+    }),
   ].sort(
     (left, right) =>
       left.sortTime - right.sortTime ||
@@ -220,15 +275,14 @@ export async function gradebook(
     // nặng gấp 10 lần đề thang 10; bài đang ẩn hiển thị trong ô nhưng không tính vào trung bình ở mọi góc nhìn.
     let percentSum = 0;
     let scoredItems = 0;
+    // Ma trận thưa: chỉ gửi các ô có hoạt động (GRADED / AWAITING_GRADE / IN_PROGRESS), ô khuyết mặc định là chưa nộp.
     const cells: GradebookAssessmentCell[] = [];
 
     for (const work of orderedWorks) {
-      if (work.kind === "EXAM" && work.exam) {
+      if (work.kind === "EXAM" && work.exam && work.attemptsByLearner) {
         const exam = work.exam;
         const counts = !exam.hidden;
-        const attempts = exam.attempts.filter(
-          (attempt) => attempt.learnerId === learnerId,
-        );
+        const attempts = work.attemptsByLearner.get(learnerId) ?? [];
         const gradedAttempts = attempts.filter(
           (attempt) => attempt.status === "GRADED" && attempt.score !== null,
         );
@@ -251,53 +305,33 @@ export async function gradebook(
           }
           cells.push({
             assessmentId: exam.id,
-            kind: "EXAM",
             score,
-            maxScore: Number(exam.totalScore),
             status: "GRADED",
-            attemptCount: attempts.length,
+            ...(attempts.length > 1 ? { attemptCount: attempts.length } : {}),
           });
         } else if (attempts.some((attempt) => attempt.status === "SUBMITTED")) {
           awaitingGrade += 1;
           cells.push({
             assessmentId: exam.id,
-            kind: "EXAM",
-            score: null,
-            maxScore: Number(exam.totalScore),
             status: "AWAITING_GRADE",
-            attemptCount: attempts.length,
+            ...(attempts.length > 1 ? { attemptCount: attempts.length } : {}),
           });
         } else if (attempts.some((attempt) => attempt.status === "IN_PROGRESS")) {
           awaitingGrade += 1;
           cells.push({
             assessmentId: exam.id,
-            kind: "EXAM",
-            score: null,
-            maxScore: Number(exam.totalScore),
             status: "IN_PROGRESS",
-            attemptCount: attempts.length,
+            ...(attempts.length > 1 ? { attemptCount: attempts.length } : {}),
           });
-        } else {
-          if (counts && (exam.status === "CLOSED" || exam.closeAt <= now)) {
-            examPossible += Number(exam.totalScore);
-            notSubmitted += 1;
-            scoredItems += 1;
-          }
-          cells.push({
-            assessmentId: exam.id,
-            kind: "EXAM",
-            score: null,
-            maxScore: Number(exam.totalScore),
-            status: "NOT_SUBMITTED",
-            attemptCount: 0,
-          });
+        } else if (counts && (exam.status === "CLOSED" || exam.closeAt <= now)) {
+          examPossible += Number(exam.totalScore);
+          notSubmitted += 1;
+          scoredItems += 1;
         }
-      } else if (work.assignment) {
+      } else if (work.assignment && work.submissionsByLearner) {
         const assignment = work.assignment;
         const counts = !assignment.hidden;
-        const submission = assignment.submissions.find(
-          (item) => item.learnerId === learnerId,
-        );
+        const submission = work.submissionsByLearner.get(learnerId);
         if (submission?.status === "GRADED") {
           const score = Number(submission.score ?? 0);
           if (counts) {
@@ -308,36 +342,19 @@ export async function gradebook(
           }
           cells.push({
             assessmentId: assignment.id,
-            kind: "ASSIGNMENT",
             score,
-            maxScore: Number(assignment.maxScore),
             status: "GRADED",
-            attemptCount: 1,
           });
         } else if (submission) {
           awaitingGrade += 1;
           cells.push({
             assessmentId: assignment.id,
-            kind: "ASSIGNMENT",
-            score: null,
-            maxScore: Number(assignment.maxScore),
             status: "AWAITING_GRADE",
-            attemptCount: 1,
           });
-        } else {
-          if (counts && (assignment.status === "CLOSED" || assignment.dueAt <= now)) {
-            assignmentPossible += Number(assignment.maxScore);
-            notSubmitted += 1;
-            scoredItems += 1;
-          }
-          cells.push({
-            assessmentId: assignment.id,
-            kind: "ASSIGNMENT",
-            score: null,
-            maxScore: Number(assignment.maxScore),
-            status: "NOT_SUBMITTED",
-            attemptCount: 0,
-          });
+        } else if (counts && (assignment.status === "CLOSED" || assignment.dueAt <= now)) {
+          assignmentPossible += Number(assignment.maxScore);
+          notSubmitted += 1;
+          scoredItems += 1;
         }
       }
     }
@@ -355,13 +372,16 @@ export async function gradebook(
       averageScore: scoredItems ? Math.round((percentSum / scoredItems) * 1000) / 100 : null,
       awaitingGrade,
       notSubmitted,
-      assessments,
       cells,
     };
   });
-  if (learnerScope === "SELF") return rows.filter((row) => row.learnerId === session.user.id);
-  if (learnerScope === "PEERS_ANONYMOUS") return anonymizePeerRows(rows, session.user.id);
-  return rows;
+  if (learnerScope === "SELF") {
+    return { assessments, rows: rows.filter((row) => row.learnerId === session.user.id) };
+  }
+  if (learnerScope === "PEERS_ANONYMOUS") {
+    return { assessments, rows: anonymizePeerRows(rows, session.user.id) };
+  }
+  return { assessments, rows };
 }
 
 /**
@@ -380,7 +400,13 @@ function anonymizePeerRows(rows: GradebookRow[], selfId: string): GradebookRow[]
       learnerEmail: null,
       awaitingGrade: 0,
       notSubmitted: 0,
-      cells: row.cells?.map((cell) => ({ ...cell, status: cell.score === null ? "NOT_SUBMITTED" as const : "GRADED" as const, attemptCount: 0 })),
+      cells: row.cells
+        ?.filter((cell) => cell.status === "GRADED" && typeof cell.score === "number")
+        .map((cell) => ({
+          assessmentId: cell.assessmentId,
+          score: cell.score,
+          status: "GRADED" as const,
+        })),
     }));
   return [...self, ...peers];
 }

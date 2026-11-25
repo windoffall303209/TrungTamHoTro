@@ -307,12 +307,12 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu at
     expect(examAudits[2]?.context).toMatchObject({ previousScore: 7.5, score: 9, reason: "Phúc khảo: Đồng ý cộng thêm 1.5 điểm" });
 
     // 3. Ma trận phân quyền liên lớp cho sổ điểm và báo cáo tiến độ.
-    expect((await academic.gradebook(ids.classA, instA)).map((row) => row.learnerId)).toEqual([ids.learnerA]);
+    expect((await academic.gradebook(ids.classA, instA)).rows.map((row) => row.learnerId)).toEqual([ids.learnerA]);
     await expect(academic.gradebook(ids.classB, instA)).rejects.toMatchObject({ status: 404 });
-    expect((await academic.gradebook(ids.classA, lrnA)).map((row) => row.learnerId)).toEqual([ids.learnerA]);
+    expect((await academic.gradebook(ids.classA, lrnA)).rows.map((row) => row.learnerId)).toEqual([ids.learnerA]);
     await expect(academic.gradebook(ids.classB, lrnA)).rejects.toMatchObject({ status: 403 });
-    expect(await academic.gradebook(ids.classA, mgr)).toHaveLength(1);
-    expect(await academic.gradebook(ids.classB, mgr)).toHaveLength(1);
+    expect((await academic.gradebook(ids.classA, mgr)).rows).toHaveLength(1);
+    expect((await academic.gradebook(ids.classB, mgr)).rows).toHaveLength(1);
 
     expect((await learning.getClassProgress(ids.classA, {}, ids.instructorA, "INSTRUCTOR")).classId).toBe(ids.classA);
     await expect(learning.getClassProgress(ids.classB, {}, ids.instructorA, "INSTRUCTOR")).rejects.toMatchObject({ status: 404 });

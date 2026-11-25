@@ -103,9 +103,9 @@ export interface GradebookAssessmentColumn {
 
 export interface GradebookAssessmentCell {
   assessmentId: string;
-  kind: "EXAM" | "ASSIGNMENT";
-  score: number | null;
-  maxScore: number;
+  kind?: "EXAM" | "ASSIGNMENT";
+  score?: number | null;
+  maxScore?: number;
   status: "GRADED" | "AWAITING_GRADE" | "IN_PROGRESS" | "NOT_SUBMITTED";
   attemptCount?: number;
 }
@@ -124,6 +124,11 @@ export interface GradebookRow {
   notSubmitted: number;
   assessments?: GradebookAssessmentColumn[];
   cells?: GradebookAssessmentCell[];
+}
+
+export interface GradebookResponse {
+  assessments: GradebookAssessmentColumn[];
+  rows: GradebookRow[];
 }
 
 export interface GradingQueueGroup {

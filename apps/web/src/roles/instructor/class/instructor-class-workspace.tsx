@@ -58,6 +58,8 @@ import type {
   Course,
   DirectoryUser,
   Exam,
+  GradebookAssessmentColumn,
+  GradebookResponse,
   GradebookRow,
   LearningClass,
   Material,
@@ -90,6 +92,7 @@ import {
   type MaterialDisplayItem,
 } from "./instructor-class-workspace.helpers";
 import { InstructorGradebookTab } from "./tabs/instructor-gradebook-tab";
+import { normalizeGradebookResponse } from "@/features/academic/class-gradebook-table";
 import { InstructorLecturesTab } from "./tabs/instructor-lectures-tab";
 import { InstructorMaterialsTab } from "./tabs/instructor-materials-tab";
 import { InstructorMembersTab } from "./tabs/instructor-members-tab";
@@ -202,6 +205,7 @@ export function InstructorClassWorkspace({
   const [selectedExamId, setSelectedExamId] = useState("");
   const [assignments, setAssignments] = useState<AssignmentPreview[]>([]);
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [gradebookAssessments, setGradebookAssessments] = useState<GradebookAssessmentColumn[]>([]);
   const [submissionsByAssignment, setSubmissionsByAssignment] = useState<Record<string, AssignmentSubmission[]>>({});
 
   // Bộ lọc và tìm kiếm chung
@@ -674,13 +678,15 @@ export function InstructorClassWorkspace({
     const controller = new AbortController();
     gradebookControllerRef.current = controller;
     try {
-      const rows = await apiRequest<GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
+      const payload = await apiRequest<GradebookResponse | GradebookRow[]>(`/academic/classes/${item.id}/gradebook`, {
         roleCode: session.roleCode,
         signal: controller.signal,
       });
       if (requestId !== gradebookRequestRef.current || controller.signal.aborted) return;
+      const normalized = normalizeGradebookResponse(payload);
       gradebookLoadedClassRef.current = item.id;
-      setGradebook(rows);
+      setGradebookAssessments(normalized.assessments);
+      setGradebook(normalized.rows);
     } catch (error) {
       if (!controller.signal.aborted) console.warn("Không tải được bảng điểm của lớp:", error);
       if (requestId === gradebookRequestRef.current && !controller.signal.aborted) {
@@ -804,6 +810,7 @@ export function InstructorClassWorkspace({
     setLectures([]);
     setMaterialsList([]);
     setGradebook([]);
+    setGradebookAssessments([]);
   }, [item.id]);
 
   // Chỉ tải danh sách học viên cho các tab thực sự hiển thị sĩ số hoặc bảng điểm.
@@ -2926,7 +2933,11 @@ export function InstructorClassWorkspace({
 
         {/* Bảng điểm theo dữ liệu thật từ API lớp học. */}
         {activeTab === "gradebook" && (
-          <InstructorGradebookTab className={item.name} gradebook={gradebook} />
+          <InstructorGradebookTab
+            className={item.name}
+            gradebook={gradebook}
+            assessments={gradebookAssessments}
+          />
         )}
         {/* TAB 7: BÀI GIẢNG */}
         {activeTab === "lectures" && (

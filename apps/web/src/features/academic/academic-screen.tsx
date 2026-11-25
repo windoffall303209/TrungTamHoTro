@@ -353,6 +353,7 @@ export default function AcademicScreen() {
           <div className="mt-4">
             <ClassGradebookTable
               rows={gradebookPagination.pageItems}
+              assessments={model.gradebookAssessments}
               emptyMessage="Chưa có học viên hoặc dữ liệu điểm."
             />
           </div>
