@@ -2,11 +2,8 @@
 
 import { Bold, Braces, ChevronLeft, ChevronRight, Italic, LoaderCircle, Sigma, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import { useI18n } from "@/providers/i18n-provider";
+export { RichText } from "./rich-text";
 
 /** Nút tương tác chính với các biến thể màu tinh gọn Sky Blue, trạng thái loading và disabled. */
 export function Button({
@@ -466,31 +463,6 @@ export function Modal({
         ) : null}
         <div className="mt-5">{children}</div>
       </section>
-    </div>
-  );
-}
-
-/** Chuyển delimiter LaTeX chuẩn \(...\) và \[...\] sang cú pháp $...$ / $$...$$ cho remark-math. */
-function normalizeLatexDelimiters(content: string): string {
-  return content
-    .split(/(```[\s\S]*?```|`[^`\n]+`)/g)
-    .map((segment, index) => {
-      if (index % 2 === 1) return segment;
-      return segment
-        .replace(/\\\[([\s\S]+?)\\\]/g, (_match, expr: string) => `\n$$\n${expr.trim()}\n$$\n`)
-        .replace(/\\\(([\s\S]+?)\\\)/g, (_match, expr: string) => `$${expr.trim()}$`);
-    })
-    .join("");
-}
-
-/** Render Markdown/GFM và công thức LaTeX qua KaTeX cho nội dung học tập. */
-export function RichText({ children, className = "" }: { children: string; className?: string }) {
-  const normalized = normalizeLatexDelimiters(children);
-  return (
-    <div className={`rich-content min-w-0 text-slate-800 dark:text-slate-200 ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {normalized}
-      </ReactMarkdown>
     </div>
   );
 }

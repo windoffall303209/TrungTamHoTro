@@ -80,7 +80,7 @@ describe("ExamTakingModal instructor preview", () => {
       />,
     );
 
-    await screen.findByText(/Rút gọn phân số/);
+    await screen.findByText(/Rút gọn phân số/, {}, { timeout: 5000 });
     expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(3);
     expect(container.querySelector(".katex-mathml annotation")?.textContent).toContain("\\frac{16}{24}");
     expect(screen.queryByText(/\$\\frac\{16\}\{24\}\$/)).not.toBeInTheDocument();

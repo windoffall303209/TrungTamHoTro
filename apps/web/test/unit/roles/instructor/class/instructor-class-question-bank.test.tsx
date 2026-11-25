@@ -90,7 +90,7 @@ describe("Tab Ngân hàng câu hỏi trong lớp học giảng viên", () => {
     setupQuestionBankApiMock();
     const { container } = render(<InstructorClassWorkspace item={classItem} course={null} />);
 
-    await screen.findByText(/Rút gọn phân số/);
+    await screen.findByText(/Rút gọn phân số/, {}, { timeout: 5000 });
     expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(6);
     const annotations = Array.from(container.querySelectorAll(".katex-mathml annotation")).map((el) => el.textContent);
     expect(annotations).toContain("\\frac{16}{24}");

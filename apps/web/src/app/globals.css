@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "katex/dist/katex.min.css";
 
 /* Kích hoạt biến thể dark mode chuẩn cho cả thuộc tính data-theme="dark" lẫn class="dark" */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));

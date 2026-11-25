@@ -128,7 +128,9 @@ describe("QuestionsPage request lifecycle", () => {
     const initial = await expectPending("");
     await act(async () => initial.resolve(toQuestionPage([latexQuestion])));
 
-    expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(3);
+    await waitFor(() => {
+      expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(3);
+    }, { timeout: 5000 });
     expect(screen.queryByText(/\$\\frac\{16\}\{24\}\$/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Sửa thành phiên bản mới" }));
