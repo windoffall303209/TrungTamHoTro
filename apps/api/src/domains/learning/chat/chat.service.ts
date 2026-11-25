@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
@@ -15,9 +16,10 @@ import type {
   ChatDirectoryEntry,
   ChatMessagePage,
   ChatMessageView,
+  ChatStreamEvent,
 } from "./chat.types.js";
-import { defer, from, interval, type Observable } from "rxjs";
-import { concatMap, finalize, mergeMap } from "rxjs/operators";
+import { Observable } from "rxjs";
+import { DatabaseEventsService } from "../../../database/database-events.service.js";
 import { assertSafeUpload } from "../../../infrastructure/file-signature.js";
 
 type ConversationRow = Prisma.ChatConversationGetPayload<{
@@ -57,7 +59,7 @@ type DirectoryClassRow = Prisma.LearningClassGetPayload<{
 type ConversationMembershipRow = Prisma.ChatConversationMemberGetPayload<{
   include: { conversation: { include: { class: true } } };
 }>;
-type ChatStreamCursor = { createdAt: Date; id: string };
+type ChatStreamCursor = { sequence: bigint };
 export interface UploadedChatFile {
   originalName: string;
   mimeType: string;
@@ -68,14 +70,12 @@ export interface UploadedChatFile {
 @Injectable()
 /** Quản lý danh bạ và hội thoại theo quan hệ lớp, không mở rộng phạm vi từ dữ liệu hồ sơ riêng tư. */
 export class ChatService {
-  private static readonly CLASS_SYNC_TTL_MS = 15_000;
   private readonly activeViewers = new Map<string, Map<symbol, number>>();
-  // Mốc đồng bộ gần nhất và lượt đồng bộ đang chạy của từng hội thoại lớp, dùng cho đường đọc lặp lại.
-  private readonly classSyncState = new Map<string, { syncedAt: number; pending?: Promise<void> }>();
   constructor(
     private readonly prisma: PrismaService,
     private readonly objectStorage: ObjectStorageService,
     private readonly antivirus: AntivirusService,
+    @Optional() private readonly databaseEvents?: DatabaseEventsService,
   ) {}
 
   /** Tìm người có thể liên hệ bằng tên không dấu, mã tài khoản hoặc lớp chung. */
@@ -276,7 +276,7 @@ export class ChatService {
     return this.mapConversation(row, session.user.id);
   }
 
-  /** Mở hội thoại lớp và đồng bộ thành viên theo ghi danh/phân công hiện tại. */
+  /** Mở hội thoại lớp; trigger khởi tạo membership từ ghi danh/phân công trong transaction tạo mới. */
   async openClass(
     session: AuthenticatedSession,
     classId: string,
@@ -300,7 +300,6 @@ export class ChatService {
       if (!existing) throw error;
       return existing;
     });
-    await this.syncClassMembers(conversation.id, classId);
     return this.mapConversation(
       await this.loadConversation(this.prisma, conversation.id),
       session.user.id,
@@ -311,25 +310,6 @@ export class ChatService {
   async listConversations(
     session: AuthenticatedSession,
   ): Promise<ChatConversationView[]> {
-    const classMemberships = await this.prisma.chatConversationMember.findMany({
-      where: { userId: session.user.id, conversation: { type: "CLASS" } },
-      select: {
-        conversationId: true,
-        conversation: { select: { classId: true } },
-      },
-    });
-    // Đồng bộ song song theo nhóm nhỏ để hạn chế độ trễ mà không làm nghẽn pool kết nối.
-    for (let offset = 0; offset < classMemberships.length; offset += 8) {
-      await Promise.all(
-        classMemberships.slice(offset, offset + 8).map(async (membership) => {
-          if (membership.conversation.classId)
-            await this.syncClassMembersThrottled(
-              membership.conversationId,
-              membership.conversation.classId,
-            );
-        }),
-      );
-    }
     const rows = await this.prisma.chatConversation.findMany({
       where: { members: { some: { userId: session.user.id } } },
       include: {
@@ -658,52 +638,109 @@ export class ChatService {
     conversationId: string,
     session: AuthenticatedSession,
     lastEventId?: string,
-  ): Observable<{ data: ChatMessageView; id: string }> {
-    return defer(() => {
+  ): Observable<ChatStreamEvent> {
+    return new Observable((subscriber) => {
+      if (!this.databaseEvents) {
+        subscriber.error(new Error("Database event listener is unavailable."));
+        return;
+      }
       const viewerKey = `${conversationId}:${session.user.id}`;
       const viewerId = Symbol();
-      let active = true;
-      // Đọc lại một cửa sổ ngắn khi kết nối mới; EventSource dùng ID để tiếp tục chính xác khi reconnect.
-      let cursor: ChatStreamCursor = { createdAt: new Date(Date.now() - 10_000), id: "" };
+      let closed = false;
+      let initialized = false;
+      let running = false;
+      let pending = true;
+      let cursor: ChatStreamCursor = { sequence: 0n };
 
-      // Ghi nhận heartbeat riêng cho từng kết nối SSE cùng mở một hội thoại.
+      // Comment SSE giữ kết nối mạng, không thay Last-Event-ID và không truy vấn database.
       const refreshViewer = (): void => {
+        if (closed || !initialized) return;
         const viewers = this.activeViewers.get(viewerKey) ?? new Map<symbol, number>();
         viewers.set(viewerId, Date.now());
         this.activeViewers.set(viewerKey, viewers);
+        subscriber.next({ comment: "heartbeat" });
       };
 
-      return defer(async () => {
-        await this.resolveMembership(conversationId, session.user.id);
-        if (lastEventId && lastEventId.length <= 191) {
-          const resumedMessage = await this.prisma.chatMessage.findFirst({
-            where: { id: lastEventId, conversationId },
-            select: { id: true, createdAt: true },
-          });
-          if (resumedMessage) cursor = { createdAt: resumedMessage.createdAt, id: resumedMessage.id };
-        }
-        if (active) refreshViewer();
-        return true;
-      }).pipe(
-        mergeMap(() => interval(2_000)),
-        concatMap(() =>
-          from(this.pollMessages(conversationId, session.user.id, cursor)),
-        ),
-        mergeMap((messages) => {
-          refreshViewer();
-          if (messages.length) {
-            const lastMessage = messages[messages.length - 1]!;
-            cursor = { createdAt: new Date(lastMessage.createdAt), id: lastMessage.id };
+      // Gộp tín hiệu khi đang đọc và drain hết trang, không xếp hàng một query cho mỗi notification.
+      const drain = async (): Promise<void> => {
+        if (closed || !initialized || running) return;
+        running = true;
+        try {
+          while (pending && !closed) {
+            pending = false;
+            let more = true;
+            while (more && !closed) {
+              const messages = await this.pollMessages(conversationId, session.user.id, cursor);
+              if (closed) return;
+              for (const message of messages) {
+                const { streamSequence, ...data } = message;
+                cursor = { sequence: streamSequence };
+                subscriber.next({ data, id: message.id });
+                if (closed) return;
+              }
+              more = messages.length === 100;
+            }
           }
-          return from(messages.map((message) => ({ data: message, id: message.id })));
-        }),
-        finalize(() => {
-          active = false;
-          const viewers = this.activeViewers.get(viewerKey);
-          viewers?.delete(viewerId);
-          if (viewers?.size === 0) this.activeViewers.delete(viewerKey);
-        }),
-      );
+        } catch (error) {
+          if (!closed) subscriber.error(error);
+        } finally {
+          running = false;
+        }
+      };
+
+      // Đăng ký trước catch-up; resync sau LISTEN/reconnect đóng khoảng trống lúc listener chưa sẵn sàng.
+      const signals = this.databaseEvents.watch().subscribe({
+        next: (event) => {
+          if (event.kind === "resync" || (event.kind === "chat" && event.key === conversationId)) {
+            pending = true;
+            void drain();
+          }
+        },
+        error: (error: unknown) => subscriber.error(error),
+        complete: () => subscriber.complete(),
+      });
+      const heartbeat = setInterval(refreshViewer, 5000);
+      // Xác thực và khôi phục cursor trước lần đọc bù đầu tiên.
+      void (async (): Promise<void> => {
+        try {
+          await this.resolveMembership(conversationId, session.user.id);
+          if (closed) return;
+          let resumed = false;
+          if (lastEventId && lastEventId.length <= 191) {
+            const resumedMessage = await this.prisma.chatMessage.findFirst({
+              where: { id: lastEventId, conversationId },
+              select: { streamSequence: true },
+            });
+            if (resumedMessage) {
+              cursor = { sequence: resumedMessage.streamSequence };
+              resumed = true;
+            }
+          }
+          if (!resumed && !closed) {
+            // Một snapshot SQL: không bỏ qua tin vừa commit giữa đọc cửa sổ gần đây và watermark.
+            const [start] = await this.prisma.$queryRaw<Array<{ sequence: bigint }>>`
+              SELECT COALESCE(
+                (SELECT MIN(stream_sequence)-1 FROM chat_messages
+                 WHERE conversation_id=${conversationId} AND created_at >= ${new Date(Date.now() - 10000)}),
+                (SELECT message_sequence FROM chat_conversations WHERE id=${conversationId}), 0)::bigint AS sequence`;
+            cursor = { sequence: start?.sequence ?? 0n };
+          }
+          if (closed) return;
+          initialized = true;
+          refreshViewer();
+          await drain();
+        } catch (error) {
+          if (!closed) subscriber.error(error);
+        }
+      })();
+      return () => {
+        closed = true;
+        signals.unsubscribe();
+        clearInterval(heartbeat);
+        const viewers = this.activeViewers.get(viewerKey);
+        viewers?.delete(viewerId);
+        if (viewers?.size === 0) this.activeViewers.delete(viewerKey);
+      };
     });
   }
 
@@ -843,117 +880,11 @@ export class ChatService {
     );
   }
 
-  /** Đồng bộ membership nhóm lớp; người rời giữ lịch sử nhưng không nhận/gửi tin mới. */
-  private async syncClassMembers(
-    conversationId: string,
-    classId: string,
-  ): Promise<void> {
-    const classItem = await this.prisma.learningClass.findUnique({
-      where: { id: classId },
-      include: {
-        instructors: {
-          include: {
-            instructor: { include: { roles: { include: { role: true } } } },
-          },
-        },
-        enrollments: {
-          where: { status: "ACTIVE" },
-          include: {
-            learner: { include: { roles: { include: { role: true } } } },
-          },
-        },
-      },
-    });
-    if (!classItem) return;
-    const members = [
-      ...classItem.instructors.map((item) => item.instructor),
-      ...classItem.enrollments.map((item) => item.learner),
-    ];
-    const desiredRoles = new Map<string, string>();
-    for (const user of members)
-      desiredRoles.set(user.id, this.primaryRole(user.roles.map((item) => item.role.code)));
-    const activeIds = [...desiredRoles.keys()];
-    const existing = await this.prisma.chatConversationMember.findMany({
-      where: { conversationId },
-      select: { userId: true, status: true, removedAt: true, roleSnapshot: true },
-    });
-    const currentById = new Map(existing.map((member) => [member.userId, member]));
-    const hasRemovedMembers = existing.some(
-      (member) => member.status === "ACTIVE" && !desiredRoles.has(member.userId),
-    );
-    const changedMembers = [...desiredRoles].filter(([userId, roleSnapshot]) => {
-      const member = currentById.get(userId);
-      return !member || member.status !== "ACTIVE" || member.removedAt !== null || member.roleSnapshot !== roleSnapshot;
-    });
-    if (!hasRemovedMembers && changedMembers.length === 0) return;
-
-    await this.prisma.$transaction(async (transaction) => {
-      if (hasRemovedMembers)
-        await transaction.chatConversationMember.updateMany({
-          where: {
-            conversationId,
-            status: "ACTIVE",
-            userId: { notIn: activeIds },
-          },
-          data: { status: "REMOVED", removedAt: new Date() },
-        });
-      for (const [userId, roleSnapshot] of changedMembers)
-        await transaction.chatConversationMember.upsert({
-          where: { conversationId_userId: { conversationId, userId } },
-          update: {
-            status: "ACTIVE",
-            removedAt: null,
-            roleSnapshot,
-          },
-          create: {
-            conversationId,
-            userId,
-            roleSnapshot,
-          },
-        });
-    });
-  }
-
-  /**
-   * Đồng bộ membership lớp cho đường đọc lặp lại (poll SSE, danh sách hội thoại).
-   * Gộp các lượt gọi đồng thời và bỏ qua nếu vừa đồng bộ trong CLASS_SYNC_TTL_MS, nên một lớp 500 học viên
-   * không bị nạp lại mỗi 2 giây cho từng kết nối. Thao tác ghi vẫn gọi syncClassMembers trực tiếp.
-   */
-  private async syncClassMembersThrottled(conversationId: string, classId: string): Promise<void> {
-    const state = this.classSyncState.get(conversationId);
-    if (state?.pending) return state.pending;
-    if (state && Date.now() - state.syncedAt < ChatService.CLASS_SYNC_TTL_MS) return;
-    const pending = this.syncClassMembers(conversationId, classId).then(
-      () => { this.classSyncState.set(conversationId, { syncedAt: Date.now() }); },
-      (error: unknown) => {
-        // Lỗi không được ghi nhận là đã đồng bộ để lượt sau thử lại ngay.
-        if (state) this.classSyncState.set(conversationId, state);
-        else this.classSyncState.delete(conversationId);
-        throw error;
-      },
-    );
-    this.classSyncState.set(conversationId, { syncedAt: state?.syncedAt ?? 0, pending });
-    return pending;
-  }
-
-  /**
-   * Nạp membership cùng trạng thái lớp và đồng bộ trước khi cấp quyền.
-   * `throttledSync` chỉ dùng cho đường đọc lặp lại; mọi thao tác ghi luôn đồng bộ mới nhất.
-   */
+  /** Đọc projection membership được cập nhật cùng transaction ghi danh/phân công. */
   private async resolveMembership(
     conversationId: string,
     userId: string,
-    throttledSync = false,
   ): Promise<ConversationMembershipRow> {
-    const conversation = await this.prisma.chatConversation.findUnique({
-      where: { id: conversationId },
-      select: { classId: true },
-    });
-    if (!conversation) throw new NotFoundException("Không tìm thấy hội thoại.");
-    if (conversation.classId)
-      await (throttledSync
-        ? this.syncClassMembersThrottled(conversationId, conversation.classId)
-        : this.syncClassMembers(conversationId, conversation.classId));
     const membership = await this.prisma.chatConversationMember.findUnique({
       where: { conversationId_userId: { conversationId, userId } },
       include: { conversation: { include: { class: true } } },
@@ -989,24 +920,22 @@ export class ChatService {
     });
   }
 
-  /** Đọc tuần tự theo timestamp và ID để không bỏ sót tin cùng thời điểm khi quá 100 bản ghi. */
+  /** Đọc theo sequence được tuần tự hóa tới commit, không phụ thuộc timestamp hoặc thứ tự ID. */
   private async pollMessages(
     conversationId: string,
     actorId: string,
     cursor: ChatStreamCursor,
-  ): Promise<ChatMessageView[]> {
-    // Nhịp poll 2 giây dùng đồng bộ có TTL; người bị gỡ khỏi lớp mất quyền đọc tin mới sau tối đa CLASS_SYNC_TTL_MS.
-    const membership = await this.resolveMembership(conversationId, actorId, true);
+  ): Promise<Array<ChatMessageView & { streamSequence: bigint }>> {
+    // Projection cập nhật cùng ghi danh/phân công, không chờ TTL đồng bộ.
+    const membership = await this.resolveMembership(conversationId, actorId);
+    if (membership.status !== "ACTIVE") return [];
     const rows = await this.prisma.chatMessage.findMany({
       where: {
         conversationId,
-        OR: [
-          { createdAt: { gt: cursor.createdAt } },
-          { createdAt: cursor.createdAt, id: { gt: cursor.id } },
-        ],
-        ...(membership.removedAt ? { createdAt: { lte: membership.removedAt } } : {}),
+        streamSequence: { gt: cursor.sequence },
+        conversation: { members: { some: { userId: actorId, status: "ACTIVE" } } },
       },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      orderBy: { streamSequence: "asc" },
       take: 100,
       include: {
         sender: true,
@@ -1016,7 +945,7 @@ export class ChatService {
       },
     });
     return Promise.all(
-      rows.map((row) => this.mapMessageForActor(row, actorId)),
+      rows.map(async (row) => ({ ...await this.mapMessageForActor(row, actorId), streamSequence: row.streamSequence })),
     );
   }
 

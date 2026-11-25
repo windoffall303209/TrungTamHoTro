@@ -14,6 +14,8 @@ interface ChatMemberView {
   status: "ACTIVE" | "REMOVED";
 }
 
+export type ChatStreamEvent = { data: ChatMessageView; id: string } | { comment: string };
+
 export interface ChatMessageView {
   id: string;
   conversationId: string;

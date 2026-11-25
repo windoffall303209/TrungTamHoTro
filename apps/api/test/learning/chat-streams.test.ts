@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Subject } from "rxjs";
+import { DatabaseEventsService, type DatabaseEvent } from "../../src/database/database-events.service.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import { ChatService } from "../../src/domains/learning/chat/chat.service.js";
@@ -11,8 +13,9 @@ const session = {
 } as AuthenticatedSession;
 
 // Khởi tạo service với dữ liệu hội thoại hợp lệ mà không cần cơ sở dữ liệu thật.
-function createService(chatMessage: Record<string, unknown> = {}): ChatService {
+function createService(chatMessage: Record<string, unknown> = {}, events = new Subject<DatabaseEvent>()): ChatService {
   const prisma = {
+    $queryRaw: vi.fn().mockResolvedValue([{ sequence: 0n }]),
     chatMessage,
     chatConversation: {
       findUnique: vi.fn().mockResolvedValue({ classId: null }),
@@ -25,6 +28,7 @@ function createService(chatMessage: Record<string, unknown> = {}): ChatService {
     prisma,
     {} as ObjectStorageService,
     {} as AntivirusService,
+    { watch: () => events.asObservable() } as DatabaseEventsService,
   );
 }
 
@@ -34,20 +38,47 @@ afterEach(() => {
 });
 
 describe("ChatService SSE subscriptions", () => {
+  it("không poll khi idle, chỉ đọc đúng hội thoại và gộp burst tín hiệu", async () => {
+    vi.useFakeTimers();
+    const events = new Subject<DatabaseEvent>();
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = createService({ findMany }, events);
+    const subscription = service.watchMessages("conversation-1", session).subscribe();
+    try {
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(findMany).toHaveBeenCalledTimes(1);
+      expect(service["isActivelyViewing"]("conversation-1", "viewer-1")).toBe(true);
+      events.next({ kind: "chat", key: "other-conversation" });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(findMany).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 100; i++) events.next({ kind: "chat", key: "conversation-1" });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(findMany).toHaveBeenCalledTimes(3);
+      events.next({ kind: "resync" });
+      await vi.advanceTimersByTimeAsync(1);
+      expect(findMany).toHaveBeenCalledTimes(4);
+      subscription.unsubscribe();
+      events.next({ kind: "chat", key: "conversation-1" });
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(findMany).toHaveBeenCalledTimes(4);
+      expect(service["isActivelyViewing"]("conversation-1", "viewer-1")).toBe(false);
+    } finally { subscription.unsubscribe(); }
+  });
+
   it("không bỏ sót hoặc phát trùng khi hơn 100 tin có cùng timestamp", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-31T09:00:00.000Z"));
     const createdAt = new Date("2026-10-31T09:00:01.000Z");
     const rows = Array.from({ length: 151 }, (_, index) => ({
       id: `message-${String(index + 1).padStart(3, "0")}`,
+      streamSequence: BigInt(index + 1),
       createdAt,
     }));
     const findMany = vi.fn((query: {
-      where: { OR?: Array<{ id?: { gt: string } }> };
+      where: { streamSequence: { gt: bigint } };
       take: number;
     }) => {
-      const afterId = query.where.OR?.find((condition) => condition.id)?.id?.gt;
-      return Promise.resolve(rows.filter((row) => !afterId || row.id > afterId).slice(0, query.take));
+      return Promise.resolve(rows.filter((row) => row.streamSequence > query.where.streamSequence.gt).slice(0, query.take));
     });
     const service = createService({ findMany });
     vi.spyOn(service as unknown as {
@@ -59,12 +90,12 @@ describe("ChatService SSE subscriptions", () => {
 
     const received: string[] = [];
     const subscription = service.watchMessages("conversation-burst", session)
-      .subscribe(({ data }) => received.push(data.id));
+      .subscribe((event) => { if ("data" in event) received.push(event.data.id); });
     try {
       await vi.advanceTimersByTimeAsync(6_000);
       expect(received).toHaveLength(151);
       expect(new Set(received).size).toBe(151);
-      expect(findMany).toHaveBeenCalledTimes(3);
+      expect(findMany).toHaveBeenCalledTimes(2);
     } finally {
       subscription.unsubscribe();
     }
@@ -75,18 +106,14 @@ describe("ChatService SSE subscriptions", () => {
     vi.setSystemTime(new Date("2026-10-31T09:00:10.000Z"));
     const firstTime = new Date("2026-10-31T09:00:01.000Z");
     const secondTime = new Date("2026-10-31T09:00:04.000Z");
-    const findFirst = vi.fn().mockResolvedValue({ id: "message-1", createdAt: firstTime });
+    const findFirst = vi.fn().mockResolvedValue({ streamSequence: 1n });
     const findMany = vi.fn((query: {
-      where: { OR: Array<{ createdAt: Date | { gt: Date }; id?: { gt: string } }> };
+      where: { streamSequence: { gt: bigint } };
     }) => {
-      const cursorTime = query.where.OR[0]?.createdAt as { gt: Date };
-      const cursorId = query.where.OR[1]?.id?.gt ?? "";
       return Promise.resolve([
-        { id: "message-1", createdAt: firstTime },
-        { id: "message-2", createdAt: secondTime },
-      ].filter((row) => row.createdAt > cursorTime.gt || (
-        row.createdAt.getTime() === cursorTime.gt.getTime() && row.id > cursorId
-      )));
+        { id: "message-1", createdAt: firstTime, streamSequence: 1n },
+        { id: "message-2", createdAt: secondTime, streamSequence: 2n },
+      ].filter((row) => row.streamSequence > query.where.streamSequence.gt));
     });
     const service = createService({ findFirst, findMany });
     vi.spyOn(service as unknown as {
@@ -97,14 +124,14 @@ describe("ChatService SSE subscriptions", () => {
 
     const received: Array<{ id: string; data: ChatMessageView }> = [];
     const subscription = service.watchMessages("conversation-1", session, "message-1")
-      .subscribe((event) => received.push(event));
+      .subscribe((event) => { if ("data" in event) received.push(event); });
     try {
       await vi.advanceTimersByTimeAsync(2_000);
       expect(received.map((event) => event.id)).toEqual(["message-2"]);
       expect(received[0]?.id).toBe(received[0]?.data.id);
       expect(findFirst).toHaveBeenCalledWith({
         where: { id: "message-1", conversationId: "conversation-1" },
-        select: { id: true, createdAt: true },
+        select: { streamSequence: true },
       });
     } finally {
       subscription.unsubscribe();
@@ -114,10 +141,13 @@ describe("ChatService SSE subscriptions", () => {
   it("giữ trạng thái đang xem đến khi tất cả kết nối cùng người dùng đóng", async () => {
     vi.useFakeTimers();
     const service = createService();
-    const message = {
+    const message: ChatMessageView & { streamSequence: bigint } = {
       id: "message-1",
+      streamSequence: 1n,
+      conversationId: "conversation-1", senderId: "sender", senderName: "Sender",
+      clientMessageId: "client-1", content: "Hello", attachments: [], mentionedUserIds: [],
       createdAt: "2026-10-31T09:00:00.000Z",
-    } as ChatMessageView;
+    };
     const poll = vi.spyOn(service as unknown as {
       pollMessages: (...args: unknown[]) => Promise<ChatMessageView[]>;
     }, "pollMessages").mockResolvedValue([message]);
@@ -125,17 +155,17 @@ describe("ChatService SSE subscriptions", () => {
     const eventsFirst: string[] = [];
     const eventsSecond: string[] = [];
     const stream = service.watchMessages("conversation-1", session);
-    const first = stream.subscribe(({ data }) => eventsFirst.push(data.id));
+    const first = stream.subscribe((event) => { if ("data" in event) eventsFirst.push(event.data.id); });
     let second: ReturnType<typeof stream.subscribe> | undefined;
     try {
       await vi.advanceTimersByTimeAsync(2_000);
-      second = stream.subscribe(({ data }) => eventsSecond.push(data.id));
+      second = stream.subscribe((event) => { if ("data" in event) eventsSecond.push(event.data.id); });
       await vi.advanceTimersByTimeAsync(2_000);
 
-      expect(eventsFirst).toEqual(["message-1", "message-1"]);
+      expect(eventsFirst).toEqual(["message-1"]);
       expect(eventsSecond).toEqual(["message-1"]);
-      expect(poll.mock.calls).toHaveLength(3);
-      expect(poll.mock.calls[0]?.[2]).not.toBe(poll.mock.calls[2]?.[2]);
+      expect(poll.mock.calls).toHaveLength(2);
+      expect(poll.mock.calls[0]?.[2]).not.toBe(poll.mock.calls[1]?.[2]);
 
       first.unsubscribe();
       expect(service["isActivelyViewing"]("conversation-1", "viewer-1")).toBe(true);
@@ -167,69 +197,22 @@ describe("ChatService SSE subscriptions", () => {
   });
 });
 
-describe("ChatService class membership synchronization", () => {
-  it("không mở transaction ghi khi toàn bộ thành viên đã đồng bộ", async () => {
+describe("ChatService membership projection reads", () => {
+  it("đọc đúng một membership, không đọc lại lớp hoặc mở transaction ghi", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ status: "REMOVED", removedAt: new Date() });
     const transaction = vi.fn();
+    const classRead = vi.fn();
     const prisma = {
-      learningClass: {
-        findUnique: vi.fn().mockResolvedValue({
-          instructors: [{ instructor: { id: "teacher-1", roles: [{ role: { code: "INSTRUCTOR" } }] } }],
-          enrollments: [],
-        }),
-      },
-      chatConversationMember: {
-        findMany: vi.fn().mockResolvedValue([{
-          userId: "teacher-1", status: "ACTIVE", removedAt: null, roleSnapshot: "INSTRUCTOR",
-        }]),
-      },
+      chatConversationMember: { findUnique },
+      learningClass: { findUnique: classRead },
       $transaction: transaction,
     } as unknown as PrismaService;
     const service = new ChatService(prisma, {} as ObjectStorageService, {} as AntivirusService);
-
-    await service["syncClassMembers"]("conversation-1", "class-1");
-
+    expect(await service["resolveMembership"]("conversation-1", "user-1")).toMatchObject({ status: "REMOVED" });
+    expect(findUnique).toHaveBeenCalledTimes(1);
+    expect(classRead).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
-  });
-
-  it("chỉ cập nhật thành viên có thay đổi vai trò, trạng thái hoặc mới tham gia", async () => {
-    const updateMany = vi.fn<(query: {
-      where: { conversationId: string; status: string; userId: { notIn: string[] } };
-    }) => Promise<{ count: number }>>().mockResolvedValue({ count: 1 });
-    const upsert = vi.fn<(query: {
-      where: { conversationId_userId: { userId: string } };
-    }) => Promise<object>>().mockResolvedValue({});
-    const transaction = vi.fn(async (callback: (client: unknown) => Promise<void>) => callback({
-      chatConversationMember: { updateMany, upsert },
-    }));
-    const prisma = {
-      learningClass: {
-        findUnique: vi.fn().mockResolvedValue({
-          instructors: [
-            { instructor: { id: "teacher-1", roles: [{ role: { code: "INSTRUCTOR" } }] } },
-            { instructor: { id: "teacher-2", roles: [{ role: { code: "INSTRUCTOR" } }] } },
-          ],
-          enrollments: [{ learner: { id: "learner-new", roles: [{ role: { code: "LEARNER" } }] } }],
-        }),
-      },
-      chatConversationMember: {
-        findMany: vi.fn().mockResolvedValue([
-          { userId: "teacher-1", status: "ACTIVE", removedAt: null, roleSnapshot: "INSTRUCTOR" },
-          { userId: "teacher-2", status: "REMOVED", removedAt: new Date(), roleSnapshot: "INSTRUCTOR" },
-          { userId: "learner-left", status: "ACTIVE", removedAt: null, roleSnapshot: "LEARNER" },
-        ]),
-      },
-      $transaction: transaction,
-    } as unknown as PrismaService;
-    const service = new ChatService(prisma, {} as ObjectStorageService, {} as AntivirusService);
-
-    await service["syncClassMembers"]("conversation-1", "class-1");
-
-    expect(transaction).toHaveBeenCalledOnce();
-    expect(updateMany.mock.calls[0]?.[0]).toMatchObject({
-      where: { conversationId: "conversation-1", status: "ACTIVE" },
-    });
-    expect(upsert).toHaveBeenCalledTimes(2);
-    expect(upsert.mock.calls.map(([options]) => options.where.conversationId_userId.userId))
-      .toEqual(["teacher-2", "learner-new"]);
+    findUnique.mockResolvedValueOnce(null);
+    await expect(service["resolveMembership"]("missing", "user-1")).rejects.toMatchObject({ status: 404 });
   });
 });

@@ -26,6 +26,7 @@ import type {
   ChatDirectoryEntry,
   ChatMessagePage,
   ChatMessageView,
+  ChatStreamEvent,
 } from "./chat.types.js";
 import type { Observable } from "rxjs";
 import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
@@ -89,7 +90,7 @@ export class ChatController {
     @Param("conversationId") conversationId: string,
     @CurrentSession() session: AuthenticatedSession,
     @Headers("last-event-id") lastEventId?: string,
-  ): Observable<{ data: ChatMessageView; id: string }> {
+  ): Observable<ChatStreamEvent> {
     return this.chat.watchMessages(conversationId, session, lastEventId);
   }
 

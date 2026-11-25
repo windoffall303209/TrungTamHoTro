@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ContentController } from "../content/content.controller.js";
 import { CourseController } from "../courses/course.controller.js";
 import { EngagementController } from "../engagement/engagement.controller.js";
+import { RealtimeController } from "../engagement/realtime.controller.js";
 import { LearningService } from "./learning.service.js";
 import { AcademicController } from "../academic/academic.controller.js";
 import { AcademicService } from "../academic/academic.service.js";
@@ -18,7 +19,7 @@ import { AiGradingOperationsController, AiGradingOperationsService } from "../ai
 
 @Module({
   imports: [SystemModule],
-  controllers: [CourseController, ContentController, EngagementController, AcademicController, ChatController, AiGradingOperationsController],
+  controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, AiGradingOperationsController],
   providers: [LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
   exports: [LearningService],
 })

@@ -1,9 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Header, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, Optional, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { timer, type Observable } from "rxjs";
-import { concatMap, distinctUntilChanged, map } from "rxjs/operators";
+import type { Observable } from "rxjs";
+import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
@@ -17,7 +17,7 @@ import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-si
 @Controller()
 /** API tương tác học tập: diễn đàn, thông báo, kiểm duyệt, lớp trực tuyến, hỗ trợ và báo cáo. */
 export class EngagementController {
-  constructor(private readonly learning: LearningService) {}
+  constructor(private readonly learning: LearningService, @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
 
   @Get("forum/topics") @RequirePermissions("forum:view")
   /** Liệt kê chủ đề diễn đàn trong các lớp phiên hiện tại truy cập được. */
@@ -89,12 +89,10 @@ export class EngagementController {
 
   /** Đồng bộ thay đổi thông báo qua SSE theo đúng tài khoản đăng nhập, kể cả giữa nhiều thiết bị. */
   @Sse("notifications/events") @RequireAuthentication()
-  watchRoleNotifications(@CurrentSession() session: AuthenticatedSession): Observable<{ data: LearningNotification[] }> {
-    return timer(0, 2500).pipe(
-      concatMap(() => this.learning.listNotifications(session.user.id)),
-      distinctUntilChanged((previous, current) => JSON.stringify(previous) === JSON.stringify(current)),
-      map((notifications) => ({ data: notifications })),
-    );
+  watchRoleNotifications(@CurrentSession() session: AuthenticatedSession): Observable<SnapshotStreamEvent<LearningNotification[]>> {
+    if (!this.databaseEvents) throw new Error("Database event listener is unavailable.");
+    return this.databaseEvents.watchSnapshot("notification", session.user.id,
+      () => this.learning.listNotifications(session.user.id));
   }
 
   @Patch("notifications/read-all") @RequireAuthentication()

@@ -10,54 +10,18 @@ const actorId = "user-1";
 const session = { user: { id: actorId } } as AuthenticatedSession;
 
 describe("ChatService listConversations", () => {
-  it("đồng bộ nhiều lớp song song nhưng giới hạn tối đa tám tác vụ", async () => {
-    let resolveFirstBatch!: () => void;
-    let resolveSecondBatch!: () => void;
-    const firstBatch = new Promise<void>((resolve) => { resolveFirstBatch = resolve; });
-    const secondBatch = new Promise<void>((resolve) => { resolveSecondBatch = resolve; });
-    const memberships = Array.from({ length: 11 }, (_, index) => ({
-      conversationId: `conversation-${index}`,
-      conversation: { classId: `class-${index}` },
-    }));
-    const findMany = vi.fn().mockResolvedValue([]);
+  it("liệt kê trực tiếp mà không quét hoặc ghi lại membership lớp", async () => {
+    const membershipRead = vi.fn();
+    const write = vi.fn();
     const prisma = {
-      chatConversationMember: { findMany: vi.fn().mockResolvedValue(memberships) },
-      chatConversation: { findMany },
+      chatConversationMember: { findMany: membershipRead },
+      chatConversation: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: write,
     } as unknown as PrismaService;
     const service = new ChatService(prisma, {} as ObjectStorageService, {} as AntivirusService);
-    let active = 0;
-    let peakActive = 0;
-    const sync = vi.spyOn(service as unknown as {
-      syncClassMembers: (conversationId: string, classId: string) => Promise<void>;
-    }, "syncClassMembers").mockImplementation(async (_conversationId, classId) => {
-      active += 1;
-      peakActive = Math.max(peakActive, active);
-      try {
-        await (Number(classId.split("-")[1]) < 8 ? firstBatch : secondBatch);
-      } finally {
-        active -= 1;
-      }
-    });
-
-    const listing = service.listConversations(session);
-    try {
-      await vi.waitFor(() => expect(sync).toHaveBeenCalledTimes(8));
-      expect(peakActive).toBe(8);
-      expect(findMany).not.toHaveBeenCalled();
-      resolveFirstBatch();
-      await vi.waitFor(() => expect(sync).toHaveBeenCalledTimes(11));
-      expect(peakActive).toBe(8);
-      expect(findMany).not.toHaveBeenCalled();
-      resolveSecondBatch();
-      await expect(listing).resolves.toEqual([]);
-      expect(sync.mock.calls.map(([conversationId]) => conversationId)).toEqual(
-        memberships.map(({ conversationId }) => conversationId),
-      );
-    } finally {
-      resolveFirstBatch();
-      resolveSecondBatch();
-      await listing;
-    }
+    await expect(service.listConversations(session)).resolves.toEqual([]);
+    expect(membershipRead).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("đếm tin chưa đọc theo từng hội thoại bằng một truy vấn, giữ mốc đã đọc và thời điểm rời", async () => {
@@ -129,36 +93,6 @@ describe("ChatService listConversations", () => {
       },
       _count: { _all: true },
     });
-  });
-
-  it("gộp lượt đồng bộ thành viên đồng thời và bỏ qua trong cửa sổ TTL, thử lại ngay khi lỗi", async () => {
-    vi.useFakeTimers();
-    try {
-      const service = new ChatService({} as PrismaService, {} as ObjectStorageService, {} as AntivirusService);
-      const internals = service as unknown as {
-        syncClassMembers: (conversationId: string, classId: string) => Promise<void>;
-        syncClassMembersThrottled: (conversationId: string, classId: string) => Promise<void>;
-      };
-      const sync = vi.spyOn(internals, "syncClassMembers").mockResolvedValue();
-
-      await Promise.all([
-        internals.syncClassMembersThrottled("conversation-1", "class-1"),
-        internals.syncClassMembersThrottled("conversation-1", "class-1"),
-      ]);
-      expect(sync).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(10_000);
-      await internals.syncClassMembersThrottled("conversation-1", "class-1");
-      expect(sync).toHaveBeenCalledTimes(1);
-
-      await vi.advanceTimersByTimeAsync(6_000);
-      sync.mockRejectedValueOnce(new Error("db down"));
-      await expect(internals.syncClassMembersThrottled("conversation-1", "class-1")).rejects.toThrow("db down");
-      await internals.syncClassMembersThrottled("conversation-1", "class-1");
-      expect(sync).toHaveBeenCalledTimes(3);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("không truy vấn bảng tin nhắn khi người dùng chưa có hội thoại", async () => {

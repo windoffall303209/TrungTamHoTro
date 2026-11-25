@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query, StreamableFile } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Header, Optional, Param, Patch, Post, Query, Sse, StreamableFile } from "@nestjs/common";
+import type { Observable } from "rxjs";
+import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
 import { ApiTags } from "@nestjs/swagger";
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
@@ -40,7 +42,15 @@ class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GE
 @ApiTags("System") @Controller("system")
 /** API quản trị tập trung cho cấu hình, AI, tích hợp, sao lưu, xuất dữ liệu và giám sát. */
 export class SystemController {
-  constructor(private readonly system: SystemService, private readonly aiProviders: AiProviderService, private readonly outbox: OutboxDeliveryService) {}
+  constructor(private readonly system: SystemService, private readonly aiProviders: AiProviderService, private readonly outbox: OutboxDeliveryService,
+    @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
+  /** Chỉ báo dữ liệu vận hành thay đổi; client đọc lại qua các endpoint kiểm quyền hiện hành. */
+  @Sse("operations/events") @RequirePermissions("system:configure")
+  watchOperations(): Observable<SnapshotStreamEvent<{ revision: number }>> {
+    if (!this.databaseEvents) throw new Error("Database event listener is unavailable.");
+    let revision = 0;
+    return this.databaseEvents.watchSnapshot("job", "operations", () => Promise.resolve({ revision: ++revision }));
+  }
   /** Đọc cấu hình hệ thống hiện hành. */
   @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
   /** Cập nhật trực tiếp cấu hình hiện hành và ghi audit log. */
