@@ -78,7 +78,7 @@ export class AiMaterialContextService {
     const sourceVersion = material.version;
     const identity = { ownerId: actorId, materialId, sourceVersion, options };
     const previous = await this.drafts.find(identity);
-    if (previous) {
+    if (previous && previous.state !== "RETRY_AUTHORIZED") {
       if (previous.state !== "READY" || !previous.result) throw new ConflictException("Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.");
       await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
       return { ...previous.result, draftId: previous.id };

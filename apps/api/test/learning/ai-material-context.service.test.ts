@@ -17,6 +17,18 @@ function fixture(): { learning: { listMaterials: ReturnType<typeof vi.fn>; creat
 }
 
 describe("authorized material AI context", () => {
+  it("allows an explicitly authorized retry to reach the atomic draft claim", async () => {
+    const { learning, ai, material } = fixture();
+    const drafts = testStudyDraft();
+    vi.spyOn(drafts, "find").mockResolvedValueOnce({ state: "RETRY_AUTHORIZED" } as Awaited<ReturnType<typeof drafts.find>>);
+    const generate = vi.spyOn(drafts, "generate");
+    const service = new AiMaterialContextService(learning as unknown as LearningService, ai as unknown as AiProviderService, extractionDatabase().prisma, drafts);
+    await service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 1, language: "VI" });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+    expect(learning.createMaterialAccess).toHaveBeenCalled();
+  });
+
   it("rejects page ranges outside extracted content before creating a study claim", async () => {
     const { service, ai, material } = fixture();
     const options = { cardCount: 1, language: "VI" as const, fromPage: 1, toPage: 2 };
