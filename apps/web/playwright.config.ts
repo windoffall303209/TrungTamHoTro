@@ -48,8 +48,10 @@ export default defineConfig({
         DB_NAME: testDatabase,
         NODE_ENV: "test",
         // Nhiều tài khoản E2E dùng chung IP; chỉ tăng ngân sách trên server test riêng.
-        // Hành vi HTTP 429 được kiểm tra độc lập trong network-recovery.spec.ts.
+        // Giới hạn đăng nhập thật được kiểm riêng trong auth-rate-limit.test.ts;
+        // network-recovery.spec.ts kiểm tra UI phục hồi khi session API trả HTTP 429.
         RATE_LIMIT_MAX: "1000",
+        AUTH_RATE_LIMIT_MAX: "1000",
         RESEND_API_KEY: "",
         RESEND_FROM: "",
       },

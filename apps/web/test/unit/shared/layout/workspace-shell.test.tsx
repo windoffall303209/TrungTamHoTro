@@ -1,10 +1,12 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceShell } from "../../../../src/shared/layout/workspace-shell";
 
 const apiRequest = vi.fn();
 const notify = vi.fn();
 const useApp = vi.fn();
+const realtime = vi.hoisted(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() }));
+vi.mock("@/lib/realtime-client", () => ({ realtimeClient: { subscribe: realtime.subscribe } }));
 
 vi.mock("@/lib/api-client", () => ({ apiRequest: (...args: unknown[]) => apiRequest(...args), publicApiUrl: (path: string) => `http://localhost:4000/api/v1${path}` }));
 vi.mock("@/providers/app-provider", () => ({
@@ -18,12 +20,15 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard", useRouter: 
 describe("WorkspaceShell", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     document.documentElement.classList.remove("theme-changing");
     delete document.documentElement.dataset.theme;
     window.localStorage.clear();
   });
 
   beforeEach(() => {
+    realtime.subscribe.mockReset().mockReturnValue(realtime.unsubscribe);
+    realtime.unsubscribe.mockReset();
     document.documentElement.dataset.theme = "light";
     apiRequest.mockReset();
     notify.mockReset();
@@ -38,6 +43,34 @@ describe("WorkspaceShell", () => {
       ? [{ id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", createdAt: "2026-08-27T07:00:00.000Z" }]
       : path === "/notifications/read-all" ? [{ id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", readAt: "2026-08-27T08:00:00.000Z", createdAt: "2026-08-27T07:00:00.000Z" }]
       : { id: "notice-1", recipientId: "usr-learner", type: "GRADE_PUBLISHED", title: "Điểm đã được công bố", entityType: "ExamAttempt", entityId: "attempt-1", readAt: "2026-08-27T08:00:00.000Z", createdAt: "2026-08-27T07:00:00.000Z" }));
+  });
+
+  it("does not let a delayed initial GET overwrite a newer realtime snapshot", async () => {
+    let resolve!: (value: unknown) => void;
+    apiRequest.mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledWith("/notifications", { roleCode: "LEARNER" }));
+    const observer = realtime.subscribe.mock.calls.find((call) => call[1].channel === "notifications")![2] as { next: (value: unknown) => void };
+    act(() => observer.next([{ id: "fresh", recipientId: "usr-learner", title: "Mới", createdAt: "2026-11-25T00:00:00Z" }]));
+    await act(async () => resolve([]));
+    expect(screen.getByRole("button", { name: "Thông báo, 1 chưa đọc" })).toBeInTheDocument();
+  });
+
+  it("updates notifications through the shared subscription without idle polling", async () => {
+    const view = render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" });
+    expect(realtime.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "usr-learner", roleCode: "LEARNER" }),
+      { channel: "notifications" }, expect.any(Object));
+    const observer = realtime.subscribe.mock.calls.find((call) => call[1].channel === "notifications")![2] as { next: (value: unknown) => void };
+    act(() => observer.next([]));
+    expect(screen.queryByRole("button", { name: "Thông báo, 1 chưa đọc" })).not.toBeInTheDocument();
+    vi.useFakeTimers();
+    apiRequest.mockClear();
+    act(() => vi.advanceTimersByTime(60000));
+    expect(apiRequest).not.toHaveBeenCalled();
+    view.unmount();
+    expect(realtime.unsubscribe).toHaveBeenCalled();
   });
 
   it("đặt nút giao diện trước thông báo và lưu lựa chọn sáng tối", async () => {

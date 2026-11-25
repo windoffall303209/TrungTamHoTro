@@ -3,7 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatConversation, ChatDirectoryEntry, ChatMessage, ChatMessagePage } from "@/lib/learning-types";
 import { useMessagesModel } from "../../../../src/features/messages/use-messages-model";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn(), notify: vi.fn() }));
+const mocks = vi.hoisted(() => ({ request: vi.fn(), notify: vi.fn(), list: vi.fn() }));
+
+vi.mock("@/lib/realtime-client", () => ({ realtimeClient: {
+  // Giữ adapter đăng ký để các test race kiểm tra cleanup qua client chung.
+  subscribe: (_scope: unknown, topic: { channel: string; key: string }, observer: { next: (value: unknown) => void }) => {
+    if (topic.channel === "chat-list") return mocks.list(observer);
+    const stream = new FakeEventSource(`/chat/conversations/${topic.key}/events`);
+    stream.onmessage = (event) => observer.next(JSON.parse(event.data));
+    return () => stream.close();
+  },
+} }));
 
 vi.mock("@/lib/api-client", () => ({
   apiRequest: mocks.request,
@@ -87,6 +97,7 @@ describe("useMessagesModel asynchronous conversations", () => {
   const pendingSearches: ReturnType<typeof deferred<ChatMessage[]>>[] = [];
 
   beforeEach(() => {
+    mocks.list.mockReset().mockReturnValue(vi.fn());
     streams.length = 0;
     pendingSearches.length = 0;
     oldMessages = deferred<ChatMessagePage>();
@@ -112,8 +123,28 @@ describe("useMessagesModel asynchronous conversations", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("refreshes unopened conversation lists on events, coalesces bursts and stays idle without polling", async () => {
+    const { result, unmount } = renderHook(() => useMessagesModel());
+    await waitFor(() => expect(result.current.selectedId).toBe("a"));
+    await act(async () => oldMessages.resolve(messagePage("a")));
+    vi.useFakeTimers();
+    mocks.request.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(mocks.request.mock.calls.filter(([path]) => path === "/chat/conversations")).toHaveLength(0);
+    const observer = mocks.list.mock.calls.at(-1)![0] as { next: (value: unknown) => void };
+    await act(async () => {
+      for (let i = 0; i < 20; i++) observer.next({ revision: i });
+      await vi.advanceTimersByTimeAsync(180);
+    });
+    expect(mocks.request.mock.calls.filter(([path]) => path === "/chat/conversations")).toHaveLength(1);
+    const off = mocks.list.mock.results.at(-1)!.value;
+    unmount();
+    expect(off).toHaveBeenCalled();
   });
 
   it("không gửi lại tin lỗi cũ khi người dùng gửi nội dung mới, chỉ gửi lại khi bấm Gửi lại", async () => {

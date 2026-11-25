@@ -4,6 +4,8 @@ import { apiRequest } from "@/lib/api-client";
 import { MiniChatWidget } from "../../../../src/shared/layout/mini-chat-widget";
 
 const useApp = vi.fn();
+const realtime = vi.hoisted(() => ({ subscribe: vi.fn(), unsubscribe: vi.fn() }));
+vi.mock("@/lib/realtime-client", () => ({ realtimeClient: { subscribe: realtime.subscribe } }));
 
 vi.mock("@/providers/app-provider", () => ({
   useApp: () => useApp(),
@@ -15,6 +17,8 @@ vi.mock("@/lib/api-client", () => ({
 
 describe("MiniChatWidget", () => {
   beforeEach(() => {
+    realtime.subscribe.mockReset().mockReturnValue(realtime.unsubscribe);
+    realtime.unsubscribe.mockReset();
     vi.mocked(apiRequest).mockReset();
     vi.mocked(apiRequest).mockResolvedValue([]);
     useApp.mockReturnValue({
@@ -25,13 +29,49 @@ describe("MiniChatWidget", () => {
     });
   });
 
+  it("subscribes an open conversation to the shared client and cleans it up", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    window.localStorage.setItem("wind_edu_mini_chat_open_windows_account-old", JSON.stringify([
+      { id: "contact", name: "Realtime contact", conversationId: "conversation-1" },
+    ]));
+    useApp.mockReturnValue({ session: { sessionId: "session-1", user: { id: "account-old" }, roleCode: "LEARNER" } });
+    const view = render(<MiniChatWidget />);
+    await waitFor(() => expect(realtime.subscribe).toHaveBeenCalledWith(
+      { sessionId: "session-1", userId: "account-old", roleCode: "LEARNER" },
+      { channel: "chat", key: "conversation-1" }, expect.any(Object)));
+    const observer = realtime.subscribe.mock.calls.find((call) => call[1].channel === "chat")![2] as { next: (value: unknown) => void };
+    act(() => observer.next({ id: "live", conversationId: "conversation-1", senderId: "contact", content: "Shared live message", createdAt: "2026-11-25T00:00:00Z" }));
+    expect(screen.getByText("Shared live message")).toBeInTheDocument();
+    view.unmount();
+    expect(realtime.unsubscribe).toHaveBeenCalled();
+  });
+
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     for (const userId of ["account-old", "account-new", "account-invalid"]) {
       window.localStorage.removeItem(`wind_edu_mini_chat_open_windows_${userId}`);
       window.localStorage.removeItem(`wind_edu_mini_chat_minimized_bubbles_${userId}`);
     }
+  });
+
+  it("replaces directory polling with debounced list events", async () => {
+    const view = render(<MiniChatWidget />);
+    await act(async () => { await Promise.resolve(); });
+    const observer = realtime.subscribe.mock.calls.find((call) => call[1].channel === "chat-list")![2] as { next: (value: unknown) => void };
+    vi.useFakeTimers();
+    vi.mocked(apiRequest).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(apiRequest).not.toHaveBeenCalled();
+    await act(async () => {
+      for (let i = 0; i < 20; i++) observer.next({ revision: i });
+      await vi.advanceTimersByTimeAsync(180);
+    });
+    expect(vi.mocked(apiRequest).mock.calls.filter(([path]) => path === "/chat/conversations")).toHaveLength(1);
+    expect(vi.mocked(apiRequest).mock.calls.filter(([path]) => path === "/chat/directory")).toHaveLength(1);
+    view.unmount();
+    expect(realtime.unsubscribe).toHaveBeenCalled();
   });
 
   it("bỏ qua dữ liệu cửa sổ và bong bóng sai cấu trúc trong localStorage", () => {

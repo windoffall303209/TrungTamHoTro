@@ -30,7 +30,8 @@ import {
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { apiRequest, publicApiUrl } from "@/lib/api-client";
+import { apiRequest } from "@/lib/api-client";
+import { realtimeClient } from "@/lib/realtime-client";
 import { useApp } from "@/providers/app-provider";
 import type { PermissionCode, RoleCode } from "@/lib/app-types";
 import { hasAnyPermission } from "@/lib/access-control";
@@ -207,6 +208,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [notificationError, setNotificationError] = useState("");
   const notificationRef = useRef<HTMLDivElement>(null);
+  const notificationRevision = useRef(0);
 
   const unreadCount = notifications.filter((item) => !item.readAt).length;
 
@@ -326,69 +328,48 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             : null;
   // Tải danh sách thông báo
   const loadNotifications = useCallback(async (quiet = false) => {
+    const revision = ++notificationRevision.current;
     if (!quiet) {
       setNotificationLoading(true);
       setNotificationError("");
     }
     try {
-      setNotifications(
-        await apiRequest<LearningNotification[]>("/notifications", {
+      const data = await apiRequest<LearningNotification[]>("/notifications", {
           roleCode: session.roleCode,
-        }),
-      );
+        });
+      if (revision === notificationRevision.current) setNotifications(data);
     } catch (error) {
-      if (!quiet) {
+      if (!quiet && revision === notificationRevision.current) {
         setNotificationError(
           error instanceof Error ? error.message : "Không thể tải thông báo.",
         );
       }
     } finally {
-      if (!quiet) setNotificationLoading(false);
+      if (!quiet && revision === notificationRevision.current) setNotificationLoading(false);
     }
   }, [session.roleCode]);
 
   useEffect(() => {
-    window.queueMicrotask(() => {
-      void loadNotifications();
-    });
-  }, [loadNotifications]);
-
-  // Nhận thay đổi thông báo qua SSE; tự kiểm tra dự phòng nếu luồng bị ngắt.
-  useEffect(() => {
     let active = true;
-    const events = typeof EventSource === "undefined" ? null : new EventSource(publicApiUrl(`/notifications/events?roleCode=${encodeURIComponent(session.roleCode)}`), { withCredentials: true });
-    if (events) events.onmessage = (event) => {
-      if (!active) return;
-      try {
-        const payload: unknown = JSON.parse(event.data);
-        if (!Array.isArray(payload) || !payload.every((item) => item && typeof item === "object" && typeof item.id === "string")) return;
+    const revision = notificationRevision;
+    window.queueMicrotask(() => {
+      if (active) void loadNotifications();
+    });
+    return () => { active = false; revision.current++; };
+  }, [loadNotifications, session.sessionId, session.user.id]);
+
+  // Dùng kênh thông báo chung; reconnect tự tải snapshot, không polling dự phòng.
+  useEffect(() => realtimeClient.subscribe(
+    { sessionId: session.sessionId, userId: session.user.id, roleCode: session.roleCode },
+    { channel: "notifications" }, {
+      next: (payload) => {
+        notificationRevision.current++;
         setNotifications(payload as LearningNotification[]);
         setNotificationLoading(false);
-      } catch (error) {
-        console.warn("Bỏ qua dữ liệu thông báo SSE không hợp lệ.", error);
-      }
-    };
-    if (events) events.onerror = () => {
-      if (active && document.visibilityState === "visible") void loadNotifications(true);
-    };
-    /** Làm mới thông báo khi cửa sổ hoạt động hoặc kết nối SSE gián đoạn. */
-    const refresh = () => {
-      if (document.visibilityState === "visible") void loadNotifications(true);
-    };
-    const timer = window.setInterval(() => {
-      if (!events || events.readyState !== EventSource.OPEN) refresh();
-    }, 12000);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", refresh);
-    return () => {
-      active = false;
-      events?.close();
-      window.clearInterval(timer);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", refresh);
-    };
-  }, [loadNotifications, session.roleCode]);
-
+        setNotificationError("");
+      },
+      error: () => setNotificationError("Kết nối thông báo đang gián đoạn. Bạn có thể tải lại."),
+    }), [session.sessionId, session.user.id, session.roleCode]);
   useEffect(() => {
     if (!notificationOpen && !profileOpen && !menuOpen) return;
     /** Đóng các lớp phủ của shell khi người dùng nhấn Escape. */

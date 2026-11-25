@@ -12,7 +12,8 @@ import {
   ChevronDown,
   SquarePen,
 } from "lucide-react";
-import { apiRequest, publicApiUrl } from "@/lib/api-client";
+import { apiRequest } from "@/lib/api-client";
+import { realtimeClient } from "@/lib/realtime-client";
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { usePathname } from "next/navigation";
@@ -579,6 +580,7 @@ export function MiniChatWidget() {
   const { session } = useApp();
   const currentUserId = session?.user?.id ?? "";
   const currentRoleCode = session?.roleCode ?? "";
+  const currentSessionId = session?.sessionId ?? "";
   const restoredUserIdRef = useRef<string | null>(null);
 
   // Danh bạ liên hệ nạp từ cơ sở dữ liệu
@@ -649,9 +651,19 @@ export function MiniChatWidget() {
     if (!currentUserId) return;
     let active = true;
     let refreshing = false;
+    let dirty = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    /** Gộp tín hiệu danh sách và bảo toàn tín hiệu đến trong lúc đang tải. */
+    const scheduleRefresh = () => {
+      if (!active) return;
+      dirty = true;
+      if (pending !== undefined || refreshing) return;
+      pending = setTimeout(() => { pending = undefined; void loadRealChatData(); }, 180);
+    };
     /** Tải danh bạ và hội thoại thật, đồng bộ các cửa sổ chat đang mở. */
     async function loadRealChatData() {
       if (refreshing || document.visibilityState === "hidden") return;
+      dirty = false;
       refreshing = true;
       try {
         const [conversations, directory] = await Promise.all([
@@ -758,25 +770,29 @@ export function MiniChatWidget() {
         if (active) console.warn("Không đồng bộ được danh bạ trò chuyện:", error);
       } finally {
         refreshing = false;
+        if (dirty) scheduleRefresh();
       }
     }
 
     void loadRealChatData();
-    const timer = window.setInterval(() => { void loadRealChatData(); }, 12000);
+    const unsubscribe = realtimeClient.subscribe(
+      { sessionId: currentSessionId, userId: currentUserId, roleCode: currentRoleCode },
+      { channel: "chat-list" }, { next: scheduleRefresh });
     /** Đồng bộ danh sách hội thoại khi người dùng quay lại cửa sổ. */
-    const onFocus = () => { void loadRealChatData(); };
+    const onFocus = scheduleRefresh;
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
       active = false;
-      window.clearInterval(timer);
+      unsubscribe();
+      if (pending !== undefined) clearTimeout(pending);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [currentUserId]);
+  }, [currentUserId, currentRoleCode, currentSessionId]);
 
   // Tải tin nhắn thật từ CSDL PostgreSQL cho các ô chat đang mở
-  // Khóa ổn định của các hội thoại đang mở: poll danh bạ 12 giây tạo mảng contacts mới nhưng không làm mở lại SSE.
+  // Khóa ổn định: cập nhật danh bạ không làm đăng ký lại các hội thoại không đổi.
   const openChatTargets = useMemo(() => JSON.stringify(openWindows.map((win) => ({ id: win.id, conversationId: win.conversationId || contacts.find((contact) => contact.id === win.id)?.conversationId || "" }))), [openWindows, contacts]);
   useEffect(() => {
     if (!currentUserId) return;
@@ -787,11 +803,12 @@ export function MiniChatWidget() {
     const streams = targets.flatMap((win) => {
       const conversationId = win.conversationId;
       if (!conversationId) return [];
-      const stream = new EventSource(publicApiUrl(`/chat/conversations/${conversationId}/events?roleCode=${encodeURIComponent(currentRoleCode)}`), { withCredentials: true });
-      stream.onmessage = (event) => {
+      const unsubscribe = realtimeClient.subscribe(
+        { sessionId: currentSessionId, userId: currentUserId, roleCode: currentRoleCode },
+        { channel: "chat", key: conversationId }, { next: (payload) => {
         if (!active) return;
         try {
-          const message = JSON.parse(event.data) as {
+          const message = payload as {
             id?: string; conversationId?: string; senderId?: string; clientMessageId?: string;
             content?: string; createdAt?: string; attachments?: Array<{ originalName: string }>;
           };
@@ -813,8 +830,8 @@ export function MiniChatWidget() {
         } catch (error) {
           console.warn("Bỏ qua sự kiện chat không hợp lệ.", error);
         }
-      };
-      return [stream];
+      } });
+      return [unsubscribe];
     });
     /** Nạp lịch sử tin nhắn cho từng cửa sổ đang mở mà không làm gián đoạn giao diện. */
     async function loadMessagesForOpenWindows() {
@@ -867,23 +884,17 @@ export function MiniChatWidget() {
     if (targets.length > 0) {
       void loadMessagesForOpenWindows();
     }
-    const timer = window.setInterval(() => {
-      if (targets.length > 0 && (streams.length === 0 || streams.some((stream) => stream.readyState !== EventSource.OPEN))) {
-        void loadMessagesForOpenWindows();
-      }
-    }, 5000);
     /** Cập nhật các cửa sổ chat đang mở khi trình duyệt nhận focus. */
     const onFocus = () => { if (targets.length > 0) void loadMessagesForOpenWindows(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
     return () => {
       active = false;
-      streams.forEach((stream) => stream.close());
-      window.clearInterval(timer);
+      streams.forEach((unsubscribe) => unsubscribe());
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onFocus);
     };
-  }, [openChatTargets, currentUserId, currentRoleCode]);
+  }, [openChatTargets, currentUserId, currentRoleCode, currentSessionId]);
 
   // Đưa một contact vào danh sách bubble thu gọn với cơ chế tối đa 5 người và loại bỏ người lâu nhất (LRU)
   const addContactToBubbles = useCallback((contact: ChatContact, unreadCount = 0) => {

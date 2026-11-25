@@ -1,15 +1,17 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { realtimeClient } from "../../../../src/lib/realtime-client";
 import { useOperationsModel } from "../../../../src/features/operations/use-operations-model";
 
 const api = vi.hoisted(() => vi.fn());
 const notify = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api-client", () => ({
   apiRequest: (...args: unknown[]) => api(...args),
+  publicApiUrl: (path: string) => path,
 }));
 vi.mock("@/providers/app-provider", () => ({
   useApp: () => ({
-    session: { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"] },
+    session: { sessionId: "admin-session", user: { id: "admin" }, roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"] },
     notify,
   }),
 }));
@@ -46,6 +48,7 @@ describe("Tải nhật ký độc lập", () => {
     expect(JSON.parse(post?.[1].body)).toMatchObject({ backupId: "older-backup", mode: "DRILL" });
   });
   beforeEach(() => {
+    realtimeClient.setSession({ sessionId: "admin-session", userId: "admin", roleCode: "SYSTEM_ADMIN" });
     api.mockReset();
     api.mockImplementation(async (path: string) => {
       if (path.startsWith("/system/audit/page?")) {
@@ -54,7 +57,52 @@ describe("Tải nhật ký độc lập", () => {
       return [];
     });
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); realtimeClient.setSession(); vi.useRealTimers(); vi.unstubAllGlobals(); });
+  it("nhận tín hiệu job, không poll khi RUNNING và đóng stream khi rời tab", async () => {
+    vi.useFakeTimers();
+    const streams: Array<{ onmessage?: (event: { data: string }) => void; onerror?: () => void; close: ReturnType<typeof vi.fn> }> = [];
+    class EventSourceFixture {
+      onmessage?: (event: { data: string }) => void;
+      onerror?: () => void;
+      close = vi.fn();
+      // Ghi nhận stream được mở để phát tín hiệu có kiểm soát trong test.
+      constructor() { streams.push(this); }
+    }
+    vi.stubGlobal("EventSource", EventSourceFixture);
+    api.mockImplementation(async (path: string) => path === "/system/backups" ? [{ id: "job", status: "RUNNING" }] : []);
+    const { result, rerender, unmount } = renderHook(({ view }) => useOperationsModel(view), { initialProps: { view: "data" as "data" | "monitoring" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    expect(streams).toHaveLength(1);
+    await act(async () => { streams[0]!.onmessage?.({ data: JSON.stringify({ channel: "operations", value: { revision: 1 } }) }); await vi.advanceTimersByTimeAsync(200); });
+    expect(result.current.backups).toHaveLength(1);
+    expect(api).toHaveBeenCalledTimes(5);
+    api.mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+    expect(api).not.toHaveBeenCalled();
+    await act(async () => {
+      for (let i = 0; i < 20; i++) streams[0]!.onmessage?.({ data: JSON.stringify({ channel: "operations", value: { revision: 1 } }) });
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(api).toHaveBeenCalledTimes(5);
+    act(() => streams[0]!.onerror?.());
+    expect(result.current.loadError).toContain("gián đoạn");
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); streams[1]!.onmessage?.({ data: JSON.stringify({ channel: "operations", value: { revision: 2 } }) }); await vi.advanceTimersByTimeAsync(200); });
+    expect(result.current.loadError).toBe("");
+    const notification = vi.fn();
+    const offNotifications = realtimeClient.subscribe(
+      { sessionId: "admin-session", userId: "admin", roleCode: "SYSTEM_ADMIN" },
+      { channel: "notifications" }, { next: notification });
+    rerender({ view: "monitoring" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(25); });
+    const shared = streams.at(-1)!;
+    shared.onmessage?.({ data: JSON.stringify({ channel: "notifications", value: [] }) });
+    expect(notification).toHaveBeenCalledWith([]);
+    expect(shared.close).not.toHaveBeenCalled();
+    offNotifications();
+    expect(shared.close).toHaveBeenCalledOnce();
+    expect(streams[0]!.close).toHaveBeenCalledOnce();
+    unmount();
+  });
   it("gõ bộ lọc chỉ gọi nhật ký", async () => {
     const { result } = renderHook(useOperationsModel);
     await waitFor(() =>

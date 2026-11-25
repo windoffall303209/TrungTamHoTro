@@ -2,6 +2,7 @@
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
+import { realtimeClient } from "@/lib/realtime-client";
 import { useApp } from "@/providers/app-provider";
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import type { OperationsView } from "@/roles/manager/operations-navigation";
@@ -208,21 +209,28 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   }, [loadAudit]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 180);
+    if (!canConfigure || view !== "data") return;
+    let pending: number | undefined;
+    // Gộp các tín hiệu trạng thái gần nhau thành một lần tải, không polling khi job đang chạy.
+    const refresh = (): void => {
+      if (pending !== undefined) return;
+      pending = window.setTimeout(() => { pending = undefined; void load(); }, 180);
+    };
+    // Kết nối chậm hoặc môi trường không có SSE vẫn tải trang lần đầu, không tạo timer lặp.
+    const initial = window.setTimeout(refresh, typeof EventSource === "undefined" ? 0 : 750);
+    const unsubscribe = realtimeClient.subscribe(
+      { sessionId: session.sessionId, userId: session.user.id, roleCode: session.roleCode },
+      { channel: "operations" }, {
+        next: () => { window.clearTimeout(initial); refresh(); },
+        error: () => { setLoadError("Kết nối cập nhật đang gián đoạn. Bạn có thể tải lại dữ liệu."); },
+      });
     return () => {
-      window.clearTimeout(timer);
+      unsubscribe();
+      window.clearTimeout(initial);
+      if (pending !== undefined) window.clearTimeout(pending);
       loadSequence.current += 1;
     };
-  }, [load]);
-
-  useEffect(() => {
-    const hasActiveJobs = [...backups, ...exports].some(
-      (item) => item.status === "PENDING" || item.status === "RUNNING",
-    );
-    if (!hasActiveJobs || view !== "data") return;
-    const timer = window.setInterval(() => void load(), 5_000);
-    return () => window.clearInterval(timer);
-  }, [backups, exports, load, view]);
+  }, [canConfigure, load, session.roleCode, session.sessionId, session.user.id, view]);
 
   /** Tạo yêu cầu drill để một quản trị viên khác phê duyệt bằng phiên đăng nhập của họ. */
   const requestRestore = async (event: React.FormEvent) => {

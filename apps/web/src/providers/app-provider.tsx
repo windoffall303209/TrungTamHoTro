@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { ApiError, apiRequest, resetCsrfToken } from "@/lib/api-client";
 import { clearSessionDrafts, clearUserLocalData } from "@/lib/session-drafts";
+import { realtimeClient } from "@/lib/realtime-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 import { isSupportedLocale, LOCALE_STORAGE_KEY } from "@/i18n/catalog";
 import { useI18n } from "@/providers/i18n-provider";
@@ -42,11 +43,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => {
     if (toastTimer.current !== null) clearTimeout(toastTimer.current);
+    realtimeClient.setSession();
   }, []);
 
   /** Nhận phiên hợp lệ và áp tùy chọn ngôn ngữ đã lưu trong hồ sơ người dùng. */
   const adoptSession = useCallback((nextSession: SessionData) => {
     setAuthError("");
+    realtimeClient.setSession(nextSession.sessionId && nextSession.user.id ? {
+      sessionId: nextSession.sessionId, userId: nextSession.user.id, roleCode: nextSession.roleCode,
+    } : undefined);
     setSession(nextSession);
     let storedLocale: string | null = null;
     if (typeof window !== "undefined") {
@@ -69,7 +74,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setAuthError("");
     try { adoptSession(await apiRequest<SessionData>("/auth/session")); return true; }
     catch (error) {
-      if (error instanceof ApiError && [401, 403].includes(error.status)) setSession(emptySession);
+      if (error instanceof ApiError && [401, 403].includes(error.status)) {
+        realtimeClient.setSession();
+        setSession(emptySession);
+      }
       else setAuthError("Chưa kiểm tra được phiên làm việc. Vui lòng thử lại.");
       return false;
     }
@@ -81,6 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     /** Xóa session cục bộ khi API phát tín hiệu phiên hết hạn từ tab hiện tại hoặc tab khác. */
     /** Dọn token CSRF và dữ liệu cục bộ theo tài khoản khi máy chủ báo phiên đã hết hạn. */
     const clearExpiredSession = () => {
+      realtimeClient.setSession();
       resetCsrfToken();
       clearSessionDrafts();
       clearUserLocalData();
@@ -106,6 +115,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
   /** Thu hồi phiên server và luôn xóa state client kể cả request thất bại. */
   const logout = useCallback(async () => {
+    realtimeClient.setSession();
     try { await apiRequest<void>("/auth/logout", { method: "POST" }); } finally { resetCsrfToken(); clearSessionDrafts(); clearUserLocalData(); setSession(emptySession); }
   }, []);
   /** Yêu cầu server ánh xạ lại phiên theo vai trò được người dùng chọn. */

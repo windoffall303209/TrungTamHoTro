@@ -4,8 +4,8 @@ import {
   apiRequest,
   downloadApiFile,
   previewApiFile,
-  publicApiUrl,
 } from "@/lib/api-client";
+import { realtimeClient } from "@/lib/realtime-client";
 import {
   chatRecordingExtension,
   normalizeChatMessage,
@@ -283,23 +283,26 @@ export function useMessagesModel() {
     return () => window.clearTimeout(timer);
   }, [loadConversations]);
 
-  // Cập nhật hội thoại chưa chọn và phục hồi tin nhắn khi luồng SSE gián đoạn.
+  // Cập nhật cả hội thoại chưa mở qua tín hiệu theo người dùng, không polling.
   useEffect(() => {
-    /** Đồng bộ lại danh sách và tin nhắn khi quay lại cửa sổ hoặc hết chu kỳ dự phòng. */
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    /** Gộp burst sự kiện thành một lượt tải danh sách. */
     const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      void loadConversations(true);
-      if (selectedIdRef.current) void loadMessages(selectedIdRef.current, true);
+      if (pending !== undefined) return;
+      pending = setTimeout(() => { pending = undefined; void loadConversations(true); }, 180);
     };
-    const intervalId = window.setInterval(refresh, 8000);
+    const unsubscribe = realtimeClient.subscribe(
+      { sessionId: session.sessionId, userId: session.user.id, roleCode: session.roleCode },
+      { channel: "chat-list" }, { next: refresh });
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      window.clearInterval(intervalId);
+      unsubscribe();
+      if (pending !== undefined) clearTimeout(pending);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [loadConversations, loadMessages]);
+  }, [loadConversations, session.sessionId, session.user.id, session.roleCode]);
 
   // Đồng bộ id và file hiện tại cho recording
   useEffect(() => {
@@ -382,14 +385,12 @@ export function useMessagesModel() {
     const initialTimer = window.setTimeout(() => {
       void loadMessages(selectedId);
     }, 0);
-    const events = new EventSource(
-      publicApiUrl(`/chat/conversations/${selectedId}/events?roleCode=${encodeURIComponent(session.roleCode)}`),
-      { withCredentials: true },
-    );
-    events.onmessage = (event) => {
+    const unsubscribe = realtimeClient.subscribe(
+      { sessionId: session.sessionId, userId: session.user.id, roleCode: session.roleCode },
+      { channel: "chat", key: selectedId }, { next: (payload) => {
       if (!active || selectedId !== selectedIdRef.current) return;
       try {
-        const message = normalizeChatMessage(JSON.parse(event.data));
+        const message = normalizeChatMessage(payload);
         if (!message || message.conversationId !== selectedId) return;
         setMessages((current) =>
           current.some((item) => item.id === message.id)
@@ -419,13 +420,13 @@ export function useMessagesModel() {
       } catch (error) {
         console.warn("Bỏ qua sự kiện tin nhắn không hợp lệ.", error);
       }
-    };
+    } });
     return () => {
       active = false;
       window.clearTimeout(initialTimer);
-      events.close();
+      unsubscribe();
     };
-  }, [loadConversations, loadMessages, notify, selectedId, session.roleCode]);
+  }, [loadConversations, loadMessages, notify, selectedId, session.roleCode, session.sessionId, session.user.id]);
 
   /** Cập nhật bản nháp theo id cố định để request cũ không ghi đè bản nháp mới. */
   const saveDraft = (conversationId: string, value: string) => {
