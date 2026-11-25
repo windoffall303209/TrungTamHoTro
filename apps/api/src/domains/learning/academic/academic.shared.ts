@@ -51,6 +51,7 @@ export interface AssignmentView {
   closeReason?: string;
   createdById: string;
   submission?: AssignmentSubmissionView;
+  submissionCount?: number;
   createdAt: string;
 }
 

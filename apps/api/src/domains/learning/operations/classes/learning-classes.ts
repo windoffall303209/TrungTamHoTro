@@ -81,6 +81,33 @@ export async function listClasses(
     .map((item) => redactClassForRole(copyLearningClass(item), role, actorId));
 }
 
+/** Đọc chi tiết đúng một lớp theo quyền truy cập của vai trò hiện tại để tránh tải toàn bộ danh sách lớp. */
+export async function getClassById(
+  serviceContext: LearningServiceContext,
+  classId: string,
+  role: string,
+  actorId: string,
+): Promise<LearningClass> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const roleWhere = buildClassRoleWhere(role, actorId);
+    const row = await prisma.learningClass.findFirst({
+      where: roleWhere ? { AND: [{ id: classId }, roleWhere] } : { id: classId },
+      include: {
+        instructors: true,
+        enrollments: { where: { status: "ACTIVE" } },
+      },
+    });
+    if (!row) throw new NotFoundException("Không tìm thấy lớp học.");
+    return redactClassForRole(serviceContext.mapClass(row), role, actorId);
+  }
+  const found = serviceContext.classes.find(
+    (item) => item.id === classId && matchesMemoryClassRole(item, role, actorId),
+  );
+  if (!found) throw new NotFoundException("Không tìm thấy lớp học.");
+  return redactClassForRole(copyLearningClass(found), role, actorId);
+}
+
 /** Phân trang danh sách lớp học theo vai trò, khóa học, khối/môn và từ khóa trực tiếp ở DB. */
 export async function listClassesPage(
   serviceContext: LearningServiceContext,

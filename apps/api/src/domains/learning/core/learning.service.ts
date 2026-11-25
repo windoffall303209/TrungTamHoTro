@@ -568,6 +568,15 @@ export class LearningService {
     return await classes_ops.listClasses(this.operationContext, role, actorId);
   }
 
+  /** Đọc chi tiết đúng một lớp học theo quyền và quan hệ thành viên của phiên hiện tại. */
+  async getClassById(
+    classId: string,
+    role: string,
+    actorId: string,
+  ): Promise<LearningClass> {
+    return await classes_ops.getClassById(this.operationContext, classId, role, actorId);
+  }
+
   /** Phân trang danh sách lớp học theo vai trò và bộ lọc trực tiếp ở DB. */
   async listClassesPage(
     role: string,

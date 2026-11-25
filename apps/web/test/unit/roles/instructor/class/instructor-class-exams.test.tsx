@@ -307,10 +307,11 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
 
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(
-        `/instructor/classes/${classItem.id}/learners`,
+        `/academic/announcements?classId=${classItem.id}`,
         expect.anything(),
       ),
     );
+    expect(request.mock.calls.some(([url]) => String(url) === `/instructor/classes/${classItem.id}/learners`)).toBe(false);
     expect(request.mock.calls.some(([url]) => String(url).startsWith("/exams/page?"))).toBe(false);
     expect(request.mock.calls.some(([url]) => String(url) === `/academic/classes/${classItem.id}/gradebook`)).toBe(false);
 

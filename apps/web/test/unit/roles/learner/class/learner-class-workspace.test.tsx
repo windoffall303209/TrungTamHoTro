@@ -495,10 +495,12 @@ describe("LearnerClassWorkspace", () => {
 
   it("hủy toàn bộ request đang tải khi rời trang lớp", () => {
     const view = renderWorkspace();
+    // Tab Bảng tin mặc định không bắn request thừa của các tab khác; chuyển sang tab Bài tập để kiểm chứng abort.
+    fireEvent.click(screen.getAllByText("Bài tập")[0]!);
     const signals = mockApiRequest.mock.calls
       .map((call: unknown[]) => (call[1] as RequestInit | undefined)?.signal)
       .filter((signal: AbortSignal | null | undefined): signal is AbortSignal => signal != null);
-    expect(signals).toHaveLength(5);
+    expect(signals).toHaveLength(3);
     expect(signals.every((signal: AbortSignal) => !signal.aborted)).toBe(true);
 
     view.unmount();
@@ -508,6 +510,7 @@ describe("LearnerClassWorkspace", () => {
   it("báo lỗi nếu API trả về sai cấu trúc và cho phép tải lại", async () => {
     let returnInvalidMaterials = true;
     mockApiRequest.mockImplementation(async (path: string) => {
+      if (path.startsWith("/academic/announcements?classId=")) return [];
       if (path === "/learner/classes/cls-1/exams") return [gradedExam];
       if (path === "/academic/assignments?classId=cls-1" || path === "/learner/results" || path === "/sessions") return [];
       if (path.startsWith("/materials/search")) return returnInvalidMaterials ? { data: classMaterials } : toMaterialPage(classMaterials);
@@ -515,10 +518,10 @@ describe("LearnerClassWorkspace", () => {
     });
 
     renderWorkspace();
+    fireEvent.click(screen.getByText("Tài liệu"));
     expect(await screen.findByText(/Không tải được 1 nguồn dữ liệu lớp học/)).toBeInTheDocument();
     returnInvalidMaterials = false;
     fireEvent.click(screen.getByText("Tải lại"));
-    fireEvent.click(screen.getByText("Tài liệu"));
     expect((await screen.findAllByText("Tài liệu đại số.pdf")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Không tải được 1 nguồn dữ liệu lớp học/)).not.toBeInTheDocument();
   });

@@ -148,6 +148,7 @@ export interface Assignment {
   closeReason?: string;
   createdById: string;
   submission?: AssignmentSubmission;
+  submissionCount?: number;
   createdAt: string;
 }
 export interface AcademicCalendarEvent {

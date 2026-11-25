@@ -72,6 +72,7 @@ function redactAssignmentForRole(
 ): AssignmentView {
   const view = serviceContext.mapAssignment(row, row.submissions[0]);
   if (roleCode === "INSTRUCTOR") return view;
+  if (roleCode === "LEARNER") delete view.submissionCount;
   if (row.sourceMaterial?.visibility !== "PUBLISHED") delete view.sourceMaterial;
   if (row.hidden) {
     return {
@@ -81,6 +82,7 @@ function redactAssignmentForRole(
       rubric: [],
       sourceMaterial: undefined,
       submission: undefined,
+      submissionCount: undefined,
     };
   }
   return view;
@@ -102,6 +104,7 @@ export async function listAssignments(
     include: {
       class: { select: { code: true } },
       sourceMaterial: { select: { visibility: true, id: true, name: true, mimeType: true, sizeBytes: true } },
+      ...(session.roleCode !== "LEARNER" ? { _count: { select: { submissions: true } } } : {}),
       submissions: {
         where: { learnerId: session.user.id },
         include: {

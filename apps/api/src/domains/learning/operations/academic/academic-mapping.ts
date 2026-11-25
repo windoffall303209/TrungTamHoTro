@@ -20,7 +20,10 @@ export function mapAssignment(
         };
       };
     };
-  }> & { sourceMaterial?: { id: string; name: string; mimeType: string; sizeBytes: bigint } | null },
+  }> & {
+    sourceMaterial?: { id: string; name: string; mimeType: string; sizeBytes: bigint } | null;
+    _count?: { submissions: number };
+  },
   submission?: Prisma.AssignmentSubmissionGetPayload<{
     include: {
       learner: { select: { displayName: true; email: true } };
@@ -53,6 +56,7 @@ export function mapAssignment(
     submission: submission
       ? serviceContext.mapSubmission(submission)
       : undefined,
+    submissionCount: row._count?.submissions,
     createdAt: row.createdAt.toISOString(),
   };
 }

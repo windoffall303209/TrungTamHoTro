@@ -85,6 +85,12 @@ export class CourseController {
     });
   }
 
+  @Get("classes/:classId") @RequirePermissions("class:view")
+  /** Trả hồ sơ một lớp duy nhất theo quyền truy cập của phiên, thay cho tải toàn danh sách lớp. */
+  getClassById(@Param("classId") classId: string, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> {
+    return this.learning.getClassById(classId, session.roleCode, session.user.id);
+  }
+
   @Get("instructor/classes") @RequirePermissions("class:view")
   /** Liệt kê riêng các lớp giảng viên hiện tại được phân công. */
   listInstructorClasses(@CurrentSession() session: AuthenticatedSession): Promise<LearningClass[]> {

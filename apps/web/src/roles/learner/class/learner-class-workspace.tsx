@@ -242,9 +242,16 @@ export function LearnerClassWorkspace({
   const [gradebookLoading, setGradebookLoading] = useState(false);
   const [gradebookSearch, setGradebookSearch] = useState("");
   const [dataLoadError, setDataLoadError] = useState<string | null>(null);
-  const classDataRequestRef = useRef(0);
-  const classDataControllerRef = useRef<AbortController | null>(null);
-  const loadedClassIdRef = useRef(item.id);
+  const [assignmentsLoadedForClass, setAssignmentsLoadedForClass] = useState<string | null>(null);
+  const assignmentsLoadedClassRef = useRef<string | null>(null);
+  const assignmentsRequestRef = useRef(0);
+  const assignmentsControllerRef = useRef<AbortController | null>(null);
+  const materialsLoadedClassRef = useRef<string | null>(null);
+  const materialsRequestRef = useRef(0);
+  const materialsControllerRef = useRef<AbortController | null>(null);
+  const sessionsLoadedClassRef = useRef<string | null>(null);
+  const sessionsRequestRef = useRef(0);
+  const sessionsControllerRef = useRef<AbortController | null>(null);
 
   // Loads the read-only class gradebook only when the manager allows peer visibility.
   useEffect(() => {
@@ -272,48 +279,119 @@ export function LearnerClassWorkspace({
     if (!item.allowPeerGradeViewing && activeTab === "gradebook") handleSelectTab("feed");
   }, [activeTab, handleSelectTab, item.allowPeerGradeViewing]);
 
-  /** Tải dữ liệu lớp, bỏ phản hồi cũ và xóa dữ liệu thuộc lớp trước khi đổi lớp. */
-  const loadClassData = useCallback(async () => {
-    const requestId = ++classDataRequestRef.current;
-    classDataControllerRef.current?.abort();
+  // Xóa dữ liệu theo lớp khi chuyển sang lớp khác để tránh hiển thị dữ liệu cũ giữa hai lớp.
+  useEffect(() => {
+    assignmentsLoadedClassRef.current = null;
+    setAssignmentsLoadedForClass(null);
+    materialsLoadedClassRef.current = null;
+    sessionsLoadedClassRef.current = null;
+    setClassExams([]);
+    setClassAssignments([]);
+    setClassMaterials([]);
+    setLearnerResults([]);
+    setClassSessions([]);
+    setDataLoadError(null);
+  }, [item.id]);
+
+  /** Tải bài thi, bài tập và kết quả của học viên chỉ khi mở tab Bài tập. */
+  const loadAssignmentsTab = useCallback(async (force = false) => {
+    if (!force && assignmentsLoadedClassRef.current === item.id) return;
+    const requestId = ++assignmentsRequestRef.current;
+    assignmentsControllerRef.current?.abort();
     const controller = new AbortController();
-    classDataControllerRef.current = controller;
-    if (loadedClassIdRef.current !== item.id) {
-      loadedClassIdRef.current = item.id;
-      setClassExams([]);
-      setClassAssignments([]);
-      setClassMaterials([]);
-      setLearnerResults([]);
-      setClassSessions([]);
-      setDataLoadError(null);
-    }
+    assignmentsControllerRef.current = controller;
     const classId = encodeURIComponent(item.id);
     const responses = await Promise.allSettled([
       apiRequest<LearnerExamSummary[]>(`/learner/classes/${classId}/exams`, { signal: controller.signal }),
       apiRequest<Assignment[]>(`/academic/assignments?classId=${classId}`, { signal: controller.signal }),
-      loadClassMaterials<Material>(classId, { signal: controller.signal }),
       apiRequest<LearnerResult[]>("/learner/results", { signal: controller.signal }),
-      apiRequest<LiveSession[]>("/sessions", { signal: controller.signal }),
     ] as const);
-    if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
-    const [exams, assignments, materials, results, sessions] = responses;
+    if (requestId !== assignmentsRequestRef.current || controller.signal.aborted) return;
+    const [exams, assignments, results] = responses;
     if (exams.status === "fulfilled" && Array.isArray(exams.value)) setClassExams(exams.value);
     if (assignments.status === "fulfilled" && Array.isArray(assignments.value)) setClassAssignments(assignments.value);
-    if (materials.status === "fulfilled" && Array.isArray(materials.value)) {
-      setClassMaterials(materials.value.filter((material) => isMaterialForClass(material, item.id)));
-    }
     if (results.status === "fulfilled" && Array.isArray(results.value)) setLearnerResults(results.value);
-    if (sessions.status === "fulfilled" && Array.isArray(sessions.value)) {
-      setClassSessions(sessions.value.filter((entry) => entry.classId === item.id));
-    }
     const failedCount = responses.filter((response) => response.status === "rejected" || !Array.isArray(response.value)).length;
+    if (failedCount === 0) {
+      assignmentsLoadedClassRef.current = item.id;
+      setAssignmentsLoadedForClass(item.id);
+    }
     setDataLoadError(failedCount ? `Không tải được ${failedCount} nguồn dữ liệu lớp học. Vui lòng thử tải lại.` : null);
   }, [item.id]);
 
+  /** Tải danh sách học liệu và bài giảng chỉ khi mở tab Bài giảng hoặc Tài liệu. */
+  const loadMaterialsTab = useCallback(async (force = false) => {
+    if (!force && materialsLoadedClassRef.current === item.id) return;
+    const requestId = ++materialsRequestRef.current;
+    materialsControllerRef.current?.abort();
+    const controller = new AbortController();
+    materialsControllerRef.current = controller;
+    const classId = encodeURIComponent(item.id);
+    try {
+      const materials = await loadClassMaterials<Material>(classId, { signal: controller.signal });
+      if (requestId !== materialsRequestRef.current || controller.signal.aborted) return;
+      if (Array.isArray(materials)) {
+        materialsLoadedClassRef.current = item.id;
+        setClassMaterials(materials.filter((material) => isMaterialForClass(material, item.id)));
+        setDataLoadError(null);
+      } else {
+        setDataLoadError("Không tải được 1 nguồn dữ liệu lớp học. Vui lòng thử tải lại.");
+      }
+    } catch {
+      if (requestId === materialsRequestRef.current && !controller.signal.aborted) {
+        setDataLoadError("Không tải được 1 nguồn dữ liệu lớp học. Vui lòng thử tải lại.");
+      }
+    }
+  }, [item.id]);
+
+  /** Tải lịch buổi học trực tuyến của lớp chỉ khi mở tab Lịch học. */
+  const loadScheduleTab = useCallback(async (force = false) => {
+    if (!force && sessionsLoadedClassRef.current === item.id) return;
+    const requestId = ++sessionsRequestRef.current;
+    sessionsControllerRef.current?.abort();
+    const controller = new AbortController();
+    sessionsControllerRef.current = controller;
+    try {
+      const sessions = await apiRequest<LiveSession[]>("/sessions", { signal: controller.signal });
+      if (requestId !== sessionsRequestRef.current || controller.signal.aborted) return;
+      if (Array.isArray(sessions)) {
+        sessionsLoadedClassRef.current = item.id;
+        setClassSessions(sessions.filter((entry) => entry.classId === item.id));
+        setDataLoadError(null);
+      } else {
+        setDataLoadError("Không tải được 1 nguồn dữ liệu lớp học. Vui lòng thử tải lại.");
+      }
+    } catch {
+      if (requestId === sessionsRequestRef.current && !controller.signal.aborted) {
+        setDataLoadError("Không tải được 1 nguồn dữ liệu lớp học. Vui lòng thử tải lại.");
+      }
+    }
+  }, [item.id]);
+
+  /** Tải lại nguồn dữ liệu của tab đang mở sau khi nộp bài hoặc bấm Tải lại. */
+  const loadClassData = useCallback(async () => {
+    if (activeTab === "assignments") await loadAssignmentsTab(true);
+    else if (activeTab === "lectures" || activeTab === "materials") await loadMaterialsTab(true);
+    else if (activeTab === "schedule") await loadScheduleTab(true);
+  }, [activeTab, loadAssignmentsTab, loadMaterialsTab, loadScheduleTab]);
+
   useEffect(() => {
-    void loadClassData();
-    return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
-  }, [loadClassData]);
+    if (activeTab !== "assignments") return;
+    void loadAssignmentsTab();
+    return () => { assignmentsRequestRef.current += 1; assignmentsControllerRef.current?.abort(); };
+  }, [activeTab, loadAssignmentsTab]);
+
+  useEffect(() => {
+    if (activeTab !== "lectures" && activeTab !== "materials") return;
+    void loadMaterialsTab();
+    return () => { materialsRequestRef.current += 1; materialsControllerRef.current?.abort(); };
+  }, [activeTab, loadMaterialsTab]);
+
+  useEffect(() => {
+    if (activeTab !== "schedule") return;
+    void loadScheduleTab();
+    return () => { sessionsRequestRef.current += 1; sessionsControllerRef.current?.abort(); };
+  }, [activeTab, loadScheduleTab]);
 
   // Danh sách giảng viên lớp học (hiển thị 1 hoặc 2 giáo viên kèm avatar thật)
   const displayInstructors = useMemo(() => {
@@ -361,6 +439,12 @@ export function LearnerClassWorkspace({
 
   // State trang xem chi tiết bài giảng độc lập (3 cột theo ảnh minh họa)
   const [selectedLectureForPage, setSelectedLectureForPage] = useState<LectureItem | null>(null);
+
+  // Chỉ nạp danh sách đề thi/bài tập khi bài giảng đang mở thực sự có đính kèm bài tập/đề thi.
+  useEffect(() => {
+    if (!selectedLectureForPage?.attachedExamId && !selectedLectureForPage?.attachedExamTitle) return;
+    void loadAssignmentsTab();
+  }, [selectedLectureForPage?.attachedExamId, selectedLectureForPage?.attachedExamTitle, loadAssignmentsTab]);
   const [lecturePageFolder, setLecturePageFolder] = useState<string>("__ALL__");
 
   // State thông báo toast hiện đại (thay thế hoàn toàn alert popup của trình duyệt)
@@ -988,7 +1072,11 @@ export function LearnerClassWorkspace({
                     <ArrowRight size={16} className="text-blue-600" />
                   </button>
                 ))}
-                {lectureAttachedAssignments.length === 0 && <p className="text-xs text-slate-500">Chưa có bài tập đính kèm.</p>}
+                {lectureAttachedAssignments.length === 0 && (
+                  (selectedLectureForPage.attachedExamId || selectedLectureForPage.attachedExamTitle) && assignmentsLoadedForClass !== item.id
+                    ? <p className="text-xs text-slate-500">Đang tải...</p>
+                    : <p className="text-xs text-slate-500">Chưa có bài tập đính kèm.</p>
+                )}
               </div>
             </div>
           </main>

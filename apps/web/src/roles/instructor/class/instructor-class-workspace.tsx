@@ -475,18 +475,29 @@ export function InstructorClassWorkspace({
     "PUBLISHED" | "HIDDEN"
   >("PUBLISHED");
 
-  // Tải thư mục lớp dùng chung từ API và đồng bộ thư mục trống cũ nếu có.
+  const foldersLoadedClassRef = useRef<string | null>(null);
+  const allInstructorClassesLoadedRoleRef = useRef<string | null>(null);
+  const needsFoldersTab = activeTab === "assignments" || activeTab === "lectures" || activeTab === "materials";
+
+  // Đặt lại bộ nhớ đệm thư mục khi chuyển sang lớp khác để tránh giữ nhãn thư mục của lớp cũ.
   useEffect(() => {
-    const controller = new AbortController();
-    const path = `/instructor/classes/${encodeURIComponent(item.id)}/folders`;
-    const options = { roleCode: session.roleCode, signal: controller.signal };
-    type Folders = { materials: string[]; lectures: string[]; assignments: string[] };
+    foldersLoadedClassRef.current = null;
     setCustomFolders([]);
     setCustomLectureFolders([]);
     setCustomMaterialFolders([]);
     setSelectedLectureFolder("__ALL__");
     setSelectedMaterialFolder("__ALL__");
     setSelectedFolder("__ALL__");
+  }, [item.id]);
+
+  // Chỉ tải thư mục lớp từ API khi người dùng thực sự mở tab Bài tập, Bài giảng hoặc Tài liệu.
+  useEffect(() => {
+    if (!needsFoldersTab) return;
+    if (foldersLoadedClassRef.current === item.id) return;
+    const controller = new AbortController();
+    const path = `/instructor/classes/${encodeURIComponent(item.id)}/folders`;
+    const options = { roleCode: session.roleCode, signal: controller.signal };
+    type Folders = { materials: string[]; lectures: string[]; assignments: string[] };
     // Tải danh sách thư mục của lớp từ API và đồng bộ thư mục cũ từ localStorage nếu có.
     async function loadFolders() {
       let folders = await apiRequest<Folders>(path, options);
@@ -506,6 +517,7 @@ export function InstructorClassWorkspace({
         try { window.localStorage.removeItem(key); } catch { /* Import is idempotent. */ }
       }
       if (!controller.signal.aborted) {
+        foldersLoadedClassRef.current = item.id;
         setCustomFolders(folders.assignments);
         setCustomLectureFolders(folders.lectures);
         setCustomMaterialFolders(folders.materials);
@@ -521,7 +533,7 @@ export function InstructorClassWorkspace({
       if (!controller.signal.aborted) notify("Không tải được thư mục của lớp.", "error");
     });
     return () => controller.abort();
-  }, [item.id, item.status, session.roleCode, notify]);
+  }, [needsFoldersTab, item.id, item.status, session.roleCode, notify]);
 
   // Modal di chuyển bài giảng / tài liệu sang lớp được phân công và thư mục hợp lệ
   const [moveItemModalOpen, setMoveItemModalOpen] = useState(false);
@@ -532,20 +544,26 @@ export function InstructorClassWorkspace({
   const [loadingDestinationFolders, setLoadingDestinationFolders] = useState(false);
   const [allInstructorClasses, setAllInstructorClasses] = useState<LearningClass[]>([]);
 
+  // Chỉ tải danh sách lớp giảng dạy khi người dùng mở hộp thoại di chuyển học liệu.
   useEffect(() => {
+    if (!moveItemModalOpen) return;
+    if (allInstructorClassesLoadedRoleRef.current === session.roleCode) return;
     const controller = new AbortController();
     apiRequest<LearningClass[]>("/instructor/classes", {
       roleCode: session.roleCode,
       signal: controller.signal,
     })
       .then((data) => {
-        if (!controller.signal.aborted && Array.isArray(data)) setAllInstructorClasses(data);
+        if (!controller.signal.aborted && Array.isArray(data)) {
+          allInstructorClassesLoadedRoleRef.current = session.roleCode;
+          setAllInstructorClasses(data);
+        }
       })
       .catch((err) => {
         if (!controller.signal.aborted) console.warn("Lỗi nạp danh sách lớp:", err);
       });
     return () => controller.abort();
-  }, [session.roleCode]);
+  }, [moveItemModalOpen, session.roleCode]);
 
   const movableDestinationClasses = useMemo(
     () =>
@@ -554,6 +572,14 @@ export function InstructorClassWorkspace({
       ),
     [allInstructorClasses, session.user.id],
   );
+
+  // Tự chọn lớp đích hợp lệ ngay khi danh sách lớp giảng dạy vừa tải xong lúc mở modal di chuyển.
+  useEffect(() => {
+    if (!moveItemModalOpen || targetDestinationClassId || movableDestinationClasses.length === 0) return;
+    const preferred =
+      movableDestinationClasses.find((cls) => cls.id !== item.id) ?? movableDestinationClasses[0];
+    if (preferred) setTargetDestinationClassId(preferred.id);
+  }, [moveItemModalOpen, targetDestinationClassId, movableDestinationClasses, item.id]);
 
   // Nạp danh sách thư mục hợp lệ từ class_folders của lớp đích khi mở hoặc đổi lớp
   useEffect(() => {
@@ -638,8 +664,17 @@ export function InstructorClassWorkspace({
     }
   };
 
-  const classDataRequestRef = useRef(0);
-  const classDataControllerRef = useRef<AbortController | null>(null);
+  const learnersLoadedClassRef = useRef<string | null>(null);
+  const learnersRequestRef = useRef(0);
+  const learnersControllerRef = useRef<AbortController | null>(null);
+  const assignmentsLoadedClassRef = useRef<string | null>(null);
+  const assignmentsRequestRef = useRef(0);
+  const assignmentsControllerRef = useRef<AbortController | null>(null);
+  const materialsLoadedClassRef = useRef<string | null>(null);
+  const materialsRequestRef = useRef(0);
+  const materialsControllerRef = useRef<AbortController | null>(null);
+  const loadedSubmissionKeysRef = useRef<Set<string>>(new Set());
+  const [submissionsRefreshToken, setSubmissionsRefreshToken] = useState(0);
   const gradebookLoadedClassRef = useRef<string | null>(null);
   const gradebookRequestRef = useRef(0);
   const gradebookControllerRef = useRef<AbortController | null>(null);
@@ -667,82 +702,152 @@ export function InstructorClassWorkspace({
     }
   }, [item.id, session.roleCode, notify]);
 
-  /** Tải dữ liệu cốt lõi của lớp học từ cơ sở dữ liệu vật lý */
-  const loadClassData = useCallback(async () => {
-    const requestId = ++classDataRequestRef.current;
-    classDataControllerRef.current?.abort();
+  /** Tải danh sách học viên chỉ khi cần cho tab Thành viên, Bài tập hoặc Bảng điểm. */
+  const loadLearnersSlice = useCallback(async (force = false) => {
+    if (!force && learnersLoadedClassRef.current === item.id) return;
+    const requestId = ++learnersRequestRef.current;
+    learnersControllerRef.current?.abort();
     const controller = new AbortController();
-    classDataControllerRef.current = controller;
-    gradebookLoadedClassRef.current = null;
+    learnersControllerRef.current = controller;
     try {
-      const [learnersResult, assignmentsResult, materialsResult] =
-        await Promise.allSettled([
-          apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
-            roleCode: session.roleCode,
-            signal: controller.signal,
-          }),
-          apiRequest<Assignment[]>(`/academic/assignments?classId=${item.id}`, {
-            roleCode: session.roleCode,
-            signal: controller.signal,
-          }),
-          loadClassMaterials<Material>(item.id, {
-            roleCode: session.roleCode,
-            signal: controller.signal,
-          }),
-        ]);
-
-      if (requestId !== classDataRequestRef.current || controller.signal.aborted) return;
-      const failedSources = [
-        ["học viên", learnersResult],
-        ["bài tập", assignmentsResult],
-        ["tài liệu", materialsResult],
-      ] as const;
-      for (const [source, result] of failedSources) {
-        if (result.status === "rejected") console.warn(`Không tải được ${source} của lớp:`, result.reason);
-      }
-      if (failedSources.some(([, result]) => result.status === "rejected")) {
+      const rows = await apiRequest<DirectoryUser[]>(`/instructor/classes/${item.id}/learners`, {
+        roleCode: session.roleCode,
+        signal: controller.signal,
+      });
+      if (requestId !== learnersRequestRef.current || controller.signal.aborted) return;
+      learnersLoadedClassRef.current = item.id;
+      setLearners(rows);
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn("Không tải được học viên của lớp:", error);
+      if (requestId === learnersRequestRef.current && !controller.signal.aborted) {
         notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
       }
-      if (learnersResult.status === "fulfilled") setLearners(learnersResult.value);
-      // API is authoritative; legacy local entries may contain fabricated IDs or stale publication states.
-      if (assignmentsResult.status === "fulfilled") setAssignments(assignmentsResult.value);
+    }
+  }, [item.id, session.roleCode, notify]);
 
-      // Đồng bộ tài liệu thật từ CSDL vào danh sách tài liệu lớp
-      if (materialsResult.status === "fulfilled") {
-        const classMaterials = materialsResult.value.filter((m) => isMaterialForClass(m, item.id));
-        rawMaterialsMapRef.current = new Map(classMaterials.map((m) => [m.id, m]));
-        const mappedLectures = classMaterials.filter(isLectureMaterial)
-          .map((material) => toLectureItem(material, session.user.name || "Giảng viên"));
-        setLectures(mappedLectures);
-        setSelectedLectureId((current) => mappedLectures.some((lecture) => lecture.id === current) ? current : (mappedLectures[0]?.id ?? ""));
-        setSelectedLectureForPage((current) => mappedLectures.find((lecture) => lecture.id === current?.id) ?? null);
-        const mappedMats = classMaterials
-          .filter((material) => !isLectureMaterial(material))
-          .map(toMaterialDisplayItem);
-        setMaterialsList(mappedMats);
-        setSelectedMaterialId((current) => mappedMats.some((m) => m.id === current) ? current : (mappedMats[0]?.id ?? ""));
-      }
-
-      if (assignmentsResult.status === "fulfilled") {
-        setSelectedAssignment((current) => assignmentsResult.value.find((assignment) => assignment.id === current?.id) ?? assignmentsResult.value[0] ?? null);
-      }
-
+  /** Tải danh sách bài tập tự luận kèm số bài đã nộp chỉ khi giảng viên mở tab Bài tập. */
+  const loadAssignmentsSlice = useCallback(async (force = false) => {
+    if (!force && assignmentsLoadedClassRef.current === item.id) return;
+    const requestId = ++assignmentsRequestRef.current;
+    assignmentsControllerRef.current?.abort();
+    const controller = new AbortController();
+    assignmentsControllerRef.current = controller;
+    if (force) {
+      loadedSubmissionKeysRef.current.clear();
+      setSubmissionsRefreshToken((value) => value + 1);
+    }
+    try {
+      const rows = await apiRequest<Assignment[]>(`/academic/assignments?classId=${item.id}`, {
+        roleCode: session.roleCode,
+        signal: controller.signal,
+      });
+      if (requestId !== assignmentsRequestRef.current || controller.signal.aborted) return;
+      assignmentsLoadedClassRef.current = item.id;
+      setAssignments(rows);
+      setSelectedAssignment((current) => rows.find((assignment) => assignment.id === current?.id) ?? rows[0] ?? null);
     } catch (error) {
-      if (!controller.signal.aborted) console.error("Lỗi tải dữ liệu lớp học:", error);
-      if (requestId === classDataRequestRef.current && !controller.signal.aborted) {
-        notify("Không tải được toàn bộ dữ liệu lớp học", "error");
+      if (!controller.signal.aborted) console.warn("Không tải được bài tập của lớp:", error);
+      if (requestId === assignmentsRequestRef.current && !controller.signal.aborted) {
+        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
+      }
+    }
+  }, [item.id, session.roleCode, notify]);
+
+  /** Tải danh sách bài giảng và tài liệu chỉ khi mở tab Bài giảng hoặc Tài liệu. */
+  const loadMaterialsSlice = useCallback(async (force = false) => {
+    if (!force && materialsLoadedClassRef.current === item.id) return;
+    const requestId = ++materialsRequestRef.current;
+    materialsControllerRef.current?.abort();
+    const controller = new AbortController();
+    materialsControllerRef.current = controller;
+    try {
+      const rows = await loadClassMaterials<Material>(item.id, {
+        roleCode: session.roleCode,
+        signal: controller.signal,
+      });
+      if (requestId !== materialsRequestRef.current || controller.signal.aborted) return;
+      materialsLoadedClassRef.current = item.id;
+      const classMaterials = rows.filter((m) => isMaterialForClass(m, item.id));
+      rawMaterialsMapRef.current = new Map(classMaterials.map((m) => [m.id, m]));
+      const mappedLectures = classMaterials.filter(isLectureMaterial)
+        .map((material) => toLectureItem(material, session.user.name || "Giảng viên"));
+      setLectures(mappedLectures);
+      setSelectedLectureId((current) => mappedLectures.some((lecture) => lecture.id === current) ? current : (mappedLectures[0]?.id ?? ""));
+      setSelectedLectureForPage((current) => mappedLectures.find((lecture) => lecture.id === current?.id) ?? null);
+      const mappedMats = classMaterials
+        .filter((material) => !isLectureMaterial(material))
+        .map(toMaterialDisplayItem);
+      setMaterialsList(mappedMats);
+      setSelectedMaterialId((current) => mappedMats.some((m) => m.id === current) ? current : (mappedMats[0]?.id ?? ""));
+    } catch (error) {
+      if (!controller.signal.aborted) console.warn("Không tải được tài liệu của lớp:", error);
+      if (requestId === materialsRequestRef.current && !controller.signal.aborted) {
+        notify("Một số dữ liệu lớp học không tải được. Vui lòng thử lại.", "error");
       }
     }
   }, [item.id, session.roleCode, session.user.name, notify, setSelectedLectureId, setSelectedLectureForPage, setSelectedMaterialId]);
 
-  useEffect(() => {
-    void loadClassData();
-    return () => { classDataRequestRef.current += 1; classDataControllerRef.current?.abort(); };
-  }, [loadClassData]);
+  /** Làm mới các nhóm dữ liệu liên quan đến tab hiện tại sau khi giảng viên thêm/sửa/xóa nội dung. */
+  const loadClassData = useCallback(async () => {
+    gradebookLoadedClassRef.current = null;
+    const tasks: Array<Promise<void>> = [];
+    if (activeTab === "members" || activeTab === "gradebook" || learnersLoadedClassRef.current === item.id) {
+      tasks.push(loadLearnersSlice(true));
+    }
+    if (activeTab === "assignments" || assignmentsLoadedClassRef.current === item.id) {
+      tasks.push(loadAssignmentsSlice(true));
+    }
+    if (activeTab === "lectures" || activeTab === "materials" || materialsLoadedClassRef.current === item.id) {
+      tasks.push(loadMaterialsSlice(true));
+    }
+    await Promise.all(tasks);
+  }, [activeTab, item.id, loadLearnersSlice, loadAssignmentsSlice, loadMaterialsSlice]);
 
+  // Xóa dữ liệu cũ khi chuyển sang lớp khác để tránh hiển thị nhầm giữa các lớp.
   useEffect(() => {
+    learnersLoadedClassRef.current = null;
+    assignmentsLoadedClassRef.current = null;
+    materialsLoadedClassRef.current = null;
+    gradebookLoadedClassRef.current = null;
+    loadedSubmissionKeysRef.current.clear();
+    setLearners([]);
+    setAssignments([]);
+    setSelectedAssignment(null);
+    setSubmissionsByAssignment({});
+    setLectures([]);
+    setMaterialsList([]);
     setGradebook([]);
   }, [item.id]);
+
+  // Chỉ tải danh sách học viên cho các tab thực sự hiển thị sĩ số hoặc bảng điểm.
+  useEffect(() => {
+    if (activeTab !== "members" && activeTab !== "assignments" && activeTab !== "gradebook") return;
+    void loadLearnersSlice();
+    return () => {
+      learnersRequestRef.current += 1;
+      learnersControllerRef.current?.abort();
+    };
+  }, [activeTab, loadLearnersSlice]);
+
+  // Chỉ tải danh sách bài tập khi giảng viên mở tab Bài tập.
+  useEffect(() => {
+    if (activeTab !== "assignments") return;
+    void loadAssignmentsSlice();
+    return () => {
+      assignmentsRequestRef.current += 1;
+      assignmentsControllerRef.current?.abort();
+    };
+  }, [activeTab, loadAssignmentsSlice]);
+
+  // Chỉ tải danh sách học liệu/bài giảng khi mở tab Bài giảng hoặc Tài liệu.
+  useEffect(() => {
+    if (activeTab !== "lectures" && activeTab !== "materials") return;
+    void loadMaterialsSlice();
+    return () => {
+      materialsRequestRef.current += 1;
+      materialsControllerRef.current?.abort();
+    };
+  }, [activeTab, loadMaterialsSlice]);
 
   useEffect(() => {
     if (activeTab !== "gradebook") return;
@@ -872,31 +977,34 @@ export function InstructorClassWorkspace({
     await Promise.all(tasks);
   };
 
-  const assignmentIds = assignments.map((assignment) => assignment.id).join("|");
+  const selectedAssignmentId = selectedAssignment?.id ?? "";
 
-  // Tải bài nộp theo từng bài tập để thống kê chính xác và tránh dùng dữ liệu giả.
+  // Chỉ tải bài nộp cho đúng bài tập đang được chọn trong tab Bài tập (xóa N+1 tải toàn bộ bài tập).
   useEffect(() => {
+    if (activeTab !== "assignments" || !selectedAssignmentId) return;
+    const cacheKey = `${item.id}:${selectedAssignmentId}`;
+    if (loadedSubmissionKeysRef.current.has(cacheKey)) return;
     let active = true;
     const controller = new AbortController();
-    const ids = assignmentIds ? assignmentIds.split("|") : [];
-    if (ids.length === 0) {
-      setSubmissionsByAssignment({});
-      return;
-    }
-    void Promise.allSettled(ids.map((id) => apiRequest<AssignmentSubmission[]>(
-      `/instructor/assignments/${id}/submissions`, { roleCode: session.roleCode, signal: controller.signal },
-    ))).then((results) => {
-      if (!active) return;
-      const next: Record<string, AssignmentSubmission[]> = {};
-      results.forEach((result, index) => {
-        if (result.status === "fulfilled") next[ids[index]!] = result.value;
-        else console.warn(`Không tải được bài nộp của ${ids[index]}:`, result.reason);
+    void apiRequest<AssignmentSubmission[]>(
+      `/instructor/assignments/${encodeURIComponent(selectedAssignmentId)}/submissions`,
+      { roleCode: session.roleCode, signal: controller.signal },
+    )
+      .then((rows) => {
+        if (!active || controller.signal.aborted) return;
+        loadedSubmissionKeysRef.current.add(cacheKey);
+        setSubmissionsByAssignment((prev) => ({ ...prev, [selectedAssignmentId]: rows }));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.warn(`Không tải được bài nộp của ${selectedAssignmentId}:`, error);
+        }
       });
-      setSubmissionsByAssignment(next);
-    });
-    return () => { active = false; controller.abort(); };
-  // Chỉ tải lại khi danh sách ID thực sự thay đổi, không phụ thuộc identity của mảng assignments.
-  }, [assignmentIds, session.roleCode]);
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [activeTab, item.id, selectedAssignmentId, session.roleCode, submissionsRefreshToken]);
 
   const selectedSubmissions = selectedAssignment
     ? submissionsByAssignment[selectedAssignment.id] ?? []
@@ -2858,7 +2966,10 @@ export function InstructorClassWorkspace({
                           .map(work => {
                             const exam = "attemptLimit" in work;
                             const isSelected = selectedWork?.id === work.id;
-                            const submittedCount = new Set((submissionsByAssignment[work.id] ?? []).map(submission => submission.learnerId)).size;
+                            const loadedSubmissions = submissionsByAssignment[work.id];
+                            const submittedCount = loadedSubmissions
+                              ? new Set(loadedSubmissions.map((submission) => submission.learnerId)).size
+                              : (!exam && typeof work.submissionCount === "number" ? work.submissionCount : 0);
                             return (
                               <button type="button"
                                 key={work.id}
