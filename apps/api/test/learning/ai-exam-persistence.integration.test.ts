@@ -30,7 +30,8 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
   // Chỉ xóa bản ghi thuộc bộ dữ liệu duy nhất này, theo thứ tự khóa ngoại.
   afterAll(async () => {
     if (prisma) {
-      await prisma.systemSetting.deleteMany({ where: { updatedBy: fixture, key: { startsWith: "ai-generation" } } });
+      await prisma.aiGenerationBinding.deleteMany({ where: { ownerId: fixture } });
+      await prisma.aiGenerationRequest.deleteMany({ where: { ownerId: fixture } });
       const notices = await prisma.notification.findMany({ where: { recipientId: fixture }, select: { id: true } });
       await prisma.outboxDelivery.deleteMany({ where: { id: { in: notices.map(({ id }) => "delivery:email:" + id) } } });
       await deleteTestAuditLogs(prisma, { actorId: fixture });
@@ -67,10 +68,9 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     /** Mô phỏng thao tác bất đồng bộ không trả bản ghi tại ranh giới lưu trữ. */
     const noResult = (): Promise<undefined> => Promise.resolve(undefined);
     await expect(new AiGenerationRequestService(prisma).run(requestId, fixture, input, generate, () => Promise.reject(new Error("fixture interruption")), noResult)).rejects.toThrow("fixture interruption");
-    const key = `ai-generation:${requestId}`;
-    const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key } });
+    const claim = await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: requestId } });
     // Mô phỏng tiến trình dừng sau khi lưu trạng thái SAVING, trước khi bắt đầu giao dịch tạo đề.
-    await prisma.systemSetting.update({ where: { key }, data: { value: { ...(claim.value as object), state: "SAVING" }, version: { increment: 1 } } });
+    await prisma.aiGenerationRequest.update({ where: { id: requestId }, data: { state: "SAVING", version: { increment: 1 } } });
     // Callback này dùng giao dịch thật cùng ràng buộc duy nhất generationRequestId.
     const save = async (draft: { courseId: string; generated: GeneratedExamDraft }, canonicalId: string): Promise<AiGeneratedExamResult> => ({ exam: await learning.createGeneratedExam(input, draft.generated.questions, draft.courseId, context, canonicalId, fixture) } as AiGeneratedExamResult);
     const outcomes = await Promise.allSettled(Array.from({ length: 4 }, () => new AiGenerationRequestService(prisma).run(randomUUID(), fixture, input, generate, save, noResult, { idempotentSave: true })));
@@ -80,7 +80,8 @@ describe.skipIf(!enabled)("AI exam persistence on dedicated PostgreSQL", () => {
     expect(await prisma.exam.count({ where: { generationRequestId: requestId } })).toBe(1);
     expect(await prisma.question.count({ where: { courseId: fixture, content: question.content } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { actorId: fixture, entityId: replay.exam.id, action: "AI_EXAM_DRAFT_CREATED" } })).toBe(1);
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key } })).value).toMatchObject({ state: "COMPLETED", result: { exam: { id: replay.exam.id } } });
+    expect(await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: requestId } })).toMatchObject({ state: "COMPLETED", result: { exam: { id: replay.exam.id } } });
+    expect(claim.state).toBe("READY");
   });
 
   it.each(["same", "answer", "options", "type", "difficulty", "case", "image"])("preserves generated question identity: %s", async (variant) => {

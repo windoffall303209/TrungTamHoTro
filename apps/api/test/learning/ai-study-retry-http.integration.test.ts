@@ -615,14 +615,11 @@ async function replaceMaterialVersion(
   });
 }
 
-/** Xóa toàn bộ dữ liệu fixture, khóa OCR trong system_settings và nhật ký kiểm toán phát sinh trong bài test. */
+/** Xóa toàn bộ dữ liệu fixture, khóa OCR trong ai_document_extractions và nhật ký kiểm toán phát sinh trong bài test. */
 async function cleanupTestFixture(prisma: PrismaService, claimIds: Set<string>): Promise<void> {
   const userIds = [ids.admin, ids.instructorA, ids.instructorB, ids.learnerA];
-  await prisma.systemSetting.deleteMany({
-    where: {
-      key: { startsWith: "ai-doc:" },
-      updatedBy: { in: userIds },
-    },
+  await prisma.aiDocumentExtraction.deleteMany({
+    where: { ownerId: { in: userIds } },
   });
   for (const claimId of claimIds) {
     await deleteTestAuditLogs(prisma, { entityId: claimId, action: "AI_STUDY_RETRY_AUTHORIZED" });

@@ -9,20 +9,26 @@ import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
+
 describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   const ownerId = `answer-test-${randomUUID()}`;
   const identity = { ownerId, materialId: "fixture-document", version: 1, question: "What is HTTP?", language: "EN" as const };
   const result = { answer: "Insufficient fixture context.", insufficientContext: true, citations: [], warning: "Fixture", version: 1 };
   let moduleRef: TestingModule;
   let prisma: PrismaService;
+
   // Nạp các dịch vụ cơ sở dữ liệu thật mà không gọi nhà cung cấp AI.
   beforeAll(async () => { moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile(); prisma = moduleRef.get(PrismaService); });
-  // Chỉ xóa bản ghi câu trả lời có mã băm thuộc lần chạy này.
+
+  // Chỉ xóa bản ghi câu trả lời thuộc lần chạy này trong bảng ai_document_answers.
   afterAll(async () => {
     if (prisma) {
-      const rows = await prisma.systemSetting.findMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } }, select: { key: true } });
-      await deleteTestAuditLogs(prisma, { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: { in: rows.map((row) => row.key.slice(14)) } });
-      await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [ownerId, `${ownerId}-other`] }, key: { startsWith: "ai-doc-answer:" } } });
+      const rows = await prisma.aiDocumentAnswer.findMany({
+        where: { ownerId: { in: [ownerId, `${ownerId}-other`] } },
+        select: { id: true },
+      });
+      await deleteTestAuditLogs(prisma, { action: "AI_DOCUMENT_ANSWER_RETRY_AUTHORIZED", entityId: { in: rows.map((row) => row.id) } });
+      await prisma.aiDocumentAnswer.deleteMany({ where: { ownerId: { in: [ownerId, `${ownerId}-other`] } } });
     }
     await moduleRef?.close();
   });
@@ -30,7 +36,7 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   it("allows one concurrent generation and replays after process replacement", async () => {
     const reader = new AiDocumentAnswerStore(prisma);
     expect(await reader.status(identity)).toEqual({ state: "NOT_REQUESTED" });
-    expect(await prisma.systemSetting.count({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } })).toBe(0);
+    expect(await prisma.aiDocumentAnswer.count({ where: { ownerId } })).toBe(0);
     const generate = vi.fn(() => Promise.resolve(result));
     const outcomes = await Promise.allSettled(Array.from({ length: 6 }, () => new AiDocumentAnswerStore(prisma).generate(identity, generate)));
     expect(outcomes.some((outcome) => outcome.status === "fulfilled")).toBe(true);
@@ -39,10 +45,10 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     expect(generate).toHaveBeenCalledTimes(1);
     expect(await reader.status(identity)).toEqual({ state: "READY", result });
     expect(await reader.status({ ...identity, ownerId: `${ownerId}-other` })).toEqual({ state: "NOT_REQUESTED" });
-    const rows = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
+    const rows = await prisma.aiDocumentAnswer.findMany({ where: { ownerId } });
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.key).not.toContain(identity.question);
-    expect(rows[0]?.value).toMatchObject({ request: { materialId: identity.materialId, version: identity.version, question: identity.question, language: identity.language } });
+    expect(rows[0]?.id).not.toContain(identity.question);
+    expect(rows[0]).toMatchObject({ materialId: identity.materialId, sourceVersion: identity.version, question: identity.question, language: identity.language });
   });
 
   it("isolates owners, versions, languages and questions", async () => {
@@ -61,8 +67,8 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     await expect(new AiDocumentAnswerStore(prisma).generate(next, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "UNCERTAIN" });
-    const records = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } } });
-    expect(records.some((record) => JSON.stringify(record.value).includes(next.question))).toBe(true);
+    const records = await prisma.aiDocumentAnswer.findMany({ where: { ownerId } });
+    expect(records.some((record) => record.question === next.question)).toBe(true);
   });
 
   it("consumes one evidence-authorized retry across concurrent workers", async () => {
@@ -70,10 +76,13 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     const first = vi.fn().mockRejectedValue(new Error("response lost"));
     await expect(new AiDocumentAnswerStore(prisma).generate(next, first)).rejects.toThrow("response lost");
     const id = createHash("sha256").update(JSON.stringify(["v1", next.ownerId, next.materialId, next.version, next.question, next.language])).digest("hex");
-    const claim = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-doc-answer:${id}` } });
+    const claim = await prisma.aiDocumentAnswer.findUniqueOrThrow({ where: { id } });
     const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: null } } as unknown as AuthenticatedSession;
     await new AiGradingOperationsService(prisma).reconcileDocumentAnswerNotProcessed(id, {
-      expectedVersion: claim.version, evidenceReference: "provider-dashboard-fixture", evidenceNote: "Provider fixture confirms that the original request was not accepted.", checkedAt: new Date(claim.updatedAt.getTime() + 1_000).toISOString(),
+      expectedVersion: claim.version,
+      evidenceReference: "provider-dashboard-fixture",
+      evidenceNote: "Provider fixture confirms that the original request was not accepted.",
+      checkedAt: new Date(claim.updatedAt.getTime() + 1_000).toISOString(),
     }, admin);
     expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "NOT_REQUESTED" });
     const retry = vi.fn(() => Promise.resolve(result));
@@ -95,9 +104,9 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     const pending = new AiDocumentAnswerStore(prisma).generate(next, () => { started(); return new Promise((resolve) => { finish = (): void => resolve(result); }); });
     await entered;
     try {
-      const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+      const before = await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } });
       expect(await new AiDocumentAnswerStore(prisma).status(next)).toEqual({ state: "GENERATING" });
-      expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
+      expect(await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } })).toEqual(before);
     } finally { finish(); await pending; }
   });
 
@@ -112,14 +121,22 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
   it("lists private answer metadata with stable keysets and no database mutations", async () => {
     const stamp = new Date("2090-01-01T00:00:00Z");
     const ids = ["a", "b", "c"].map((prefix) => `${prefix}${randomUUID()}`);
-    const states = ["GENERATING", "UNCERTAIN", "UNKNOWN"];
-    for (const [index, id] of ids.entries()) await prisma.systemSetting.create({ data: {
-      key: `ai-doc-answer:${id}`, updatedBy: ownerId, effectiveAt: stamp,
-      value: { state: states[index], question: "private question sentinel", result: { answer: "private answer sentinel", citations: ["private citation sentinel"] } },
-    } });
+    const states = ["GENERATING", "UNCERTAIN", "UNCERTAIN"];
+    for (const [index, id] of ids.entries()) {
+      await prisma.aiDocumentAnswer.create({
+        data: {
+          id,
+          ownerId,
+          createdAt: stamp,
+          state: states[index]!,
+          question: "private question sentinel",
+          result: { answer: "private answer sentinel", citations: ["private citation sentinel"] },
+        },
+      });
+    }
     const operations = new AiGradingOperationsService(prisma);
     const admin = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"] } as AuthenticatedSession;
-    const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+    const before = await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } });
     const page = await operations.listDocumentAnswers({ limit: 2 }, admin);
     expect(page.items.map((item) => item.id)).toEqual([ids[2], ids[1]]);
     expect(page.items.map((item) => item.state)).toEqual(["UNCERTAIN", "UNCERTAIN"]);
@@ -131,20 +148,22 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     const ready = await operations.listDocumentAnswers({ limit: 50, state: "READY" }, admin);
     expect(ready.items.every((item) => item.state === "READY")).toBe(true);
     await expect(operations.listDocumentAnswers({ limit: 2, cursor: "missing-cursor" }, admin)).rejects.toMatchObject({ status: 400 });
-    expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
+    expect(await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } })).toEqual(before);
   });
 
   it("paginates private question history within one owner and source version without reading answers", async () => {
     const scope = { ownerId, materialId: "history-fixture", version: 1 };
     const store = new AiDocumentAnswerStore(prisma);
-    for (let index = 0; index < 25; index++) await store.generate({ ...scope, question: `History question ${index}?`, language: "EN" }, () => Promise.resolve(result));
+    for (let index = 0; index < 25; index++) {
+      await store.generate({ ...scope, question: `History question ${index}?`, language: "EN" }, () => Promise.resolve(result));
+    }
     for (const change of [{ ownerId: `${ownerId}-other` }, { materialId: "other-history" }, { version: 2 }]) {
       const other = { ...scope, ...change };
       await store.generate({ ...other, question: "Private elsewhere?", language: "VI" }, () => Promise.resolve({ ...result, version: other.version }));
     }
     // Ép thời điểm bằng nhau để kiểm tra phân xử theo mã định danh với cách sắp xếp thật của PostgreSQL.
-    await prisma.systemSetting.updateMany({ where: { updatedBy: ownerId, key: { startsWith: "ai-doc-answer:" } }, data: { effectiveAt: new Date("2091-01-01") } });
-    const before = await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } });
+    await prisma.aiDocumentAnswer.updateMany({ where: { ownerId }, data: { createdAt: new Date("2091-01-01") } });
+    const before = await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } });
     const first = await store.list(scope);
     expect(first.items).toHaveLength(20);
     const second = await new AiDocumentAnswerStore(prisma).list(scope, first.nextCursor!);
@@ -154,8 +173,10 @@ describe.skipIf(!enabled)("Durable document answers on PostgreSQL", () => {
     expect(new Set(items.map((item) => item.id)).size).toBe(25);
     expect(items.every((item) => item.question.startsWith("History question") && item.language === "EN")).toBe(true);
     expect(Object.keys(items[0]!).sort()).toEqual(["createdAt", "id", "language", "question", "state"]);
-    for (const change of [{ ownerId: `${ownerId}-other` }, { materialId: "other-history" }, { version: 2 }]) await expect(store.list({ ...scope, ...change }, first.nextCursor!)).rejects.toMatchObject({ status: 400 });
-    expect(await prisma.systemSetting.findMany({ where: { updatedBy: ownerId }, orderBy: { key: "asc" } })).toEqual(before);
+    for (const change of [{ ownerId: `${ownerId}-other` }, { materialId: "other-history" }, { version: 2 }]) {
+      await expect(store.list({ ...scope, ...change }, first.nextCursor!)).rejects.toMatchObject({ status: 400 });
+    }
+    expect(await prisma.aiDocumentAnswer.findMany({ where: { ownerId }, orderBy: { id: "asc" } })).toEqual(before);
   });
 });
 

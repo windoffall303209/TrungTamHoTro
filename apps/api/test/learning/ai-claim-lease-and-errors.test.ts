@@ -123,31 +123,59 @@ function createStudyStoreWithClock(now: () => Date, leaseMs = 5_000): {
   return { service: new AiStudyDraftService(prisma as unknown as PrismaService, { leaseMs, now }), rows };
 }
 
-/** Tạo kho system_settings dùng chung hỗ trợ kiểm thử lease cho sinh đề AI. */
-function createSystemSettingDb(): {
+/** Tạo kho hai bảng ai_generation_requests và ai_generation_bindings dùng chung cho kiểm thử lease sinh đề AI. */
+function createExamRequestDb(): {
   prisma: PrismaService;
-  rows: Map<string, { version: number; value: Record<string, unknown> }>;
+  requests: Map<string, { id: string; ownerId: string; payloadHash: string; state: string; version: number; prepared: unknown; result: unknown; leaseToken: string | null; leaseExpiresAt: Date | null }>;
 } {
-  const rows = new Map<string, { version: number; value: Record<string, unknown> }>();
+  const requests = new Map<string, { id: string; ownerId: string; payloadHash: string; state: string; version: number; prepared: unknown; result: unknown; leaseToken: string | null; leaseExpiresAt: Date | null }>();
+  const bindings = new Map<string, { fingerprint: string; ownerId: string; payloadHash: string; canonicalRequestId: string | null; malformed: boolean }>();
   const prisma = {
     isStartupConnectionEnabled: (): boolean => true,
-    systemSetting: {
-      create: ({ data }: { data: { key: string; value: Record<string, unknown> } }): Promise<void> => {
-        if (rows.has(data.key)) throw Object.assign(new Error("duplicate"), { code: "P2002" });
-        rows.set(data.key, { version: 1, value: structuredClone(data.value) });
+    aiGenerationRequest: {
+      create: ({ data }: { data: { id: string; ownerId: string; payloadHash: string; state?: string } }): Promise<void> => {
+        if (requests.has(data.id)) throw Object.assign(new Error("duplicate"), { code: "P2002" });
+        requests.set(data.id, {
+          id: data.id,
+          ownerId: data.ownerId,
+          payloadHash: data.payloadHash,
+          state: data.state ?? "CLAIMED",
+          version: 1,
+          prepared: null,
+          result: null,
+          leaseToken: null,
+          leaseExpiresAt: null,
+        });
         return Promise.resolve();
       },
-      findUnique: ({ where }: { where: { key: string } }): Promise<{ version: number; value: Record<string, unknown> } | null> =>
-        Promise.resolve(structuredClone(rows.get(where.key) ?? null)),
-      updateMany: ({ where, data }: { where: { key: string; version: number }; data: { value: Record<string, unknown> } }): Promise<{ count: number }> => {
-        const current = rows.get(where.key);
+      findUnique: ({ where }: { where: { id: string } }): Promise<unknown> =>
+        Promise.resolve(structuredClone(requests.get(where.id) ?? null)),
+      updateMany: ({ where, data }: { where: { id: string; version: number }; data: Record<string, unknown> }): Promise<{ count: number }> => {
+        const current = requests.get(where.id);
         if (!current || current.version !== where.version) return Promise.resolve({ count: 0 });
-        rows.set(where.key, { version: current.version + 1, value: structuredClone(data.value) });
+        requests.set(where.id, {
+          ...current,
+          state: typeof data.state === "string" ? data.state : current.state,
+          prepared: "prepared" in data ? structuredClone(data.prepared) : current.prepared,
+          result: "result" in data ? structuredClone(data.result) : current.result,
+          leaseToken: "leaseToken" in data ? (data.leaseToken as string | null) : current.leaseToken,
+          leaseExpiresAt: "leaseExpiresAt" in data ? (data.leaseExpiresAt as Date | null) : current.leaseExpiresAt,
+          version: current.version + 1,
+        });
         return Promise.resolve({ count: 1 });
       },
     },
+    aiGenerationBinding: {
+      create: ({ data }: { data: { fingerprint: string; ownerId: string; payloadHash: string; canonicalRequestId: string; malformed?: boolean } }): Promise<void> => {
+        if (bindings.has(data.fingerprint)) throw Object.assign(new Error("duplicate"), { code: "P2002" });
+        bindings.set(data.fingerprint, { ...data, malformed: data.malformed ?? false });
+        return Promise.resolve();
+      },
+      findUnique: ({ where }: { where: { fingerprint: string } }): Promise<unknown> =>
+        Promise.resolve(structuredClone(bindings.get(where.fingerprint) ?? null)),
+    },
   } as unknown as PrismaService;
-  return { prisma, rows };
+  return { prisma, requests };
 }
 
 describe("Phân loại lỗi AI và chính sách lease (D02)", () => {
@@ -308,17 +336,18 @@ describe("Phân loại lỗi AI và chính sách lease (D02)", () => {
 
     // 1. Extraction store: lease hết hạn báo UNCERTAIN khi status() và chuyển UNCERTAIN khi generate().
     const { prisma: ocrPrisma, rows: ocrRows } = extractionDatabase();
-    const ocrKey = `ai-doc:${"b".repeat(64)}`;
+    const ocrId = "b".repeat(64);
+    const ocrKey = `ai-doc:${ocrId}`;
     const ocrStore = new AiDocumentExtractionStore(ocrPrisma, leaseOpts);
     let releaseOcr!: () => void;
     const pendingOcr = ocrStore.generate(ocrKey, "teacher-1", () => new Promise((resolve) => {
       releaseOcr = (): void => resolve([{ page: 1, text: "OCR" }]);
     }));
-    await vi.waitFor(() => expect(ocrRows.has(ocrKey)).toBe(true));
+    await vi.waitFor(() => expect(ocrRows.has(ocrId)).toBe(true));
     nowRef.value = new Date("2026-11-25T10:00:06.000Z");
     expect(await ocrStore.status(ocrKey)).toEqual({ state: "UNCERTAIN" });
     await expect(ocrStore.generate(ocrKey, "teacher-1", vi.fn())).rejects.toMatchObject({ status: 409 });
-    expect(ocrRows.get(ocrKey)?.value).toEqual({ state: "UNCERTAIN" });
+    expect(ocrRows.get(ocrId)).toMatchObject({ state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null });
     releaseOcr();
     await expect(pendingOcr).rejects.toMatchObject({ status: 409 });
 
@@ -331,12 +360,12 @@ describe("Phân loại lỗi AI và chính sách lease (D02)", () => {
     await expect(answerStore.generate(answerIdentity, () => Promise.resolve(answerResult))).resolves.toEqual(answerResult);
 
     // 3. ExamGeneration store: lỗi 429 trả về CLAIMED; lease GENERATING hết hạn chuyển UNCERTAIN.
-    const { prisma: examPrisma, rows: examRows } = createSystemSettingDb();
+    const { prisma: examPrisma, requests: examRows } = createExamRequestDb();
     const examService = new AiGenerationRequestService(examPrisma, leaseOpts);
     /** Giả lập chưa có bản đề thi đã lưu để kiểm tra nhánh gọi provider. */
     const noRecover = (): Promise<undefined> => Promise.resolve(undefined);
     await expect(examService.run("req-429", "owner-1", { k: 1 }, () => Promise.reject(quotaError), vi.fn(), noRecover)).rejects.toMatchObject({ status: 429 });
-    expect(examRows.get("ai-generation:req-429")?.value.state).toBe("CLAIMED");
+    expect(examRows.get("req-429")?.state).toBe("CLAIMED");
     await expect(examService.run("req-429", "owner-1", { k: 1 }, () => Promise.resolve(examPrepared), () => Promise.resolve(examResult), noRecover)).resolves.toEqual(examResult);
 
     nowRef.value = new Date("2026-11-25T10:00:00.000Z");
@@ -344,10 +373,10 @@ describe("Phân loại lỗi AI và chính sách lease (D02)", () => {
     const hangingExam = examService.run("req-crash", "owner-1", { k: 2 }, () => new Promise((resolve) => {
       releaseExam = (): void => resolve(examPrepared);
     }), () => Promise.resolve(examResult), noRecover);
-    await vi.waitFor(() => expect(examRows.get("ai-generation:req-crash")?.value.state).toBe("GENERATING"));
+    await vi.waitFor(() => expect(examRows.get("req-crash")?.state).toBe("GENERATING"));
     nowRef.value = new Date("2026-11-25T10:00:06.000Z");
     await expect(examService.run("req-crash", "owner-1", { k: 2 }, vi.fn(), vi.fn(), noRecover)).rejects.toMatchObject({ status: 409 });
-    expect(examRows.get("ai-generation:req-crash")?.value.state).toBe("UNCERTAIN");
+    expect(examRows.get("req-crash")).toMatchObject({ state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null });
     releaseExam();
     await expect(hangingExam).rejects.toMatchObject({ status: 409 });
   });

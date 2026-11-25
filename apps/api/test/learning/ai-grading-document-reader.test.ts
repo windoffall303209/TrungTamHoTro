@@ -81,9 +81,9 @@ describe("private grading OCR reader", () => {
     expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
   });
   it("rejects tampered bytes before reading or generating", async () => {
-    const { reader, systemSetting, ai } = fixture();
+    const { reader, aiDocumentExtraction, ai } = fixture();
     await expect(reader.read("submission", "teacher", { ...file, buffer: Buffer.from("tampered") }, true)).rejects.toMatchObject({ status: 400 });
-    expect(systemSetting.findUnique).not.toHaveBeenCalled();
+    expect(aiDocumentExtraction.findUnique).not.toHaveBeenCalled();
     expect(ai.resolveTask).not.toHaveBeenCalled();
   });
   it("keeps ambiguous OCR locked and does not retry", async () => {

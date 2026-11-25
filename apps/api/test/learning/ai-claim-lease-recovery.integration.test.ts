@@ -28,11 +28,11 @@ describe.skipIf(!enabled)("Phục hồi lease GENERATING sau crash/restart trên
   const materialId = `d02-mat-${suffix}`;
   const assignmentId = `d02-asg-${suffix}`;
   const settingOwner = `d02-owner-${suffix}`;
-  const ocrExpiredKey = `ai-doc:${createHash("sha256").update(`ocr-exp:${suffix}`).digest("hex")}`;
-  const ocrActiveKey = `ai-doc:${createHash("sha256").update(`ocr-act:${suffix}`).digest("hex")}`;
-  const answerExpiredKey = `ai-doc-answer:${createHash("sha256").update(`ans-exp:${suffix}`).digest("hex")}`;
-  const examExpiredKey = `ai-generation:d02-exp-${suffix}`;
-  const examLegacyKey = `ai-generation:d02-leg-${suffix}`;
+  const ocrExpiredId = createHash("sha256").update(`ocr-exp:${suffix}`).digest("hex");
+  const ocrActiveId = createHash("sha256").update(`ocr-act:${suffix}`).digest("hex");
+  const answerExpiredId = createHash("sha256").update(`ans-exp:${suffix}`).digest("hex");
+  const examExpiredId = `d02-exp-${suffix}`;
+  const examLegacyId = `d02-leg-${suffix}`;
 
   let moduleRef: TestingModule;
   let prisma: PrismaService;
@@ -77,15 +77,15 @@ describe.skipIf(!enabled)("Phục hồi lease GENERATING sau crash/restart trên
     submissionId = (await prisma.assignmentSubmission.create({ data: { assignmentId, learnerId: ownerId, content: "Answer" } })).id;
   });
 
-  /** Xóa sạch mọi bản ghi, khóa system_settings và audit log của bộ kiểm thử D02. */
+  /** Xóa sạch mọi bản ghi AI và audit log của bộ kiểm thử D02. */
   afterAll(async () => {
     if (prisma) {
       if (auditClaimIds.length) {
         await deleteTestAuditLogs(prisma, { entityId: { in: auditClaimIds }, action: "AI_STUDY_RETRY_AUTHORIZED" });
       }
-      await prisma.systemSetting.deleteMany({
-        where: { key: { in: [ocrExpiredKey, ocrActiveKey, answerExpiredKey, examExpiredKey, examLegacyKey] } },
-      });
+      await prisma.aiDocumentExtraction.deleteMany({ where: { id: { in: [ocrExpiredId, ocrActiveId] } } });
+      await prisma.aiDocumentAnswer.deleteMany({ where: { id: answerExpiredId } });
+      await prisma.aiGenerationRequest.deleteMany({ where: { id: { in: [examExpiredId, examLegacyId] } } });
       await prisma.material.deleteMany({ where: { id: materialId } });
       await prisma.assignment.deleteMany({ where: { id: assignmentId } });
     }
@@ -154,13 +154,31 @@ describe.skipIf(!enabled)("Phục hồi lease GENERATING sau crash/restart trên
       ],
     });
 
-    await prisma.systemSetting.createMany({
+    await prisma.aiDocumentExtraction.createMany({
       data: [
-        { key: ocrExpiredKey, updatedBy: settingOwner, value: { state: "GENERATING", leaseToken: "tok-ocr-exp", leaseExpiresAt: expiredAt.toISOString() } },
-        { key: ocrActiveKey, updatedBy: settingOwner, value: { state: "GENERATING", leaseToken: "tok-ocr-act", leaseExpiresAt: activeAt.toISOString() } },
-        { key: answerExpiredKey, updatedBy: settingOwner, value: { state: "GENERATING", leaseToken: "tok-ans-exp", leaseExpiresAt: expiredAt.toISOString(), request: { materialId, version: 1, question: "Q?", language: "VI" } } },
-        { key: examExpiredKey, updatedBy: settingOwner, value: { owner: settingOwner, hash: "e".repeat(64), state: "GENERATING", leaseToken: "tok-ex-exp", leaseExpiresAt: expiredAt.toISOString() } },
-        { key: examLegacyKey, updatedBy: settingOwner, value: { owner: settingOwner, hash: "f".repeat(64), state: "GENERATING" } },
+        { id: ocrExpiredId, ownerId: settingOwner, state: "GENERATING", leaseToken: "tok-ocr-exp", leaseExpiresAt: expiredAt },
+        { id: ocrActiveId, ownerId: settingOwner, state: "GENERATING", leaseToken: "tok-ocr-act", leaseExpiresAt: activeAt },
+      ],
+    });
+
+    await prisma.aiDocumentAnswer.create({
+      data: {
+        id: answerExpiredId,
+        ownerId: settingOwner,
+        materialId,
+        sourceVersion: 1,
+        question: "Q?",
+        language: "VI",
+        state: "GENERATING",
+        leaseToken: "tok-ans-exp",
+        leaseExpiresAt: expiredAt,
+      },
+    });
+
+    await prisma.aiGenerationRequest.createMany({
+      data: [
+        { id: examExpiredId, ownerId: settingOwner, payloadHash: "e".repeat(64), state: "GENERATING", leaseToken: "tok-ex-exp", leaseExpiresAt: expiredAt },
+        { id: examLegacyId, ownerId: settingOwner, payloadHash: "f".repeat(64), state: "GENERATING", leaseToken: null, leaseExpiresAt: null },
       ],
     });
 
@@ -178,22 +196,11 @@ describe.skipIf(!enabled)("Phục hồi lease GENERATING sau crash/restart trên
     expect(await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { id: gradingExpiredId } })).toMatchObject({ state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null });
     expect(await prisma.aiGradingSuggestion.findUniqueOrThrow({ where: { id: gradingLegacyId } })).toMatchObject({ state: "GENERATING", leaseToken: null, leaseExpiresAt: null });
 
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: ocrExpiredKey } })).value).toEqual({ state: "UNCERTAIN" });
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: ocrActiveKey } })).value).toMatchObject({ state: "GENERATING", leaseToken: "tok-ocr-act" });
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: answerExpiredKey } })).value).toEqual({
-      state: "UNCERTAIN",
-      request: { materialId, version: 1, question: "Q?", language: "VI" },
-    });
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: examExpiredKey } })).value).toEqual({
-      owner: settingOwner,
-      hash: "e".repeat(64),
-      state: "UNCERTAIN",
-    });
-    expect((await prisma.systemSetting.findUniqueOrThrow({ where: { key: examLegacyKey } })).value).toEqual({
-      owner: settingOwner,
-      hash: "f".repeat(64),
-      state: "GENERATING",
-    });
+    expect(await prisma.aiDocumentExtraction.findUniqueOrThrow({ where: { id: ocrExpiredId } })).toMatchObject({ state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null });
+    expect(await prisma.aiDocumentExtraction.findUniqueOrThrow({ where: { id: ocrActiveId } })).toMatchObject({ state: "GENERATING", leaseToken: "tok-ocr-act" });
+    expect(await prisma.aiDocumentAnswer.findUniqueOrThrow({ where: { id: answerExpiredId } })).toMatchObject({ state: "UNCERTAIN", materialId, sourceVersion: 1, question: "Q?", language: "VI", leaseToken: null, leaseExpiresAt: null });
+    expect(await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: examExpiredId } })).toMatchObject({ state: "UNCERTAIN", ownerId: settingOwner, payloadHash: "e".repeat(64), leaseToken: null, leaseExpiresAt: null });
+    expect(await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: examLegacyId } })).toMatchObject({ state: "GENERATING", leaseToken: null, leaseExpiresAt: null });
   });
 
   it("chặn zombie worker sau khi lease hết hạn và cho phép admin đối soát mở retry an toàn trên PostgreSQL", async () => {
@@ -249,7 +256,6 @@ describe.skipIf(!enabled)("Phục hồi lease GENERATING sau crash/restart trên
     expect(retryCall).toHaveBeenCalledTimes(1);
     expect(await restartedService.find(identity)).toMatchObject({ state: "READY", leaseToken: null, leaseExpiresAt: null });
 
-    // Kiểm tra tương tự với AiGradingStoreService, AiDocumentExtractionStore, AiDocumentAnswerStore và AiGenerationRequestService.
     expect(new AiGradingStoreService(prisma)).toBeDefined();
     expect(new AiDocumentExtractionStore(prisma)).toBeDefined();
     expect(new AiDocumentAnswerStore(prisma)).toBeDefined();

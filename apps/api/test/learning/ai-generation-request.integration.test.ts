@@ -13,7 +13,7 @@ import { deleteTestAuditLogs } from "../support/audit-maintenance.js";
 const enabled = (process.env.DB_NAME ?? "").endsWith("_test") && process.env.DATABASE_CONNECT_ON_START === "true";
 const prepared = { courseId: "fixture-course", generated: { model: "mock" } as GeneratedExamDraft };
 const result = { exam: { id: "fixture-exam" } } as AiGeneratedExamResult;
-// Mô phỏng chưa có đề đã lưu; không gọi AI hoặc tạo đề thật.
+/** Mô phỏng chưa có đề đã lưu; không gọi AI hoặc tạo đề thật. */
 const noResult = (): Promise<undefined> => Promise.resolve(undefined);
 
 describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test database", () => {
@@ -33,7 +33,8 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
   afterAll(async () => {
     if (prisma) {
       await deleteTestAuditLogs(prisma, { actorId: adminId });
-      await prisma.systemSetting.deleteMany({ where: { updatedBy: { in: [owner, adminId] }, key: { startsWith: "ai-generation" } } });
+      await prisma.aiGenerationBinding.deleteMany({ where: { ownerId: { in: [owner, `${owner}-other`] } } });
+      await prisma.aiGenerationRequest.deleteMany({ where: { ownerId: { in: [owner, `${owner}-other`] } } });
       await prisma.user.deleteMany({ where: { id: adminId } });
     }
     if (moduleRef) await moduleRef.close();
@@ -57,8 +58,8 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
     expect(await new AiGenerationRequestService(prisma).run(randomUUID(), owner, payload, generate, save, noResult)).toEqual(result);
     expect(generate).toHaveBeenCalledTimes(1);
     expect(save).toHaveBeenCalledExactlyOnceWith(prepared, original);
-    const stored = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${original}` } });
-    expect(stored.value).toMatchObject({ state: "COMPLETED", result });
+    const stored = await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: original } });
+    expect(stored).toMatchObject({ state: "COMPLETED", result });
   });
 
   it("keeps uncertain outcomes blocked even with new request IDs after restart", async () => {
@@ -77,7 +78,7 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
     const generate = vi.fn().mockRejectedValueOnce(new Error("provider response lost")).mockResolvedValue(prepared);
     const save = vi.fn().mockResolvedValue(result);
     await expect(new AiGenerationRequestService(prisma).run(requestId, owner, payload, generate, save, noResult)).rejects.toThrow("provider response lost");
-    const uncertain = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${requestId}` } });
+    const uncertain = await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: requestId } });
     const operations = new AiGradingOperationsService(prisma);
     const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: adminId } } as AuthenticatedSession;
     const reopened = await operations.reconcileExamNotProcessed(requestId, {
@@ -103,18 +104,17 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
       await expect(new AiGenerationRequestService(prisma).run(id, owner, { topic: id }, generate, vi.fn(), noResult)).rejects.toThrow("uncertain");
       await expect(new AiGenerationRequestService(prisma).run(`${id}-alias`, owner, { topic: id }, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
     }
-    await prisma.systemSetting.updateMany({ where: { updatedBy: owner, key: { in: ids.map((id) => `ai-generation:${id}`) } }, data: { effectiveAt: new Date("2099-09-08T00:00:00Z") } });
-    const duplicated = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${ids[1]!}` } });
-    const duplicatedValue = duplicated.value as { owner: string; hash: string };
-    await prisma.systemSetting.create({ data: { key: `ai-generation-content:duplicate-${prefix}`, updatedBy: owner, value: { owner: duplicatedValue.owner, hash: duplicatedValue.hash, canonicalRequestId: ids[1] } } });
+    await prisma.aiGenerationRequest.updateMany({ where: { ownerId: owner, id: { in: ids } }, data: { createdAt: new Date("2099-09-08T00:00:00Z") } });
+    const duplicated = await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: ids[1]! } });
+    await prisma.aiGenerationBinding.create({
+      data: { fingerprint: `duplicate-${prefix}`, ownerId: duplicated.ownerId, payloadHash: duplicated.payloadHash, canonicalRequestId: ids[1]!, malformed: false },
+    });
     const operations = new AiGradingOperationsService(prisma);
     const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
     const first = await operations.listExams({ limit: 1, state: "UNCERTAIN" }, session);
     expect(first.items.map((item) => item.id)).toEqual([ids[1]]);
     expect(Object.keys(first.items[0]!).sort()).toEqual(["id", "ownerId", "state", "version", "createdAt", "updatedAt"].sort());
-    const key = `ai-generation:${ids[1]!}`;
-    const stored = await prisma.systemSetting.findUniqueOrThrow({ where: { key } });
-    await prisma.systemSetting.update({ where: { key }, data: { value: { ...(stored.value as object), state: "COMPLETED", result: { secret: "private exam answer" } } } });
+    await prisma.aiGenerationRequest.update({ where: { id: ids[1]! }, data: { state: "COMPLETED", result: { secret: "private exam answer" } } });
     const second = await operations.listExams({ limit: 1, state: "UNCERTAIN", cursor: first.nextCursor! }, session);
     expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
     const complete = await operations.listExams({ limit: 1, state: "COMPLETED" }, session);
@@ -128,17 +128,18 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
   it("reconciles unlinked claims without counting linked retry aliases or changing storage", async () => {
     const prefix = randomUUID();
     const ids = [`${prefix}-a`, `${prefix}-b`];
-    for (const id of ids) await prisma.systemSetting.create({ data: {
-      key: `ai-generation:${id}`, updatedBy: owner, effectiveAt: new Date("2100-09-08T00:00:00Z"),
-      value: { owner, hash: id, state: "CLAIMED", prepared: { secret: "private orphan draft" } },
-    } });
+    for (const id of ids) {
+      await prisma.aiGenerationRequest.create({
+        data: { id, ownerId: owner, payloadHash: id, state: "CLAIMED", createdAt: new Date("2100-09-08T00:00:00Z"), prepared: { secret: "private orphan draft" } },
+      });
+    }
     // Bí danh thử lại mới hơn không được đẩy tác vụ thực sự mất liên kết khỏi trang đầu.
     const canonicalId = `${prefix}-canonical`;
     const generate = vi.fn().mockRejectedValue(new Error("fixture uncertain"));
     await expect(new AiGenerationRequestService(prisma).run(canonicalId, owner, { topic: prefix }, generate, vi.fn(), noResult)).rejects.toThrow("fixture uncertain");
     const alias = `${prefix}-alias`;
     await expect(new AiGenerationRequestService(prisma).run(alias, owner, { topic: prefix }, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
-    await prisma.systemSetting.update({ where: { key: `ai-generation:${alias}` }, data: { effectiveAt: new Date("2101-09-08T00:00:00Z") } });
+    await prisma.aiGenerationRequest.update({ where: { id: alias }, data: { createdAt: new Date("2101-09-08T00:00:00Z") } });
     const operations = new AiGradingOperationsService(prisma);
     const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
     const first = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked" }, session);
@@ -149,11 +150,13 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
     expect(second.items.map((item) => item.id)).toEqual([ids[0]]);
     await expect(operations.listExams({ limit: 1, scope: "canonical", cursor: ids[0] }, session)).rejects.toMatchObject({ status: 400 });
     await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: alias }, session)).rejects.toMatchObject({ status: 400 });
-    const stored = await prisma.systemSetting.findUniqueOrThrow({ where: { key: `ai-generation:${ids[1]}` } });
+    const stored = await prisma.aiGenerationRequest.findUniqueOrThrow({ where: { id: ids[1]! } });
     expect(stored.version).toBe(1);
-    expect(stored.value).toMatchObject({ state: "CLAIMED", prepared: { secret: "private orphan draft" } });
+    expect(stored).toMatchObject({ state: "CLAIMED", prepared: { secret: "private orphan draft" } });
     // Liên kết thêm giữa hai lượt đọc loại tác vụ khỏi phạm vi này; mốc phân trang cũ phải báo lỗi rõ ràng.
-    await prisma.systemSetting.create({ data: { key: `ai-generation-content:${prefix}`, updatedBy: owner, value: { owner, hash: ids[1], canonicalRequestId: ids[1] } } });
+    await prisma.aiGenerationBinding.create({
+      data: { fingerprint: prefix, ownerId: owner, payloadHash: ids[1]!, canonicalRequestId: ids[1]!, malformed: false },
+    });
     const afterBinding = await operations.listExams({ limit: 1, state: "CLAIMED", scope: "unlinked" }, session);
     expect(afterBinding.items.map((item) => item.id)).toEqual([ids[0]]);
     await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: ids[1] }, session)).rejects.toMatchObject({ status: 400 });
@@ -166,18 +169,34 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
     for (const kind of cases) {
       const id = `${prefix}-${kind}`;
       const targetId = `${id}-target`;
-      await prisma.systemSetting.create({ data: { key: `ai-generation:${id}`, updatedBy: owner, effectiveAt: new Date("2102-09-08T00:00:00Z"), value: { owner, hash: id, state: "CLAIMED", prepared: { secret: "private broken draft" } } } });
-      const canonicalRequestId = kind === "numeric-id" ? 123 : kind === "empty-id" ? "" : targetId;
-      await prisma.systemSetting.create({ data: { key: `ai-generation-content:${id}`, updatedBy: owner, value: { owner, hash: id, ...(kind === "missing-id" ? {} : { canonicalRequestId }) } } });
-      if (["wrong-owner", "wrong-hash", "invalid-state", "valid"].includes(kind)) await prisma.systemSetting.create({ data: {
-        key: `ai-generation:${targetId}`, updatedBy: owner,
-        value: { owner: kind === "wrong-owner" ? `${owner}-other` : owner, hash: kind === "wrong-hash" ? "different" : id, state: kind === "invalid-state" ? "UNKNOWN" : "CLAIMED" },
-      } });
+      await prisma.aiGenerationRequest.create({
+        data: { id, ownerId: owner, payloadHash: id, state: "CLAIMED", createdAt: new Date("2102-09-08T00:00:00Z"), prepared: { secret: "private broken draft" } },
+      });
+      const malformed = kind === "missing-id" || kind === "numeric-id" || kind === "empty-id";
+      await prisma.aiGenerationBinding.create({
+        data: {
+          fingerprint: id,
+          ownerId: owner,
+          payloadHash: id,
+          canonicalRequestId: malformed ? null : targetId,
+          malformed,
+        },
+      });
+      if (["wrong-owner", "wrong-hash", "invalid-state", "valid"].includes(kind)) {
+        await prisma.aiGenerationRequest.create({
+          data: {
+            id: targetId,
+            ownerId: kind === "wrong-owner" ? `${owner}-other` : owner,
+            payloadHash: kind === "wrong-hash" ? "different" : id,
+            state: kind === "invalid-state" ? "UNKNOWN" : "CLAIMED",
+          },
+        });
+      }
     }
     const operations = new AiGradingOperationsService(prisma);
     const session = { roleCode: "SYSTEM_ADMIN", permissions: ["system:configure"], user: { id: owner } } as AuthenticatedSession;
     const expectedIds = cases.filter((kind) => kind !== "valid").map((kind) => `${prefix}-${kind}`).sort().reverse();
-    const snapshot = await prisma.systemSetting.findMany({ where: { updatedBy: owner, key: { contains: prefix } }, orderBy: { key: "asc" } });
+    const snapshot = await prisma.aiGenerationRequest.findMany({ where: { ownerId: owner, id: { contains: prefix } }, orderBy: { id: "asc" } });
     const first = await operations.listExams({ limit: 1, scope: "broken", state: "CLAIMED" }, session);
     expect(first.items.map((item) => item.id)).toEqual(expectedIds.slice(0, 1));
     const rest = await operations.listExams({ limit: 50, scope: "broken", state: "CLAIMED", cursor: first.nextCursor! }, session);
@@ -186,6 +205,6 @@ describe.skipIf(!enabled)("Exam generation claims on dedicated PostgreSQL test d
     expect(JSON.stringify([first, rest])).not.toContain("private broken draft");
     await expect(operations.listExams({ limit: 1, scope: "broken", cursor: `${prefix}-valid` }, session)).rejects.toMatchObject({ status: 400 });
     await expect(operations.listExams({ limit: 1, scope: "unlinked", cursor: expectedIds[0] }, session)).rejects.toMatchObject({ status: 400 });
-    expect(await prisma.systemSetting.findMany({ where: { updatedBy: owner, key: { contains: prefix } }, orderBy: { key: "asc" } })).toEqual(snapshot);
+    expect(await prisma.aiGenerationRequest.findMany({ where: { ownerId: owner, id: { contains: prefix } }, orderBy: { id: "asc" } })).toEqual(snapshot);
   });
 });

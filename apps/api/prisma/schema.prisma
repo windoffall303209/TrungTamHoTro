@@ -954,6 +954,73 @@ model SystemSetting {
   @@map("system_settings")
 }
 
+model AiDocumentExtraction {
+  id             String    @id @db.VarChar(191)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  pages          Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_extractions_state_created_id_idx")
+  @@map("ai_document_extractions")
+}
+
+model AiDocumentAnswer {
+  id             String    @id @db.VarChar(191)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  materialId     String?   @map("material_id") @db.VarChar(191)
+  sourceVersion  Int?      @map("source_version")
+  question       String?   @db.Text
+  language       String?   @db.VarChar(16)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  result         Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([ownerId, materialId, sourceVersion, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_answers_history_idx")
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_answers_state_created_id_idx")
+  @@map("ai_document_answers")
+}
+
+model AiGenerationRequest {
+  id             String    @id @db.VarChar(177)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  payloadHash    String    @map("payload_hash") @db.VarChar(191)
+  state          String    @default("CLAIMED") @db.VarChar(24)
+  version        Int       @default(1)
+  prepared       Json?
+  result         Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_generation_requests_state_created_id_idx")
+  @@index([ownerId, payloadHash], map: "ai_generation_requests_owner_hash_idx")
+  @@map("ai_generation_requests")
+}
+
+model AiGenerationBinding {
+  fingerprint        String   @id @db.VarChar(191)
+  ownerId            String   @map("owner_id") @db.VarChar(191)
+  payloadHash        String   @map("payload_hash") @db.VarChar(191)
+  canonicalRequestId String?  @map("canonical_request_id") @db.VarChar(177)
+  malformed          Boolean  @default(false)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([canonicalRequestId], map: "ai_generation_bindings_canonical_idx")
+  @@index([ownerId, payloadHash], map: "ai_generation_bindings_owner_hash_idx")
+  @@map("ai_generation_bindings")
+}
+
 model IntegrationProvider {
   id            String    @id @default(cuid())
   provider      String    @unique @db.VarChar(50)

@@ -87,7 +87,7 @@ describe("authorized material AI context", () => {
 
   it("can answer after another worker finishes OCR without reserving an uncertain answer while waiting", async () => {
     const { learning, ai, material } = fixture();
-    const { prisma, rows } = extractionDatabase();
+    const { prisma, answerRows } = extractionDatabase();
     const answerDocument = vi.fn().mockResolvedValue({ answer: "Not enough evidence", insufficientContext: true, citations: [] });
     const service = new AiMaterialContextService(learning as unknown as LearningService, { ...ai, answerDocument } as unknown as AiProviderService, prisma);
     let finish!: (pages: Array<{ page: number; text: string }>) => void;
@@ -98,7 +98,7 @@ describe("authorized material AI context", () => {
     await entered;
     try {
       await expect(service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN")).rejects.toMatchObject({ status: 409 });
-      expect([...rows.keys()].filter((key) => key.startsWith("ai-doc-answer:"))).toEqual([]);
+      expect(answerRows.size).toBe(0);
       expect(answerDocument).not.toHaveBeenCalled();
     } finally { finish([{ page: 1, text: "HTTP source" }]); await first; }
     const saved = await service.ask(material.id, "teacher", "INSTRUCTOR", "What is HTTP?", "EN");

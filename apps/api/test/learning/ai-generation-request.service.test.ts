@@ -10,15 +10,77 @@ const result = { exam: { id: "exam-1" } } as AiGeneratedExamResult;
 /** Trả trạng thái chưa có đề để kiểm tra nhánh tạo mới. */
 const noResult = (): Promise<undefined> => Promise.resolve(undefined);
 
-/** Mô phỏng unique insert và CAS của storage dùng chung giữa hai API instance. */
+interface MockRequestRow {
+  id: string;
+  ownerId: string;
+  payloadHash: string;
+  state: string;
+  version: number;
+  prepared: unknown;
+  result: unknown;
+  leaseToken: string | null;
+  leaseExpiresAt: Date | null;
+}
+
+interface MockBindingRow {
+  fingerprint: string;
+  ownerId: string;
+  payloadHash: string;
+  canonicalRequestId: string | null;
+  malformed: boolean;
+}
+
+/** Mô phỏng unique insert và CAS của hai bảng ai_generation_requests và ai_generation_bindings giữa hai API instance. */
 function sharedDatabase(): PrismaService {
-  const rows = new Map<string, { version: number; value: object }>();
+  const requests = new Map<string, MockRequestRow>();
+  const bindings = new Map<string, MockBindingRow>();
   return {
     isStartupConnectionEnabled: () => true,
-    systemSetting: {
-      create: ({ data }: { data: { key: string; value: object } }) => { if (rows.has(data.key)) throw Object.assign(new Error("duplicate"), { code: "P2002" }); rows.set(data.key, { version: 1, value: structuredClone(data.value) }); return Promise.resolve(); },
-      findUnique: ({ where }: { where: { key: string } }) => Promise.resolve(structuredClone(rows.get(where.key) ?? null)),
-      updateMany: ({ where, data }: { where: { key: string; version: number }; data: { value: object } }) => { if (rows.get(where.key)?.version !== where.version) return Promise.resolve({ count: 0 }); rows.set(where.key, { version: where.version + 1, value: structuredClone(data.value) }); return Promise.resolve({ count: 1 }); },
+    aiGenerationRequest: {
+      create: ({ data }: { data: Partial<MockRequestRow> & { id: string; ownerId: string; payloadHash: string } }) => {
+        if (requests.has(data.id)) throw Object.assign(new Error("duplicate"), { code: "P2002" });
+        requests.set(data.id, {
+          id: data.id,
+          ownerId: data.ownerId,
+          payloadHash: data.payloadHash,
+          state: data.state ?? "CLAIMED",
+          version: 1,
+          prepared: data.prepared ?? null,
+          result: data.result ?? null,
+          leaseToken: data.leaseToken ?? null,
+          leaseExpiresAt: data.leaseExpiresAt ?? null,
+        });
+        return Promise.resolve({});
+      },
+      findUnique: ({ where }: { where: { id: string } }) => Promise.resolve(structuredClone(requests.get(where.id) ?? null)),
+      updateMany: ({ where, data }: { where: { id: string; version: number }; data: Record<string, unknown> }) => {
+        const current = requests.get(where.id);
+        if (!current || current.version !== where.version) return Promise.resolve({ count: 0 });
+        requests.set(where.id, {
+          ...current,
+          state: typeof data.state === "string" ? data.state : current.state,
+          prepared: "prepared" in data ? (typeof data.prepared === "symbol" ? null : structuredClone(data.prepared)) : current.prepared,
+          result: "result" in data ? (typeof data.result === "symbol" ? null : structuredClone(data.result)) : current.result,
+          leaseToken: "leaseToken" in data ? (data.leaseToken as string | null) : current.leaseToken,
+          leaseExpiresAt: "leaseExpiresAt" in data ? (data.leaseExpiresAt as Date | null) : current.leaseExpiresAt,
+          version: current.version + 1,
+        });
+        return Promise.resolve({ count: 1 });
+      },
+    },
+    aiGenerationBinding: {
+      create: ({ data }: { data: Partial<MockBindingRow> & { fingerprint: string; ownerId: string; payloadHash: string } }) => {
+        if (bindings.has(data.fingerprint)) throw Object.assign(new Error("duplicate"), { code: "P2002" });
+        bindings.set(data.fingerprint, {
+          fingerprint: data.fingerprint,
+          ownerId: data.ownerId,
+          payloadHash: data.payloadHash,
+          canonicalRequestId: data.canonicalRequestId ?? null,
+          malformed: data.malformed ?? false,
+        });
+        return Promise.resolve({});
+      },
+      findUnique: ({ where }: { where: { fingerprint: string } }) => Promise.resolve(structuredClone(bindings.get(where.fingerprint) ?? null)),
     },
   } as unknown as PrismaService;
 }
@@ -28,8 +90,8 @@ describe("AI generation idempotency", () => {
     const db = sharedDatabase();
     const generate = vi.fn(() => Promise.resolve(prepared));
     await expect(new AiGenerationRequestService(db).run("saving", "owner", {}, generate, () => Promise.reject(new Error("interrupted save")), noResult)).rejects.toThrow("interrupted save");
-    const row = await db.systemSetting.findUnique({ where: { key: "ai-generation:saving" } });
-    await db.systemSetting.updateMany({ where: { key: "ai-generation:saving", version: row!.version }, data: { value: { ...(row!.value as object), state: "SAVING" }, version: { increment: 1 } } });
+    const row = await db.aiGenerationRequest.findUnique({ where: { id: "saving" } });
+    await db.aiGenerationRequest.updateMany({ where: { id: "saving", version: row!.version }, data: { state: "SAVING", version: { increment: 1 } } });
     const save = vi.fn(() => Promise.resolve(result));
     await expect(new AiGenerationRequestService(db).run("retry", "owner", {}, generate, save, noResult)).rejects.toMatchObject({ status: 409 });
     expect(save).not.toHaveBeenCalled();
@@ -37,11 +99,29 @@ describe("AI generation idempotency", () => {
     expect(save).toHaveBeenCalledExactlyOnceWith(prepared, "saving");
     expect(generate).toHaveBeenCalledTimes(1);
   });
-  it.each([null, [], "broken", { owner: "" }, { hash: "bad" }, { state: "UNKNOWN" }, { state: "READY" }, { state: "SAVING", prepared: {} }, { state: "COMPLETED" }, { canonicalRequestId: 123 }, { canonicalRequestId: " " }, { canonicalRequestId: "a".repeat(178) }])("rejects damaged persisted claims before any external callback: %j", async (damage) => {
+
+  it.each([
+    { ownerId: "" },
+    { payloadHash: "bad" },
+    { state: "UNKNOWN" },
+    { state: "READY", prepared: null },
+    { state: "SAVING", prepared: {} },
+    { state: "COMPLETED", result: null },
+    { version: 0 },
+  ])("rejects damaged persisted request claims before any external callback: %j", async (damage) => {
     const db = sharedDatabase();
-    const base = { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "CLAIMED" };
-    const value = damage && typeof damage === "object" && !Array.isArray(damage) ? { ...base, ...damage } : damage;
-    vi.spyOn(db.systemSetting, "findUnique").mockResolvedValue({ version: 1, value } as never);
+    const base = {
+      id: "id",
+      ownerId: "owner",
+      payloadHash: createHash("sha256").update("{}").digest("hex"),
+      state: "CLAIMED",
+      version: 1,
+      prepared: null,
+      result: null,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    };
+    vi.spyOn(db.aiGenerationRequest, "findUnique").mockResolvedValue({ ...base, ...damage } as never);
     const generate = vi.fn();
     const save = vi.fn();
     const recover = vi.fn();
@@ -50,10 +130,35 @@ describe("AI generation idempotency", () => {
     expect(save).not.toHaveBeenCalled();
     expect(recover).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { malformed: true },
+    { canonicalRequestId: null },
+    { canonicalRequestId: " " },
+    { canonicalRequestId: "a".repeat(178) },
+  ])("rejects damaged persisted bindings before any external callback: %j", async (damage) => {
+    const db = sharedDatabase();
+    const base = {
+      fingerprint: "fp",
+      ownerId: "owner",
+      payloadHash: createHash("sha256").update("{}").digest("hex"),
+      canonicalRequestId: "id",
+      malformed: false,
+    };
+    vi.spyOn(db.aiGenerationBinding, "findUnique").mockResolvedValue({ ...base, ...damage } as never);
+    const generate = vi.fn();
+    const save = vi.fn();
+    const recover = vi.fn();
+    await expect(new AiGenerationRequestService(db).run("id", "owner", {}, generate, save, recover)).rejects.toMatchObject({ status: 409 });
+    expect(generate).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+  });
+
   it.each(["disabled", "missing"])("refuses %s storage before provider, recovery or save", async (mode) => {
     const db = sharedDatabase();
     vi.spyOn(db, "isStartupConnectionEnabled").mockReturnValue(false);
-    const create = vi.spyOn(db.systemSetting, "create");
+    const create = vi.spyOn(db.aiGenerationRequest, "create");
     const generate = vi.fn();
     const save = vi.fn();
     const recover = vi.fn();
@@ -66,9 +171,12 @@ describe("AI generation idempotency", () => {
     expect(save).not.toHaveBeenCalled();
     expect(recover).not.toHaveBeenCalled();
   });
-  it("never reclaims legacy GENERATING records when upgrading the service", async () => {
+
+  it("never reclaims legacy GENERATING records without leaseExpiresAt when upgrading the service", async () => {
     const db = sharedDatabase();
-    await db.systemSetting.create({ data: { key: "ai-generation:legacy", updatedBy: "owner", value: { owner: "owner", hash: createHash("sha256").update("{}").digest("hex"), state: "GENERATING" } } });
+    await db.aiGenerationRequest.create({
+      data: { id: "legacy", ownerId: "owner", payloadHash: createHash("sha256").update("{}").digest("hex"), state: "GENERATING" },
+    });
     const generate = vi.fn();
     await expect(new AiGenerationRequestService(db).run("legacy", "owner", {}, generate, vi.fn(), noResult)).rejects.toMatchObject({ status: 409 });
     expect(generate).not.toHaveBeenCalled();
@@ -76,7 +184,7 @@ describe("AI generation idempotency", () => {
 
   it("fails closed when durable claiming is unavailable", async () => {
     const db = sharedDatabase();
-    vi.spyOn(db.systemSetting, "create").mockRejectedValueOnce(new Error("database offline"));
+    vi.spyOn(db.aiGenerationRequest, "create").mockRejectedValueOnce(new Error("database offline"));
     const generate = vi.fn();
     await expect(new AiGenerationRequestService(db).run("id", "owner", {}, generate, vi.fn(), noResult)).rejects.toThrow("database offline");
     expect(generate).not.toHaveBeenCalled();

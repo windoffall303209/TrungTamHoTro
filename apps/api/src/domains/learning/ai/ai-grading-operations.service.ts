@@ -9,7 +9,6 @@ import { createHash } from "node:crypto";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { Prisma } from "../../../generated/prisma/client.js";
-import { isAiLeaseExpired } from "../../system/ai/ai-claim-policy.js";
 import {
   ExamOperationsQueryDto,
   GradingOperationsQueryDto,
@@ -25,6 +24,15 @@ const metadata = {
   submissionId: true,
   language: true,
   state: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+const operationRowSelect = {
+  id: true,
+  ownerId: true,
+  state: true,
+  version: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -62,42 +70,58 @@ type DocumentAnswerOperation = Omit<ExamOperation, "state"> & {
   state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN";
 };
 
+/** Chuẩn hóa trạng thái tác vụ đọc từ bảng chuyên dụng về tập trạng thái hiển thị hợp lệ. */
+function normalizeOperationState(state: string): DocumentAnswerOperation["state"] {
+  if (state === "RETRY_AUTHORIZED" || state === "GENERATING" || state === "READY") return state;
+  return "UNCERTAIN";
+}
+
 @Injectable()
-/** Chỉ đọc metadata claim bền vững; không trả bài làm, điểm, phản hồi, hash hoặc cấu hình bí mật. */
+/** Chỉ đọc metadata claim bền vững trên các bảng AI chuyên dụng; không trả bài làm, điểm, phản hồi hoặc bí mật. */
 export class AiGradingOperationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Chỉ liệt kê thông tin quản lý OCR; READY là trạng thái lưu trữ, không xác nhận độ chính xác văn bản. */
+  /** Chỉ liệt kê thông tin quản lý OCR từ bảng ai_document_extractions; không tải nội dung trang. */
   async listExtractions(
     query: GradingOperationsQueryDto,
     session: AuthenticatedSession,
   ): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery(query, session);
     const anchor = query.cursor
-      ? (
-          await this.extractionRows(
-            Prisma.sql`r."key" = ${`ai-doc:${query.cursor}`}`,
-            1,
-          )
-        )[0]
-      : undefined;
+      ? await this.prisma.aiDocumentExtraction.findUnique({
+          where: { id: query.cursor },
+          select: { id: true, createdAt: true },
+        })
+      : null;
     if (query.cursor && !anchor)
       throw new BadRequestException(
         "Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.",
       );
     const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
-    const position = anchor
-      ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-doc:${anchor.id}`}))`
-      : Prisma.empty;
-    const rows = await this.extractionRows(
-      Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`,
-      limit + 1,
-    );
-    const items = rows.slice(0, limit);
+    const rows = await this.prisma.aiDocumentExtraction.findMany({
+      where: {
+        state: { in: states },
+        ...(anchor
+          ? {
+              OR: [
+                { createdAt: { lt: anchor.createdAt } },
+                { createdAt: anchor.createdAt, id: { lt: anchor.id } },
+              ],
+            }
+          : {}),
+      },
+      select: operationRowSelect,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
+    const items = rows.slice(0, limit).map((row) => ({
+      ...row,
+      state: normalizeOperationState(row.state),
+    }));
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
-  /** Mở lại đúng khóa OCR sau khi admin xác minh provider không nhận yêu cầu; không gọi provider trong bước này. */
+  /** Mở lại đúng khóa OCR trong ai_document_extractions sau khi admin xác minh provider chưa xử lý. */
   async reconcileExtractionNotProcessed(
     id: string,
     input: ReconcileExamNotProcessedDto,
@@ -109,10 +133,10 @@ export class AiGradingOperationsService {
         "Mã tác vụ trích xuất tài liệu AI không hợp lệ.",
       );
     const evidence = this.validateSettingRecoveryEvidence(input);
-    const key = `ai-doc:${id}`;
     return this.prisma.$transaction(async (transaction) => {
-      const row = await transaction.systemSetting.findUnique({
-        where: { key },
+      const row = await transaction.aiDocumentExtraction.findUnique({
+        where: { id },
+        select: operationRowSelect,
       });
       if (!row)
         throw new BadRequestException(
@@ -122,12 +146,11 @@ export class AiGradingOperationsService {
         throw new ConflictException(
           "Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.",
         );
-      const value = this.readSettingClaim(row.value);
-      if (value.state !== "GENERATING" && value.state !== "UNCERTAIN")
+      if (row.state !== "GENERATING" && row.state !== "UNCERTAIN")
         throw new ConflictException(
           "Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.",
         );
-      if (!row.updatedBy)
+      if (!row.ownerId)
         throw new ConflictException(
           "Tác vụ OCR không còn chủ sở hữu hợp lệ. Không thể mở lại tự động.",
         );
@@ -135,10 +158,13 @@ export class AiGradingOperationsService {
         throw new BadRequestException(
           "Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.",
         );
-      const updated = await transaction.systemSetting.updateMany({
-        where: { key, version: row.version, updatedBy: row.updatedBy },
+      const updated = await transaction.aiDocumentExtraction.updateMany({
+        where: { id, version: row.version, ownerId: row.ownerId, state: row.state },
         data: {
-          value: { state: "RETRY_AUTHORIZED" },
+          state: "RETRY_AUTHORIZED",
+          pages: Prisma.JsonNull,
+          leaseToken: null,
+          leaseExpiresAt: null,
           version: { increment: 1 },
         },
       });
@@ -153,7 +179,7 @@ export class AiGradingOperationsService {
           entityType: "ai_document_extraction",
           entityId: id,
           context: {
-            previousState: value.state,
+            previousState: row.state,
             previousVersion: row.version,
             ...this.evidenceContext(evidence),
           },
@@ -161,87 +187,56 @@ export class AiGradingOperationsService {
       });
       return {
         id,
-        ownerId: row.updatedBy,
+        ownerId: row.ownerId,
         state: "RETRY_AUTHORIZED",
         version: row.version + 1,
-        createdAt: row.effectiveAt,
+        createdAt: row.createdAt,
         updatedAt: new Date(),
       };
     });
   }
 
-  /** Chỉ lấy thông tin quản lý tác vụ, không tải các trang; bản lưu dạng mảng cũ được xếp vào READY. */
-  private extractionRows(
-    filter: Prisma.Sql,
-    limit: number,
-  ): Promise<DocumentAnswerOperation[]> {
-    return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r."key", 8) AS id, r.updated_by AS "ownerId",
-        r.claim_state AS state, r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
-      FROM (
-        SELECT "key", updated_by, version, effective_at, updated_at,
-          CASE WHEN jsonb_typeof(value) = 'array' THEN 'READY'
-            WHEN value->>'state' IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
-            THEN value->>'state' ELSE 'UNCERTAIN' END AS claim_state
-        FROM system_settings WHERE "key" LIKE 'ai-doc:%'
-      ) r
-      WHERE ${filter}
-      ORDER BY r.effective_at DESC, r."key" DESC
-      LIMIT ${limit}
-    `);
-  }
-
-  /** Kiểm tra tác vụ trả lời riêng mà không đọc câu hỏi, câu trả lời, trích dẫn hoặc cấu hình nhà cung cấp. */
+  /** Kiểm tra tác vụ trả lời riêng từ bảng ai_document_answers mà không đọc câu hỏi, câu trả lời hay trích dẫn. */
   async listDocumentAnswers(
     query: GradingOperationsQueryDto,
     session: AuthenticatedSession,
   ): Promise<{ items: DocumentAnswerOperation[]; nextCursor: string | null }> {
     const limit = this.validateQuery(query, session);
     const anchor = query.cursor
-      ? (
-          await this.documentAnswerRows(
-            Prisma.sql`r."key" = ${`ai-doc-answer:${query.cursor}`}`,
-            1,
-          )
-        )[0]
-      : undefined;
+      ? await this.prisma.aiDocumentAnswer.findUnique({
+          where: { id: query.cursor },
+          select: { id: true, createdAt: true },
+        })
+      : null;
     if (query.cursor && !anchor)
       throw new BadRequestException(
         "Mốc phân trang AI không còn tồn tại. Hãy tải lại danh sách.",
       );
     const states = query.state ? [query.state] : ["GENERATING", "UNCERTAIN"];
-    const position = anchor
-      ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-doc-answer:${anchor.id}`}))`
-      : Prisma.empty;
-    const rows = await this.documentAnswerRows(
-      Prisma.sql`claim_state IN (${Prisma.join(states)}) ${position}`,
-      limit + 1,
-    );
-    const items = rows.slice(0, limit);
+    const rows = await this.prisma.aiDocumentAnswer.findMany({
+      where: {
+        state: { in: states },
+        ...(anchor
+          ? {
+              OR: [
+                { createdAt: { lt: anchor.createdAt } },
+                { createdAt: anchor.createdAt, id: { lt: anchor.id } },
+              ],
+            }
+          : {}),
+      },
+      select: operationRowSelect,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
+    const items = rows.slice(0, limit).map((row) => ({
+      ...row,
+      state: normalizeOperationState(row.state),
+    }));
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
-  /** Chỉ lấy thông tin vận hành bằng SQL; trạng thái lỗi vẫn hiện là chưa xác định và không tự thử lại. */
-  private documentAnswerRows(
-    filter: Prisma.Sql,
-    limit: number,
-  ): Promise<DocumentAnswerOperation[]> {
-    return this.prisma.$queryRaw<DocumentAnswerOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r."key", 15) AS id, r.updated_by AS "ownerId",
-        r.claim_state AS state, r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
-      FROM (
-        SELECT "key", updated_by, version, effective_at, updated_at,
-          CASE WHEN value->>'state' IN ('RETRY_AUTHORIZED', 'GENERATING', 'READY')
-            THEN value->>'state' ELSE 'UNCERTAIN' END AS claim_state
-        FROM system_settings WHERE "key" LIKE 'ai-doc-answer:%'
-      ) r
-      WHERE ${filter}
-      ORDER BY r.effective_at DESC, r."key" DESC
-      LIMIT ${limit}
-    `);
-  }
-
-  /** Mở lại đúng claim hỏi đáp đã được ràng buộc với người dùng, tài liệu, phiên bản, câu hỏi và ngôn ngữ. */
+  /** Mở lại đúng claim hỏi đáp trong ai_document_answers sau khi đối chiếu toàn bộ fingerprint yêu cầu. */
   async reconcileDocumentAnswerNotProcessed(
     id: string,
     input: ReconcileExamNotProcessedDto,
@@ -253,10 +248,16 @@ export class AiGradingOperationsService {
         "Mã tác vụ hỏi đáp tài liệu AI không hợp lệ.",
       );
     const evidence = this.validateSettingRecoveryEvidence(input);
-    const key = `ai-doc-answer:${id}`;
     return this.prisma.$transaction(async (transaction) => {
-      const row = await transaction.systemSetting.findUnique({
-        where: { key },
+      const row = await transaction.aiDocumentAnswer.findUnique({
+        where: { id },
+        select: {
+          ...operationRowSelect,
+          materialId: true,
+          sourceVersion: true,
+          question: true,
+          language: true,
+        },
       });
       if (!row)
         throw new BadRequestException(
@@ -266,33 +267,24 @@ export class AiGradingOperationsService {
         throw new ConflictException(
           "Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.",
         );
-      const value = this.readSettingClaim(row.value);
-      const request = value.request;
-      if (
-        !request ||
-        (value.state !== "GENERATING" && value.state !== "UNCERTAIN")
-      )
+      if (row.state !== "GENERATING" && row.state !== "UNCERTAIN")
         throw new ConflictException(
           "Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.",
         );
-      const materialId =
-        typeof request.materialId === "string" ? request.materialId : "";
-      const version =
-        typeof request.version === "number" &&
-        Number.isSafeInteger(request.version)
-          ? request.version
+      const materialId = typeof row.materialId === "string" ? row.materialId : "";
+      const sourceVersion =
+        typeof row.sourceVersion === "number" && Number.isSafeInteger(row.sourceVersion)
+          ? row.sourceVersion
           : 0;
-      const question =
-        typeof request.question === "string" ? request.question.trim() : "";
-      const language =
-        typeof request.language === "string" ? request.language : "";
+      const question = typeof row.question === "string" ? row.question.trim() : "";
+      const language = typeof row.language === "string" ? row.language : "";
       const fingerprint = createHash("sha256")
         .update(
           JSON.stringify([
             "v1",
-            row.updatedBy,
+            row.ownerId,
             materialId,
-            version,
+            sourceVersion,
             question,
             language,
           ]),
@@ -300,7 +292,7 @@ export class AiGradingOperationsService {
         .digest("hex");
       if (
         !materialId ||
-        version < 1 ||
+        sourceVersion < 1 ||
         question.length < 2 ||
         question.length > 2_000 ||
         !["VI", "EN", "BILINGUAL"].includes(language) ||
@@ -313,11 +305,13 @@ export class AiGradingOperationsService {
         throw new BadRequestException(
           "Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.",
         );
-      const normalizedRequest = { materialId, version, question, language };
-      const updated = await transaction.systemSetting.updateMany({
-        where: { key, version: row.version, updatedBy: row.updatedBy },
+      const updated = await transaction.aiDocumentAnswer.updateMany({
+        where: { id, version: row.version, ownerId: row.ownerId, state: row.state },
         data: {
-          value: { state: "RETRY_AUTHORIZED", request: normalizedRequest },
+          state: "RETRY_AUTHORIZED",
+          result: Prisma.JsonNull,
+          leaseToken: null,
+          leaseExpiresAt: null,
           version: { increment: 1 },
         },
       });
@@ -332,7 +326,7 @@ export class AiGradingOperationsService {
           entityType: "ai_document_answer",
           entityId: id,
           context: {
-            previousState: value.state,
+            previousState: row.state,
             previousVersion: row.version,
             ...this.evidenceContext(evidence),
           },
@@ -340,10 +334,10 @@ export class AiGradingOperationsService {
       });
       return {
         id,
-        ownerId: row.updatedBy,
+        ownerId: row.ownerId,
         state: "RETRY_AUTHORIZED",
         version: row.version + 1,
-        createdAt: row.effectiveAt,
+        createdAt: row.createdAt,
         updatedAt: new Date(),
       };
     });
@@ -433,12 +427,7 @@ export class AiGradingOperationsService {
           context: {
             previousState: row.state,
             previousUpdatedAt: row.updatedAt.toISOString(),
-            evidenceReference: evidence.evidenceReference,
-            evidenceNote: evidence.evidenceNote,
-            checkedAt: evidence.checkedAt.toISOString(),
-            ...(evidence.providerRequestId
-              ? { providerRequestId: evidence.providerRequestId }
-              : {}),
+            ...this.evidenceContext(evidence),
           },
         },
       });
@@ -562,12 +551,7 @@ export class AiGradingOperationsService {
           context: {
             previousState: row.state,
             previousUpdatedAt: row.updatedAt.toISOString(),
-            evidenceReference: evidence.evidenceReference,
-            evidenceNote: evidence.evidenceNote,
-            checkedAt: evidence.checkedAt.toISOString(),
-            ...(evidence.providerRequestId
-              ? { providerRequestId: evidence.providerRequestId }
-              : {}),
+            ...this.evidenceContext(evidence),
           },
         },
       });
@@ -577,7 +561,7 @@ export class AiGradingOperationsService {
     });
   }
 
-  /** Đọc request gốc hoặc request bị ảnh hưởng bởi liên kết thiếu/hỏng; không đọc nội dung đề. */
+  /** Đọc request sinh đề gốc hoặc request mất/hỏng liên kết từ hai bảng chuyên dụng, không tải nội dung đề. */
   async listExams(
     query: ExamOperationsQueryDto,
     session: AuthenticatedSession,
@@ -591,7 +575,7 @@ export class AiGradingOperationsService {
     const anchor = query.cursor
       ? (
           await this.examRows(
-            Prisma.sql`r."key" = ${`ai-generation:${query.cursor}`}`,
+            Prisma.sql`r.id = ${query.cursor}`,
             1,
             scope,
           )
@@ -604,9 +588,9 @@ export class AiGradingOperationsService {
     const states = query.state
       ? [query.state]
       : examStates.filter((state) => state !== "COMPLETED");
-    const stateFilter = Prisma.sql`r.value->>'state' IN (${Prisma.join(states)})`;
+    const stateFilter = Prisma.sql`r.state IN (${Prisma.join(states)})`;
     const position = anchor
-      ? Prisma.sql`AND (r.effective_at < ${anchor.createdAt} OR (r.effective_at = ${anchor.createdAt} AND r."key" < ${`ai-generation:${anchor.id}`}))`
+      ? Prisma.sql`AND (r.created_at < ${anchor.createdAt} OR (r.created_at = ${anchor.createdAt} AND r.id < ${anchor.id}))`
       : Prisma.empty;
     const rows = await this.examRows(
       Prisma.sql`${stateFilter} ${position}`,
@@ -617,7 +601,7 @@ export class AiGradingOperationsService {
     return { items, nextCursor: rows.length > limit ? items.at(-1)!.id : null };
   }
 
-  /** Mở lại claim chỉ sau xác nhận có bằng chứng rằng provider chưa xử lý yêu cầu, đồng thời ghi audit nguyên tử. */
+  /** Mở lại claim sinh đề trong ai_generation_requests sau khi xác minh liên kết canonical và ghi audit nguyên tử. */
   async reconcileExamNotProcessed(
     id: string,
     input: ReconcileExamNotProcessedDto,
@@ -626,24 +610,20 @@ export class AiGradingOperationsService {
     this.validateQuery({ limit: 1 }, session);
     if (!id || id.length > 86 || !/^[A-Za-z0-9._:-]+$/.test(id))
       throw new BadRequestException("Mã tác vụ sinh đề AI không hợp lệ.");
-    const evidenceReference = input.evidenceReference.trim();
-    const evidenceNote = input.evidenceNote.trim();
-    const providerRequestId = input.providerRequestId?.trim() || undefined;
-    if (evidenceReference.length < 8 || evidenceNote.length < 20)
-      throw new BadRequestException("Bằng chứng đối soát AI chưa đầy đủ.");
-    const checkedAt = new Date(input.checkedAt);
+    const evidence = this.validateSettingRecoveryEvidence(input);
     const now = new Date();
-    if (
-      !Number.isFinite(checkedAt.getTime()) ||
-      checkedAt.getTime() > now.getTime() + 5 * 60_000
-    )
-      throw new BadRequestException(
-        "Thời điểm kiểm tra bằng chứng AI không hợp lệ.",
-      );
-    const key = `ai-generation:${id}`;
     return this.prisma.$transaction(async (transaction) => {
-      const row = await transaction.systemSetting.findUnique({
-        where: { key },
+      const row = await transaction.aiGenerationRequest.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          ownerId: true,
+          payloadHash: true,
+          state: true,
+          version: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       });
       if (!row)
         throw new BadRequestException(
@@ -654,51 +634,39 @@ export class AiGradingOperationsService {
           "Tác vụ AI đã thay đổi. Tải lại danh sách trước khi đối soát.",
         );
       if (
-        !row.value ||
-        typeof row.value !== "object" ||
-        Array.isArray(row.value)
-      )
-        throw new ConflictException(
-          "Dữ liệu khóa sinh đề AI không hợp lệ. Không thể mở lại tự động.",
-        );
-      const value = row.value as Record<string, unknown>;
-      const owner = typeof value.owner === "string" ? value.owner : "";
-      const hash = typeof value.hash === "string" ? value.hash : "";
-      const state = typeof value.state === "string" ? value.state : "";
-      if (
-        !owner ||
-        !/^[a-f0-9]{64}$/.test(hash) ||
-        !["GENERATING", "UNCERTAIN"].includes(state)
+        !row.ownerId ||
+        !/^[a-f0-9]{64}$/.test(row.payloadHash) ||
+        !["GENERATING", "UNCERTAIN"].includes(row.state)
       )
         throw new ConflictException(
           "Chỉ tác vụ đang xử lý hoặc chưa rõ kết quả mới được mở lại bằng bằng chứng.",
         );
-      if (checkedAt < row.updatedAt)
+      if (evidence.checkedAt < row.updatedAt)
         throw new BadRequestException(
           "Bằng chứng phải được kiểm tra sau lần cập nhật gần nhất của tác vụ.",
         );
-      const bindings = await transaction.$queryRaw<
-        Array<{ present: number }>
-      >(Prisma.sql`
-        SELECT 1 AS present
-        FROM system_settings b
-        WHERE b."key" LIKE 'ai-generation-content:%'
-          AND jsonb_typeof(b.value->'canonicalRequestId') = 'string'
-          AND b.value->>'canonicalRequestId' = ${id}
-          AND b.value->>'owner' = ${owner}
-          AND b.value->>'hash' = ${hash}
-        LIMIT 1
-      `);
-      if (!bindings.length)
+      const binding = await transaction.aiGenerationBinding.findFirst({
+        where: {
+          canonicalRequestId: id,
+          ownerId: row.ownerId,
+          payloadHash: row.payloadHash,
+          malformed: false,
+        },
+        select: { fingerprint: true },
+      });
+      if (!binding)
         throw new ConflictException(
           "Tác vụ không có liên kết nội dung hợp lệ; chưa thể mở lại để tránh tạo trùng.",
         );
-      const updated = await transaction.systemSetting.updateMany({
-        where: { key, version: input.expectedVersion },
+      const updated = await transaction.aiGenerationRequest.updateMany({
+        where: { id, version: input.expectedVersion, state: row.state },
         data: {
-          value: { owner, hash, state: "CLAIMED" },
+          state: "CLAIMED",
+          prepared: Prisma.JsonNull,
+          result: Prisma.JsonNull,
+          leaseToken: null,
+          leaseExpiresAt: null,
           version: { increment: 1 },
-          updatedBy: session.user.id,
         },
       });
       if (updated.count !== 1)
@@ -712,85 +680,81 @@ export class AiGradingOperationsService {
           entityType: "ai_generation_request",
           entityId: id,
           context: {
-            previousState: state,
+            previousState: row.state,
             previousVersion: row.version,
-            evidenceReference,
-            evidenceNote,
-            checkedAt: checkedAt.toISOString(),
-            ...(providerRequestId ? { providerRequestId } : {}),
+            ...this.evidenceContext(evidence),
           },
         },
       });
       return {
         id,
-        ownerId: owner,
+        ownerId: row.ownerId,
         state: "CLAIMED",
         version: row.version + 1,
-        createdAt: row.effectiveAt,
+        createdAt: row.createdAt,
         updatedAt: now,
       };
     });
   }
 
-  /** Chiếu metadata ngay trong SQL: không tải prepared/result hoặc giá trị cấu hình hệ thống vào API. */
+  /** Chiếu metadata trực tiếp từ hai bảng ai_generation_requests và ai_generation_bindings mà không tải JSONB đề thi. */
   private examRows(
     filter: Prisma.Sql,
     limit: number,
     scope: (typeof examScopes)[number],
   ): Promise<ExamOperation[]> {
     if (scope === "canonical") return this.canonicalExamRows(filter, limit);
-    // Liên kết hỏng có thể ảnh hưởng nhiều mã thử lại; phạm vi này đếm yêu cầu bị ảnh hưởng, không đếm tác vụ duy nhất.
-    const brokenTarget = Prisma.sql`AND NOT EXISTS (
-      SELECT 1 FROM system_settings target
-      WHERE jsonb_typeof(b.value->'canonicalRequestId') = 'string'
-        AND CHAR_LENGTH(b.value->>'canonicalRequestId') > 0
-        AND target."key" = 'ai-generation:' || (b.value->>'canonicalRequestId')
-        AND target.value->>'owner' = b.value->>'owner'
-        AND target.value->>'hash' = b.value->>'hash'
-        AND target.value->>'state' IN (${Prisma.join(examStates)})
+    const brokenTarget = Prisma.sql`AND (
+      b.malformed = TRUE
+      OR b.canonical_request_id IS NULL
+      OR CHAR_LENGTH(b.canonical_request_id) = 0
+      OR NOT EXISTS (
+        SELECT 1 FROM ai_generation_requests target
+        WHERE target.id = b.canonical_request_id
+          AND target.owner_id = b.owner_id
+          AND target.payload_hash = b.payload_hash
+          AND target.state IN (${Prisma.join(examStates)})
+      )
     )`;
-    // Bí danh thử lại dùng chung liên kết chủ sở hữu và mã băm; không được báo thành tác vụ mất liên kết.
     const binding = Prisma.sql`EXISTS (
-      SELECT 1 FROM system_settings b
-      WHERE b."key" LIKE 'ai-generation-content:%'
-        AND b.value->>'owner' = r.value->>'owner'
-        AND b.value->>'hash' = r.value->>'hash'
+      SELECT 1 FROM ai_generation_bindings b
+      WHERE b.owner_id = r.owner_id
+        AND b.payload_hash = r.payload_hash
         ${scope === "broken" ? brokenTarget : Prisma.empty}
     )`;
     const relationship =
       scope === "unlinked" ? Prisma.sql`NOT ${binding}` : binding;
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
-      SELECT SUBSTRING(r."key", 15) AS id,
-        r.value->>'owner' AS "ownerId",
-        r.value->>'state' AS state,
-        r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
-      FROM system_settings r
-      WHERE r."key" LIKE 'ai-generation:%'
-        AND ${relationship}
+      SELECT r.id,
+        r.owner_id AS "ownerId",
+        r.state,
+        r.version, r.created_at AS "createdAt", r.updated_at AS "updatedAt"
+      FROM ai_generation_requests r
+      WHERE ${relationship}
         AND ${filter}
-      ORDER BY r.effective_at DESC, r."key" DESC
+      ORDER BY r.created_at DESC, r.id DESC
       LIMIT ${limit}
     `);
   }
 
-  /** Bắt đầu đối soát từ liên kết chính thức, rồi tra khóa chính một lần cho mỗi tác vụ đích. */
+  /** Bắt đầu đối soát từ bảng liên kết ai_generation_bindings rồi nối trực tiếp khóa chính ai_generation_requests. */
   private canonicalExamRows(
     filter: Prisma.Sql,
     limit: number,
   ): Promise<ExamOperation[]> {
     return this.prisma.$queryRaw<ExamOperation[]>(Prisma.sql`
-      SELECT DISTINCT SUBSTRING(r."key", 15) AS id,
-        r.value->>'owner' AS "ownerId",
-        r.value->>'state' AS state,
-        r.version, r.effective_at AS "createdAt", r.updated_at AS "updatedAt"
-      FROM system_settings b
-      JOIN system_settings r
-        ON r."key" = 'ai-generation:' || (b.value->>'canonicalRequestId')
-        AND b.value->>'owner' = r.value->>'owner'
-        AND b.value->>'hash' = r.value->>'hash'
-      WHERE b."key" LIKE 'ai-generation-content:%'
-        AND jsonb_typeof(b.value->'canonicalRequestId') = 'string'
-        AND CHAR_LENGTH(b.value->>'canonicalRequestId') > 0
+      SELECT DISTINCT r.id,
+        r.owner_id AS "ownerId",
+        r.state,
+        r.version, r.created_at AS "createdAt", r.updated_at AS "updatedAt"
+      FROM ai_generation_bindings b
+      JOIN ai_generation_requests r
+        ON r.id = b.canonical_request_id
+        AND b.owner_id = r.owner_id
+        AND b.payload_hash = r.payload_hash
+      WHERE b.malformed = FALSE
+        AND b.canonical_request_id IS NOT NULL
+        AND CHAR_LENGTH(b.canonical_request_id) > 0
         AND ${filter}
       ORDER BY "createdAt" DESC, id DESC
       LIMIT ${limit}
@@ -895,26 +859,7 @@ export class AiGradingOperationsService {
     };
   }
 
-  /** Đọc phần metadata tối thiểu của claim JSON, không chiếu nội dung kết quả riêng tư. */
-  private readSettingClaim(value: Prisma.JsonValue): {
-    state: unknown;
-    request?: Record<string, unknown>;
-  } {
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw new ConflictException(
-        "Dữ liệu khóa AI không hợp lệ. Không thể mở lại tự động.",
-      );
-    const claim = value as Record<string, unknown>;
-    const request = claim.request;
-    return {
-      state: claim.state,
-      ...(request && typeof request === "object" && !Array.isArray(request)
-        ? { request: request as Record<string, unknown> }
-        : {}),
-    };
-  }
-
-  /** Chuyển toàn bộ lease GENERATING đã hết hạn sau crash/restart sang UNCERTAIN; tuyệt đối không tự gọi lại AI. */
+  /** Chuyển toàn bộ lease GENERATING đã hết hạn trên 5 bảng AI chuyên dụng sang UNCERTAIN; không tự gọi lại AI. */
   async expireStaleGeneratingLeases(now = new Date()): Promise<{
     grading: number;
     study: number;
@@ -927,7 +872,7 @@ export class AiGradingOperationsService {
         "Cần cơ sở dữ liệu bền vững để thu hồi lease tác vụ AI đã hết hạn.",
       );
     }
-    const [grading, study] = await Promise.all([
+    const [grading, study, extraction, documentAnswer, exam] = await Promise.all([
       this.prisma.aiGradingSuggestion.updateMany({
         where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
         data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null },
@@ -936,75 +881,27 @@ export class AiGradingOperationsService {
         where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
         data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null },
       }),
+      this.prisma.aiDocumentExtraction.updateMany({
+        where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
+        data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null, version: { increment: 1 } },
+      }),
+      this.prisma.aiDocumentAnswer.updateMany({
+        where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
+        data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null, version: { increment: 1 } },
+      }),
+      this.prisma.aiGenerationRequest.updateMany({
+        where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
+        data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null, version: { increment: 1 } },
+      }),
     ]);
-
-    const candidates = await this.prisma.$queryRaw<
-      Array<{ key: string; version: number; value: Prisma.JsonValue }>
-    >(Prisma.sql`
-      SELECT "key", version, value
-      FROM system_settings
-      WHERE (
-        "key" LIKE 'ai-doc:%'
-        OR "key" LIKE 'ai-doc-answer:%'
-        OR "key" LIKE 'ai-generation:%'
-      )
-      AND jsonb_typeof(value) = 'object'
-      AND value->>'state' = 'GENERATING'
-      AND value ? 'leaseExpiresAt'
-    `);
-
-    let extraction = 0;
-    let documentAnswer = 0;
-    let exam = 0;
-
-    for (const row of candidates) {
-      if (!row.value || typeof row.value !== "object" || Array.isArray(row.value)) continue;
-      const claim = row.value as Record<string, unknown>;
-      if (!isAiLeaseExpired(typeof claim.leaseExpiresAt === "string" ? claim.leaseExpiresAt : undefined, now)) {
-        continue;
-      }
-      const nextValue = this.buildExpiredSettingValue(row.key, claim);
-      const updated = await this.prisma.systemSetting.updateMany({
-        where: { key: row.key, version: row.version },
-        data: {
-          value: nextValue as Prisma.InputJsonValue,
-          version: { increment: 1 },
-        },
-      });
-      if (updated.count !== 1) continue;
-      if (row.key.startsWith("ai-doc:")) extraction += 1;
-      else if (row.key.startsWith("ai-doc-answer:")) documentAnswer += 1;
-      else if (row.key.startsWith("ai-generation:")) exam += 1;
-    }
 
     return {
       grading: grading.count,
       study: study.count,
-      extraction,
-      documentAnswer,
-      exam,
+      extraction: extraction.count,
+      documentAnswer: documentAnswer.count,
+      exam: exam.count,
     };
-  }
-
-  /** Chuẩn hóa payload JSON UNCERTAIN không còn trường lease theo đúng cấu trúc từng kho AI trong system_settings. */
-  private buildExpiredSettingValue(
-    key: string,
-    claim: Record<string, unknown>,
-  ): Record<string, unknown> {
-    if (key.startsWith("ai-doc:")) return { state: "UNCERTAIN" };
-    if (key.startsWith("ai-doc-answer:")) {
-      const request = claim.request;
-      return {
-        state: "UNCERTAIN",
-        ...(request && typeof request === "object" && !Array.isArray(request)
-          ? { request }
-          : {}),
-      };
-    }
-    const { leaseToken: _leaseToken, leaseExpiresAt: _leaseExpiresAt, ...rest } = claim;
-    void _leaseToken;
-    void _leaseExpiresAt;
-    return { ...rest, state: "UNCERTAIN" };
   }
 
   /** Chuẩn hóa metadata bằng chứng trước khi ghi audit. */

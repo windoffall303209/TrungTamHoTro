@@ -3,16 +3,44 @@ import type { PrismaService } from "../../src/database/prisma.service.js";
 import { AiDocumentAnswerStore, type SavedDocumentAnswer } from "../../src/domains/learning/ai/ai-document-answer-store.js";
 
 const identity = { ownerId: "owner", materialId: "material", version: 2, question: "Explain this?", language: "VI" as const };
-const request = { materialId: identity.materialId, version: identity.version, question: identity.question, language: identity.language };
 const source = { id: "chunk", materialId: "material", version: 2, checksum: "checksum", name: "Lesson.pdf", page: 1, start: 0, end: 7, text: "Context" };
 const answer = { answer: "Explanation", insufficientContext: false, version: 2, warning: "Check source", citations: [source] };
 
-// Chỉ mô phỏng lưu trữ bền vững; giữ nguyên triển khai giữ quyền xử lý, đọc lại và kiểm tra dữ liệu.
-function fixture(value: unknown, duplicate = true): { store: AiDocumentAnswerStore; create: ReturnType<typeof vi.fn>; findUnique: ReturnType<typeof vi.fn>; updateMany: ReturnType<typeof vi.fn> } {
-  const create = duplicate ? vi.fn().mockRejectedValue({ code: "P2002" }) : vi.fn().mockResolvedValue({});
-  const findUnique = vi.fn().mockResolvedValue({ value, version: 1 });
+/** Mô phỏng bảng ai_document_answers; giữ nguyên quy tắc giữ quyền xử lý, đọc lại và kiểm tra dữ liệu. */
+function fixture(stored: { state: string; result?: unknown }, duplicate = true): {
+  store: AiDocumentAnswerStore;
+  create: ReturnType<typeof vi.fn>;
+  findUnique: ReturnType<typeof vi.fn>;
+  updateMany: ReturnType<typeof vi.fn>;
+} {
+  let leaseToken: string | null = null;
+  const create = duplicate
+    ? vi.fn().mockRejectedValue({ code: "P2002" })
+    : vi.fn(({ data }: { data: { leaseToken?: string | null } }) => {
+        leaseToken = data.leaseToken ?? null;
+        return Promise.resolve({});
+      });
+  const findUnique = vi.fn(() =>
+    Promise.resolve({
+      id: "answer-id",
+      ownerId: identity.ownerId,
+      materialId: identity.materialId,
+      sourceVersion: identity.version,
+      question: identity.question,
+      language: identity.language,
+      state: stored.state,
+      result: stored.result ?? null,
+      version: 1,
+      leaseToken,
+      leaseExpiresAt: null,
+      createdAt: new Date(),
+    }),
+  );
   const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-  const prisma = { isStartupConnectionEnabled: () => true, systemSetting: { create, findUnique, updateMany } } as unknown as PrismaService;
+  const prisma = {
+    isStartupConnectionEnabled: () => true,
+    aiDocumentAnswer: { create, findUnique, updateMany },
+  } as unknown as PrismaService;
   return { store: new AiDocumentAnswerStore(prisma), create, findUnique, updateMany };
 }
 
@@ -40,7 +68,9 @@ describe("Document answer integrity", () => {
     const generate = vi.fn().mockResolvedValue(value);
     await expect(store.generate(identity, generate)).rejects.toMatchObject({ status: 409 });
     expect(generate).toHaveBeenCalledTimes(1);
-    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "UNCERTAIN", request }, version: { increment: 1 } } }));
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    const callArg = updateMany.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(callArg.data).toMatchObject({ state: "UNCERTAIN", version: { increment: 1 } });
   });
 
   it.each([answer, { ...answer, answer: "Insufficient evidence", insufficientContext: true, citations: [] }])("replays valid answers and removes undeclared fields", async (result) => {
@@ -57,6 +87,8 @@ describe("Document answer integrity", () => {
     const { store, updateMany } = fixture({ state: "GENERATING" }, false);
     const generated = { ...answer, hidden: "not part of contract" } as SavedDocumentAnswer;
     expect(await store.generate(identity, () => Promise.resolve(generated))).toEqual(answer);
-    expect(updateMany).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ data: { value: { state: "READY", request, result: answer }, version: { increment: 1 } } }));
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    const callArg = updateMany.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(callArg.data).toMatchObject({ state: "READY", result: answer, version: { increment: 1 } });
   });
 });
