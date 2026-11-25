@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { translateText } from "@/i18n/catalog";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadEnglishCatalog, translateText } from "@/i18n/catalog";
 import type { AccountProfile, AccountSession } from "@/lib/app-types";
 import AccountPage from "../../../../../src/app/(workspace)/account/page";
 
@@ -34,6 +34,9 @@ function makeProfile(displayName: string): AccountProfile {
 }
 
 describe("AccountPage request lifecycle", () => {
+  beforeAll(async () => {
+    await loadEnglishCatalog();
+  });
   const profiles: Array<ReturnType<typeof deferred<AccountProfile>>> = [];
   const sessions: Array<ReturnType<typeof deferred<AccountSession[]>>> = [];
 

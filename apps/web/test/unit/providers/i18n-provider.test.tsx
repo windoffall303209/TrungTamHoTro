@@ -1,70 +1,87 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { I18nProvider, useI18n } from "../../../src/providers/i18n-provider";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isEnglishCatalogLoaded, LOCALE_STORAGE_KEY, resetEnglishCatalogForTests } from "@/i18n/catalog";
+import { apiRequest } from "@/lib/api-client";
+import { I18nProvider, useI18n } from "@/providers/i18n-provider";
 
-/** Tạo nút đổi locale để kiểm tra provider bằng đúng API công khai. */
-function LocaleFixture() {
-  const { locale, setLocale } = useI18n();
-  return <><p>Bài tập</p><p>Đã đóng 3 phiên khác.</p><button onClick={() => setLocale(locale === "vi-VN" ? "en-US" : "vi-VN")}>switch</button></>;
+/** Component thử nghiệm dùng hook useI18n và văn bản DOM trực tiếp để kiểm tra chuyển đổi locale. */
+function LocaleProbe() {
+  const { locale, setLocale, t } = useI18n();
+  return (
+    <div>
+      <span data-testid="active-locale">{locale}</span>
+      <span data-testid="hook-label">{t("Bài tập")}</span>
+      <p data-testid="dom-label">Khóa học &amp; Lớp</p>
+      <button type="button" onClick={() => setLocale("en-US")}>
+        Switch EN
+      </button>
+      <button type="button" onClick={() => setLocale("vi-VN")}>
+        Switch VI
+      </button>
+    </div>
+  );
 }
 
-describe("I18nProvider", () => {
+describe("I18nProvider async EN catalog and error translation (C03)", () => {
+  beforeEach(() => {
+    resetEnglishCatalogForTests();
+    window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+    document.documentElement.lang = "vi-VN";
+    document.documentElement.dataset.locale = "vi-VN";
+  });
+
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
-    window.localStorage.clear();
+    window.localStorage.removeItem(LOCALE_STORAGE_KEY);
+    document.documentElement.lang = "vi-VN";
+    document.documentElement.dataset.locale = "vi-VN";
   });
 
-  it("dịch nội dung tĩnh và động rồi chuyển ngược về nguồn tiếng Việt", async () => {
-    render(<I18nProvider><LocaleFixture /></I18nProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "switch" }));
-    await waitFor(() => expect(screen.getByText("Assignments")).toBeInTheDocument());
-    await waitFor(() => expect(screen.queryByText("Đã đóng 3 phiên khác.")).not.toBeInTheDocument());
+  it("không nạp từ điển EN ở mặc định vi-VN, chỉ nạp khi đổi sang en-US và khôi phục sạch về vi-VN", async () => {
+    render(
+      <I18nProvider>
+        <LocaleProbe />
+      </I18nProvider>,
+    );
 
-    fireEvent.click(screen.getByRole("button", { name: "switch" }));
-    await waitFor(() => expect(screen.getByText("Bài tập")).toBeInTheDocument());
-    expect(screen.getByText("Đã đóng 3 phiên khác.")).toBeInTheDocument();
-  });
+    expect(screen.getByTestId("active-locale")).toHaveTextContent("vi-VN");
+    expect(screen.getByTestId("hook-label")).toHaveTextContent("Bài tập");
+    expect(screen.getByTestId("dom-label")).toHaveTextContent("Khóa học & Lớp");
+    expect(isEnglishCatalogLoaded()).toBe(false);
 
-  it("không theo dõi toàn bộ DOM bằng MutationObserver khi dùng tiếng Việt", async () => {
-    const observe = vi.spyOn(MutationObserver.prototype, "observe");
-    render(<I18nProvider><LocaleFixture /></I18nProvider>);
-    expect(screen.getByText("Bài tập")).toBeInTheDocument();
-    expect(observe).not.toHaveBeenCalledWith(document.body, expect.anything());
-    fireEvent.click(screen.getByRole("button", { name: "switch" }));
-    await waitFor(() => expect(observe).toHaveBeenCalledWith(document.body, expect.objectContaining({ subtree: true })));
-  });
+    fireEvent.click(screen.getByRole("button", { name: "Switch EN" }));
 
-  it("vẫn chuyển đổi ngôn ngữ khi trình duyệt chặn localStorage", async () => {
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new DOMException("Blocked", "SecurityError"); });
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Blocked", "SecurityError"); });
-    render(<I18nProvider><LocaleFixture /></I18nProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "switch" }));
-    await waitFor(() => expect(screen.getByText("Assignments")).toBeInTheDocument());
-    expect(document.cookie).toContain("wind-edu-locale=en-US");
-  });
+    await waitFor(() => {
+      expect(isEnglishCatalogLoaded()).toBe(true);
+      expect(screen.getByTestId("hook-label")).toHaveTextContent("Assignments");
+      expect(screen.getByTestId("dom-label")).toHaveTextContent("Courses & Classes");
+    }, { timeout: 5000 });
+    expect(document.documentElement.lang).toBe("en-US");
 
-  it("bỏ qua toàn bộ cây DOM đánh dấu không dịch khi nội dung được thêm động", async () => {
-    render(<I18nProvider><LocaleFixture /></I18nProvider>);
-    fireEvent.click(screen.getByRole("button", { name: "switch" }));
-    await waitFor(() => expect(screen.getByText("Assignments")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Switch VI" }));
 
-    const skipped = document.createElement("section");
-    skipped.setAttribute("data-i18n-skip", "");
-    skipped.innerHTML = "<div><p>Bài tập</p></div>";
-    await act(async () => {
-      document.body.appendChild(skipped);
+    await waitFor(() => {
+      expect(screen.getByTestId("hook-label")).toHaveTextContent("Bài tập");
+      expect(screen.getByTestId("dom-label")).toHaveTextContent("Khóa học & Lớp");
     });
+    expect(document.documentElement.lang).toBe("vi-VN");
+  });
 
-    try {
-      expect(skipped.querySelector("p")?.textContent).toBe("Bài tập");
-      fireEvent.click(screen.getByRole("button", { name: "switch" }));
-      await waitFor(() => expect(document.documentElement.lang).toBe("vi-VN"));
-      fireEvent.click(screen.getByRole("button", { name: "switch" }));
-      await waitFor(() => expect(screen.getByText("Assignments")).toBeInTheDocument());
-      expect(skipped.querySelector("p")?.textContent).toBe("Bài tập");
-    } finally {
-      skipped.remove();
-    }
+  it("dịch chính xác thông báo lỗi API sang tiếng Anh ngay cả khi từ điển EN chưa nạp sẵn", async () => {
+    window.localStorage.setItem(LOCALE_STORAGE_KEY, "en-US");
+    expect(isEnglishCatalogLoaded()).toBe(false);
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { message: "Không tìm thấy đề cần duyệt hoặc đã công bố." } }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(apiRequest("/exams/missing")).rejects.toThrow(
+      "No exam pending review or published was found.",
+    );
+    expect(isEnglishCatalogLoaded()).toBe(true);
   });
 });

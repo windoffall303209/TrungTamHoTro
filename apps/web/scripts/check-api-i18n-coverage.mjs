@@ -4,7 +4,7 @@ import ts from "typescript";
 import { collectCoverageFiles, normalizeCoverageValue as normalize, readCoverageCatalogKeys, vietnamesePattern } from "./i18n-coverage-shared.mjs";
 
 const apiRoot = resolve("../api/src");
-const catalogPath = resolve("src/i18n/catalog.ts");
+const catalogPath = resolve("src/i18n/en-catalog.ts");
 const generatedCatalogPath = resolve("src/i18n/generated-en.json");
 
 /** Lấy chuỗi message từ constructor HttpException, gồm cả payload object. */

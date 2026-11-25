@@ -1,7 +1,31 @@
-import { describe, expect, it } from "vitest";
-import { isSupportedLocale, translateText } from "../../../src/i18n/catalog";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  isEnglishCatalogLoaded,
+  isSupportedLocale,
+  loadEnglishCatalog,
+  resetEnglishCatalogForTests,
+  translateText,
+  translateTextAsync,
+} from "../../../src/i18n/catalog";
+
+describe("i18n catalog lazy loading (C03)", () => {
+  it("không nạp từ điển EN khi dùng locale vi-VN và chỉ nạp khi chuyển sang en-US", async () => {
+    resetEnglishCatalogForTests();
+    expect(isEnglishCatalogLoaded()).toBe(false);
+    expect(translateText("Bài tập", "vi-VN")).toBe("Bài tập");
+    expect(await translateTextAsync("Bài tập", "vi-VN")).toBe("Bài tập");
+    expect(isEnglishCatalogLoaded()).toBe(false);
+
+    expect(await translateTextAsync("  Bài tập  ", "en-US")).toBe("  Assignments  ");
+    expect(isEnglishCatalogLoaded()).toBe(true);
+    expect(translateText("Bài tập", "en-US")).toBe("Assignments");
+  });
+});
 
 describe("i18n catalog", () => {
+  beforeAll(async () => {
+    await loadEnglishCatalog();
+  });
   it.each([
     ["Gợi ý chấm AI sai cấu trúc. Không có điểm nào được áp dụng.", "The AI grading suggestion has an invalid structure. No scores have been applied."],
     ["Không xác nhận được trạng thái lưu kết quả AI. Không tạo yêu cầu mới; hãy thử lấy lại kết quả.", "The AI result's storage status could not be confirmed. Do not create a new request; try retrieving the result again."],

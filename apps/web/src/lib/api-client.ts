@@ -1,6 +1,6 @@
 import type { ApiEnvelope } from "@wind-of-fall/contracts";
 import type { RoleCode } from "./app-types";
-import { translateText, type SupportedLocale } from "@/i18n/catalog";
+import { loadEnglishCatalog, translateText, translateTextAsync, type SupportedLocale } from "@/i18n/catalog";
 import { activeLocale } from "@/i18n/runtime";
 import { detachOpener, safePreviewBlob } from "@/lib/safe-content";
 
@@ -46,7 +46,7 @@ export async function apiRequest<T>(
     try {
       payload = JSON.parse(rawBody) as ApiPayload<T>;
     } catch {
-      throw new ApiError(translateText("Phản hồi từ hệ thống không đúng định dạng.", activeLocale()), response.status);
+      throw new ApiError(await translateTextAsync("Phản hồi từ hệ thống không đúng định dạng.", activeLocale()), response.status);
     }
   }
   if (!response.ok) {
@@ -55,7 +55,7 @@ export async function apiRequest<T>(
     if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("wind-edu:unauthorized"));
     }
-    throw new ApiError(translateText(error?.message ?? "Không thể xử lý yêu cầu.", activeLocale()), response.status, error?.details);
+    throw new ApiError(await translateTextAsync(error?.message ?? "Không thể xử lý yêu cầu.", activeLocale()), response.status, error?.details);
   }
   if (!payload) return undefined as T;
   const data = (payload as ApiEnvelope<T>).data;
@@ -81,7 +81,7 @@ export async function downloadApiFile(path: string, roleCode: RoleCode): Promise
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-    throw new ApiError(translateText(payload.error?.message ?? "Không thể tải học liệu.", activeLocale()), response.status, payload.error?.details);
+    throw new ApiError(await translateTextAsync(payload.error?.message ?? "Không thể tải học liệu.", activeLocale()), response.status, payload.error?.details);
   }
   const blobUrl = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
@@ -104,6 +104,7 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
   const palette = previewPalette();
   const locale = activeLocale();
+  if (locale === "en-US") await loadEnglishCatalog().catch(() => undefined);
   previewWindow.document.title = translateText("Đang tải bản xem trước…", locale);
   previewWindow.document.body.textContent = translateText("Đang tải bản xem trước…", locale);
   previewWindow.document.body.style.cssText = `margin:0;display:grid;min-height:100vh;place-items:center;background:${palette.canvas};color:${palette.ink};font-weight:600;font-size:15px;font-family:${palette.fontFamily}`;
@@ -116,7 +117,7 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-      throw new ApiError(translateText(payload.error?.message ?? "Không thể mở bản xem trước.", locale), response.status, payload.error?.details);
+      throw new ApiError(await translateTextAsync(payload.error?.message ?? "Không thể mở bản xem trước.", locale), response.status, payload.error?.details);
     }
     const blob = await response.blob();
     // Người dùng có thể đóng cửa sổ trong khi tệp đang tải; không tạo URL khi đã hủy xem trước.

@@ -4,7 +4,8 @@ import ts from "typescript";
 import { collectCoverageFiles, normalizeCoverageValue as normalize, readCoverageCatalogKeys, vietnamesePattern } from "./i18n-coverage-shared.mjs";
 
 const sourceRoot = resolve("src");
-const catalogPath = resolve("src/i18n/catalog.ts");
+const catalogPath = resolve("src/i18n/en-catalog.ts");
+const catalogFacadePath = resolve("src/i18n/catalog.ts");
 const generatedCatalogPath = resolve("src/i18n/generated-en.json");
 const ignoredSegments = new Set([".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"]);
 
@@ -56,7 +57,7 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
 const occurrences = new Map();
 const dynamicFragments = new Set();
 const dynamicTemplates = new Set();
-for (const path of collectCoverageFiles(sourceRoot, (path) => [".ts", ".tsx"].includes(extname(path)) && ![...ignoredSegments].some((suffix) => path.endsWith(suffix)) && path !== catalogPath)) {
+for (const path of collectCoverageFiles(sourceRoot, (path) => [".ts", ".tsx"].includes(extname(path)) && ![...ignoredSegments].some((suffix) => path.endsWith(suffix)) && path !== catalogPath && path !== catalogFacadePath)) {
   for (const value of extractVietnameseStrings(path, dynamicFragments, dynamicTemplates)) {
     const locations = occurrences.get(value) ?? new Set();
     locations.add(relative(sourceRoot, path).replaceAll("\\", "/"));

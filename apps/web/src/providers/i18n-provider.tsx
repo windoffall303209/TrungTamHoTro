@@ -1,7 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { DEFAULT_LOCALE, isSupportedLocale, LOCALE_STORAGE_KEY, translateText, type SupportedLocale } from "@/i18n/catalog";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_LOCALE,
+  isEnglishCatalogLoaded,
+  isSupportedLocale,
+  loadEnglishCatalog,
+  LOCALE_STORAGE_KEY,
+  translateText,
+  type SupportedLocale,
+} from "@/i18n/catalog";
 
 interface I18nContextValue {
   locale: SupportedLocale;
@@ -68,9 +76,11 @@ function localizeTree(root: Node, locale: SupportedLocale): void {
   }
 }
 
-/** Cung cấp locale toàn ứng dụng và đồng bộ nội dung động phát sinh sau render. */
+/** Cung cấp locale toàn ứng dụng, chỉ nạp từ điển EN khi cần và đồng bộ DOM khi đổi ngôn ngữ. */
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<SupportedLocale>(DEFAULT_LOCALE);
+  const [englishReady, setEnglishReady] = useState<boolean>(() => isEnglishCatalogLoaded());
+  const localizedDomToNonDefaultRef = useRef(false);
 
   useEffect(() => {
     let stored: string | null;
@@ -79,7 +89,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     } catch {
       return;
     }
-    if (!isSupportedLocale(stored)) return;
+    if (!isSupportedLocale(stored) || stored === DEFAULT_LOCALE) return;
 
     const frame = window.requestAnimationFrame(() => setLocaleState(stored));
     return () => window.cancelAnimationFrame(frame);
@@ -89,19 +99,58 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = locale;
     document.documentElement.dataset.locale = locale;
     document.title = locale === "en-US" ? "Wind EDU | Bilingual Teaching Center" : "Wind EDU | Trung tâm hỗ trợ giảng dạy";
-    localizeTree(document.body, locale);
-    // Văn bản gốc của giao diện là tiếng Việt: sau lượt khôi phục ở trên, vi-VN không cần theo dõi mọi thay đổi DOM.
-    // Chỉ bật MutationObserver + TreeWalker toàn trang khi thực sự cần dịch sang tiếng Anh.
-    if (locale === "vi-VN") return;
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === "characterData") localizeTextNode(mutation.target as Text, locale);
-        else if (mutation.type === "attributes" && mutation.target instanceof Element) localizeElement(mutation.target, locale);
-        else for (const node of mutation.addedNodes) localizeTree(node, locale);
+
+    // Văn bản gốc của giao diện là tiếng Việt: ở vi-VN không tải từ điển EN và chỉ duyệt DOM khi cần khôi phục từ EN.
+    if (locale === "vi-VN") {
+      if (localizedDomToNonDefaultRef.current) {
+        localizeTree(document.body, "vi-VN");
+        localizedDomToNonDefaultRef.current = false;
       }
-    });
-    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: [...translatedAttributes] });
-    return () => observer.disconnect();
+      return;
+    }
+
+    let cancelled = false;
+    let observer: MutationObserver | null = null;
+
+    // Áp bản dịch tiếng Anh lên toàn bộ DOM và bật theo dõi nút phát sinh sau render.
+    const applyEnglishDom = (): void => {
+      if (cancelled) return;
+      localizedDomToNonDefaultRef.current = true;
+      localizeTree(document.body, "en-US");
+      observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === "characterData") localizeTextNode(mutation.target as Text, "en-US");
+          else if (mutation.type === "attributes" && mutation.target instanceof Element) localizeElement(mutation.target, "en-US");
+          else for (const node of mutation.addedNodes) localizeTree(node, "en-US");
+        }
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: [...translatedAttributes],
+      });
+    };
+
+    if (isEnglishCatalogLoaded()) {
+      applyEnglishDom();
+    } else {
+      void loadEnglishCatalog()
+        .then(() => {
+          if (cancelled) return;
+          setEnglishReady(true);
+          applyEnglishDom();
+        })
+        .catch(() => {
+          // Nếu nạp chunk ngôn ngữ lỗi mạng, giữ nguyên văn bản gốc để giao diện không gãy.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      observer?.disconnect();
+    };
   }, [locale]);
 
   /** Lưu locale hợp lệ và cập nhật UI ngay trong cùng phiên. */
@@ -115,13 +164,19 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     setLocaleState(nextLocale);
   }, []);
 
+  /** Dịch chuỗi giao diện đồng bộ theo locale và trạng thái nạp từ điển tiếng Anh hiện tại. */
+  const translate = useCallback(
+    (text: string) => (locale === "en-US" && !englishReady ? text : translateText(text, locale)),
+    [locale, englishReady],
+  );
+
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     setLocale,
-    t: (text) => translateText(text, locale),
+    t: translate,
     formatDateTime: (input) => new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" }).format(new Date(input)),
     formatNumber: (input) => new Intl.NumberFormat(locale).format(input),
-  }), [locale, setLocale]);
+  }), [locale, setLocale, translate]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
@@ -142,4 +197,3 @@ export function useI18n(): I18nContextValue {
   const value = useContext(I18nContext);
   return value ?? defaultI18nValue;
 }
-
