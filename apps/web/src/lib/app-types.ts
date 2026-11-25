@@ -1,78 +1,15 @@
-/** Hợp đồng phiên, vai trò và quyền dùng chung cho RBAC phía giao diện. */
-export type RoleCode = "SYSTEM_ADMIN" | "CENTER_MANAGER" | "INSTRUCTOR" | "LEARNER";
-
-export type PermissionCode =
-  | "user:view" | "user:create" | "user:update" | "user:suspend"
-  | "role:view" | "role:update" | "course:view" | "course:manage"
-  | "class:view" | "class:manage" | "material:view" | "material:manage"
-  | "question:view" | "question:manage" | "exam:view" | "exam:manage"
-  | "forum:view" | "forum:post" | "forum:moderate" | "session:view"
-  | "session:manage" | "report:view" | "support:create" | "support:manage"
-  | "system:configure";
-
-interface SessionUser {
-  id: string;
-  username: string;
-  name: string;
-  email: string | null;
-  roleName: string;
-  avatarUrl?: string | null;
-  locale?: "vi-VN" | "en-US";
-}
-
-export interface SessionData {
-  sessionId: string;
-  user: SessionUser;
-  roleCode: RoleCode;
-  permissions: PermissionCode[];
-  availableRoles: Array<{ code: RoleCode; name: string }>;
-  csrfToken?: string;
-}
-
-export interface AccountProfile {
-  id: string;
-  username: string;
-  displayName: string;
-  email: string | null;
-  phone: string;
-  timezone: string;
-  locale: string;
-  avatarUrl: string | null;
-  status: "PENDING" | "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
-  emailVerifiedAt: string | null;
-  mfaEnabled: boolean;
-  mfaRecoveryCodesRemaining: number;
-  hasPassword: boolean;
-  createdAt: string;
-}
-
-export interface AccountSession {
-  id: string;
-  current: boolean;
-  currentRoleCode: RoleCode;
-  ipAddress: string;
-  userAgent: string;
-  createdAt: string;
-  lastSeenAt: string;
-  expiresAt: string;
-}
-
-export interface IdentityUser {
-  id: string;
-  username: string;
-  displayName: string;
-  email: string | null;
-  roleCode: RoleCode;
-  roleCodes: RoleCode[];
-  status: "PENDING" | "PENDING_VERIFICATION" | "ACTIVE" | "INACTIVE" | "LOCKED";
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface IdentityRole {
-  code: RoleCode;
-  name: string;
-  description: string;
-  permissions: PermissionCode[];
-  version: number;
-}
+/** Hợp đồng phiên, vai trò và quyền dùng chung cho RBAC phía giao diện (đồng bộ từ @wind-of-fall/contracts). */
+export type {
+  AccountProfile,
+  AccountSession,
+  AccountStatus,
+  AuthenticatedSession,
+  IdentityChangeImpact,
+  IdentityRole,
+  IdentityUser,
+  LocaleCode,
+  PermissionCode,
+  RoleCode,
+  SessionData,
+  SessionUser,
+} from "@wind-of-fall/contracts";

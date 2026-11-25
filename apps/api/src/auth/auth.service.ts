@@ -39,17 +39,14 @@ type UserWithRoles = {
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
-export interface AuthenticatedSession {
-  sessionId: string;
-  user: { id: string; username: string; name: string; email: string | null; roleName: string; locale?: "vi-VN" | "en-US"; avatarUrl?: string | null };
-  roleCode: RoleCode;
-  permissions: PermissionCode[];
-  availableRoles: Array<{ code: RoleCode; name: string }>;
-}
+import type {
+  AccountProfile,
+  AccountSession,
+  AuthenticatedSession,
+} from "@wind-of-fall/contracts";
 
+export type { AccountProfile, AccountSession, AuthenticatedSession };
 export interface SessionContext { ipAddress?: string; userAgent?: string }
-export interface AccountProfile { id: string; username: string; displayName: string; email: string | null; phone: string; timezone: string; locale: string; avatarUrl: string | null; status: string; emailVerifiedAt: string | null; mfaEnabled: boolean; mfaRecoveryCodesRemaining: number; hasPassword: boolean; createdAt: string }
-export interface AccountSession { id: string; current: boolean; currentRoleCode: string; ipAddress: string; userAgent: string; createdAt: string; lastSeenAt: string; expiresAt: string }
 export interface SessionIssue { token: string; csrfToken: string; maxAgeMs: number; session: AuthenticatedSession }
 export interface AccountSetupRequired { requiresAccountSetup: true; setupToken: string; username: string }
 export type LoginResult = SessionIssue | { requiresMfa: true; challengeToken: string } | AccountSetupRequired;
@@ -646,7 +643,7 @@ export class AuthService {
   /** Liệt kê phiên còn hiệu lực và đánh dấu phiên đang gọi. */
   async listSessions(userId: string, currentSessionId: string): Promise<AccountSession[]> {
     const rows = await this.prisma.authSession.findMany({ where: { userId, revokedAt: null, expiresAt: { gt: new Date() } }, orderBy: { lastSeenAt: "desc" } });
-    return rows.map((row) => ({ id: row.id, current: row.id === currentSessionId, currentRoleCode: row.currentRoleCode, ipAddress: row.ipAddress ?? "Không xác định", userAgent: row.userAgent ?? "Thiết bị không xác định", createdAt: row.createdAt.toISOString(), lastSeenAt: row.lastSeenAt.toISOString(), expiresAt: row.expiresAt.toISOString() }));
+    return rows.map((row) => ({ id: row.id, current: row.id === currentSessionId, currentRoleCode: row.currentRoleCode as RoleCode, ipAddress: row.ipAddress ?? "Không xác định", userAgent: row.userAgent ?? "Thiết bị không xác định", createdAt: row.createdAt.toISOString(), lastSeenAt: row.lastSeenAt.toISOString(), expiresAt: row.expiresAt.toISOString() }));
   }
 
   /** Thu hồi một phiên sở hữu bởi người dùng và không cho tự thu hồi phiên hiện tại qua endpoint này. */

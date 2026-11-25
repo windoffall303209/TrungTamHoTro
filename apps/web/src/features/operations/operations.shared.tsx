@@ -1,57 +1,10 @@
-export interface Audit {
-  id: string;
-  actor: string;
-  action: string;
-  target: string;
-  detail: string;
-  createdAt: string;
-}
-
-export interface Backup {
-  canRestore: boolean;
-  id: string;
-  type: string;
-  checksum: string;
-  createdAt: string;
-  status: string;
-  attempts: number;
-  progress: number;
-}
-
-export interface ExportJob {
-  id: string;
-  category: string;
-  format: string;
-  rowCount: number;
-  expiresAt: string;
-  status: string;
-  checksum?: string;
-  sizeBytes: number;
-  downloadAvailable: boolean;
-  attempts: number;
-  progress: number;
-}
-
-export interface RestoreJob {
-  id: string;
-  backupId: string;
-  mode: "DRILL" | "OPERATIONAL";
-  status: string;
-  requestedBy: string;
-  approvedBy?: string;
-  reason?: string;
-  targetDatabase?: string;
-  verification: string;
-  createdAt: string;
-}
-
-export interface StorageCleanupFailure {
-  id: string;
-  entityType: string;
-  objectKey: string;
-  error: string;
-  removedAt: string;
-}
+export type {
+  AuditEvent as Audit,
+  BackupRun as Backup,
+  DataExport as ExportJob,
+  RestoreRun as RestoreJob,
+  StorageCleanupFailure,
+} from "@wind-of-fall/contracts";
 
 /** Chuyển trạng thái job kỹ thuật thành mô tả ngắn có tiến độ và số lần thử. */
 export function operationalStatusText(item: {

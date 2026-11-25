@@ -1,16 +1,11 @@
 "use client";
 
+import type { PaginatedResponse } from "@wind-of-fall/contracts";
 import { useCallback, useState } from "react";
 
-const ALLOWED_PAGE_SIZES = [10, 20, 30, 40, 50] as const;
+export type { PaginatedResponse };
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+const ALLOWED_PAGE_SIZES = [10, 20, 30, 40, 50] as const;
 
 /** Chuẩn hóa kích thước trang về danh sách lựa chọn hợp lệ của component Pagination. */
 function normalizePageSize(size: number): number {

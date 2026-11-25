@@ -1,17 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
+import type { PageQuery, PaginatedResult } from "@wind-of-fall/contracts";
 
-export interface PageQuery {
-  page: number;
-  pageSize: number;
-}
-
-export interface PaginatedResult<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+export type { PageQuery, PaginatedResult };
 
 /** Chuẩn hóa tham số phân trang page và pageSize từ query string, từ chối giá trị vượt giới hạn. */
 export function parsePageQuery(

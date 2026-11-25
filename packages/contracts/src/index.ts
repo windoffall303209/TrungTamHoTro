@@ -20,3 +20,10 @@ export interface ApiErrorEnvelope {
   };
 }
 
+export * from "./primitives.js";
+export * from "./pagination.js";
+export * from "./auth.js";
+export * from "./exam.js";
+export * from "./academic.js";
+export * from "./learning.js";
+export * from "./system.js";
