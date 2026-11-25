@@ -96,14 +96,21 @@ export class AiGradingAssistService {
         return false;
       }
     }
+    // PostgreSQL JSONB sắp xếp lại thứ tự khóa object; chuẩn hóa đúng thứ tự trường gốc trước khi băm contextHash.
+    const canonicalSources: GradingAnswerSource[] = candidate.result.sources.map((source) => ({
+      attachmentId: source.attachmentId,
+      name: source.name,
+      checksum: source.checksum,
+      text: source.text,
+    }));
     const candidateContext: GradingContextPayload = {
       submissionId: metadata.submissionId,
       submissionRevision: metadata.submissionRevision,
       assignmentVersion: metadata.assignmentVersion,
       instructions: metadata.instructions,
-      answer: combineGradingSources(candidate.result.sources),
+      answer: combineGradingSources(canonicalSources),
       rubric: metadata.rubric,
-      sources: candidate.result.sources,
+      sources: canonicalSources,
     };
     if (this.hashContext(candidateContext) !== candidate.contextHash) return false;
     validateGradingInput({
