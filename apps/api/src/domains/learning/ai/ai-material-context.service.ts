@@ -70,7 +70,7 @@ export class AiMaterialContextService {
     return result;
   }
 
-  /** Tạo bộ ôn tập có độ bao phủ rõ ràng; kiểm tra quyền lần cuối trước khi trả nội dung. */
+  /** Tạo bộ ôn tập có độ bao phủ rõ ràng; kiểm tra quyền và phiên bản lần cuối trước khi trả nội dung. */
   async study(materialId: string, actorId: string, role: string, options: StudyGuideOptions): Promise<SavedStudyGuide & { draftId: string }> {
     validateStudyGuideOptions(options);
     const material = await this.requireMaterial(materialId, actorId, role);
@@ -90,7 +90,7 @@ export class AiMaterialContextService {
       const guide = await this.ai.createStudyGuide(selected.chunks, options);
       return { ...guide, coverage: selected.coverage, version: context.version, warning: context.warning };
     });
-    await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
+    await this.assertPostGenerationAccess(materialId, actorId, role, sourceVersion);
     return result;
   }
 
@@ -177,6 +177,15 @@ export class AiMaterialContextService {
     await this.learning.createMaterialAccess(material.id, role, "PREVIEW", actorId);
     const chunks = chunkDocument({ materialId, version: material.version, checksum, name: material.name }, pages);
     return { materialId, version: material.version, checksum, chunks: query ? retrieveDocumentContext(query, chunks) : chunks, cached, warning: "Nội dung được AI trích xuất, cần đối chiếu tài liệu gốc; số trang và độ chính xác chưa được xác minh độc lập." };
+  }
+
+  /** Xác nhận quyền truy cập và phiên bản học liệu vẫn khớp sau khi provider hoàn tất sinh nội dung. */
+  private async assertPostGenerationAccess(materialId: string, actorId: string, role: string, expectedVersion: number): Promise<void> {
+    await this.learning.createMaterialAccess(materialId, role, "PREVIEW", actorId);
+    const current = await this.requireMaterial(materialId, actorId, role);
+    if (current.version !== expectedVersion) {
+      throw new ConflictException("Phiên bản tài liệu đã thay đổi. Hãy tải lại tài liệu trước khi tạo bộ ôn tập.");
+    }
   }
 
   /** Dữ liệu AI (lịch sử hỏi đáp, bộ ôn tập) chỉ được đọc theo phiên bản hiện tại của học liệu. */

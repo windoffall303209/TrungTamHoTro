@@ -29,6 +29,16 @@ describe("authorized material AI context", () => {
     expect(learning.createMaterialAccess).toHaveBeenCalled();
   });
 
+  it("rejects returning a stale study guide when material version changes mid-generation", async () => {
+    const { ai, material, service } = fixture();
+    ai.createStudyGuide.mockImplementationOnce(() => {
+      material.version = 2;
+      return { insufficientContext: false, summary: [], flashcards: [], model: "study-model" };
+    });
+    await expect(service.study(material.id, "teacher", "INSTRUCTOR", { cardCount: 1, language: "VI" })).rejects.toMatchObject({ status: 409 });
+    expect(ai.createStudyGuide).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects page ranges outside extracted content before creating a study claim", async () => {
     const { service, ai, material } = fixture();
     const options = { cardCount: 1, language: "VI" as const, fromPage: 1, toPage: 2 };
