@@ -58,6 +58,42 @@ interface NavSection {
   items: NavigationItem[];
 }
 
+/** Ánh xạ thông báo sang đường dẫn deep-link đúng thực thể và mã hóa an toàn entityId. */
+export function resolveNotificationHref(item: Pick<LearningNotification, "entityType" | "entityId" | "type">): string {
+  const entityType = item.entityType.trim().toUpperCase();
+  const entityId = encodeURIComponent(item.entityId);
+  const destinations: Record<string, string> = {
+    CLASS: `/courses/classes/${entityId}`,
+    MATERIAL: `/materials?materialId=${entityId}`,
+    QUESTION: `/questions?questionId=${entityId}`,
+    EXAM: `/exams?examId=${entityId}`,
+    EXAM_ATTEMPT: `/exams?attemptId=${entityId}`,
+    ASSIGNMENT: `/academic?assignmentId=${entityId}`,
+    CLASS_ANNOUNCEMENT: `/academic?announcementId=${entityId}`,
+    LIVE_SESSION: `/live-classes?sessionId=${entityId}`,
+    SUPPORT_TICKET: `/support?ticketId=${entityId}`,
+    CHAT_CONVERSATION: `/messages?conversationId=${entityId}`,
+    FORUM_TOPIC: `/forum?topicId=${entityId}`,
+    FORUM_POST: `/forum?postId=${entityId}`,
+  };
+  if (destinations[entityType]) return destinations[entityType];
+  if (item.type.includes("SUPPORT")) return `/support?ticketId=${entityId}`;
+  if (item.type.includes("FORUM") || item.type.includes("MENTION"))
+    return `/forum?topicId=${entityId}`;
+  if (
+    item.type.includes("SESSION") ||
+    item.type.includes("RECORDING")
+  )
+    return `/live-classes?sessionId=${entityId}`;
+  if (item.type.includes("EXAM") || item.type.includes("GRADE"))
+    return `/exams?examId=${entityId}`;
+  if (item.type.includes("ASSIGNMENT"))
+    return `/academic?assignmentId=${entityId}`;
+  if (item.type.includes("MATERIAL"))
+    return `/materials?materialId=${entityId}`;
+  return "/dashboard";
+}
+
 const allNavItems: NavigationItem[] = [
   {
     href: "/courses",
@@ -440,38 +476,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-/** Đảm nhiệm notificationHref trong phạm vi module hiện tại. */
+  /** Lấy đường dẫn đích của thông báo từ hàm ánh xạ deep-link dùng chung. */
   function notificationHref(item: LearningNotification): string {
-    const entityType = item.entityType.trim().toUpperCase();
-    const entityId = encodeURIComponent(item.entityId);
-    const destinations: Record<string, string> = {
-      CLASS: `/courses/classes/${entityId}`,
-      MATERIAL: `/materials?materialId=${entityId}`,
-      QUESTION: `/questions?questionId=${entityId}`,
-      EXAM: `/exams?examId=${entityId}`,
-      EXAM_ATTEMPT: `/exams?attemptId=${entityId}`,
-      ASSIGNMENT: `/academic?assignmentId=${entityId}`,
-      CLASS_ANNOUNCEMENT: `/academic?announcementId=${entityId}`,
-      LIVE_SESSION: `/live-classes?sessionId=${entityId}`,
-      SUPPORT_TICKET: `/support?ticketId=${entityId}`,
-      CHAT_CONVERSATION: `/messages?conversationId=${entityId}`,
-    };
-    if (destinations[entityType]) return destinations[entityType];
-    if (item.type.includes("SUPPORT")) return `/support?ticketId=${entityId}`;
-    if (item.type.includes("FORUM") || item.type.includes("MENTION"))
-      return "/forum";
-    if (
-      item.type.includes("SESSION") ||
-      item.type.includes("RECORDING")
-    )
-      return `/live-classes?sessionId=${entityId}`;
-    if (item.type.includes("EXAM") || item.type.includes("GRADE"))
-      return `/exams?examId=${entityId}`;
-    if (item.type.includes("ASSIGNMENT"))
-      return `/academic?assignmentId=${entityId}`;
-    if (item.type.includes("MATERIAL"))
-      return `/materials?materialId=${entityId}`;
-    return "/dashboard";
+    return resolveNotificationHref(item);
   }
 
 /** Đảm nhiệm signOut trong phạm vi module hiện tại. */
