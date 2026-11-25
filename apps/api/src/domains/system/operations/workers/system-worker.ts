@@ -202,18 +202,59 @@ export async function processQueuedExport(
       throw new ServiceUnavailableException("Kho object chưa sẵn sàng.");
     const format: DataExport["format"] =
       candidate.format === "JSON" ? "JSON" : "CSV";
-    const rows = await serviceContext.collectExportRows(
-      prisma,
-      candidate.category!,
-    );
-    const content = serviceContext.serializeExport(rows, format);
-    await lease.assertOwned();
-    await prisma.operationalJob.updateMany({
-      where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
-      data: { progress: 55 },
-    });
     const objectKey = `exports/${candidate.category!.toLowerCase()}/${candidate.id}-${candidate.attempts + 1}.${format.toLowerCase()}`;
-    const stored = await serviceContext.objectStorage.put(objectKey, content);
+    let rowCount: number;
+    let sizeBytes: number;
+    let stored: { objectKey: string; checksum: string };
+
+    // Đường chính production: đọc cursor theo lô và stream thẳng ra tệp tạm -> putFile, không giữ cả bảng trong RAM.
+    if (serviceContext.streamExportToFile && typeof serviceContext.objectStorage.putFile === "function") {
+      const streamed = await withTemporaryFile(async (tempPath) => {
+        let lastBatchCheck = 0;
+        const summary = await serviceContext.streamExportToFile!(
+          prisma,
+          candidate.category!,
+          format,
+          tempPath,
+          async (writtenRows) => {
+            if (writtenRows - lastBatchCheck >= 2_000) {
+              lastBatchCheck = writtenRows;
+              await lease.assertOwned();
+            }
+          },
+        );
+        await lease.assertOwned();
+        await prisma.operationalJob.updateMany({
+          where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
+          data: { progress: 55 },
+        });
+        const uploaded = await serviceContext.objectStorage!.putFile(objectKey, tempPath);
+        if (uploaded.checksum !== summary.checksum) {
+          throw new ServiceUnavailableException(
+            "Tệp export lưu trữ không vượt qua kiểm tra checksum.",
+          );
+        }
+        return { summary, uploaded };
+      });
+      rowCount = streamed.summary.rowCount;
+      sizeBytes = streamed.summary.sizeBytes;
+      stored = streamed.uploaded;
+    } else {
+      const rows = await serviceContext.collectExportRows(
+        prisma,
+        candidate.category!,
+      );
+      const content = serviceContext.serializeExport(rows, format);
+      await lease.assertOwned();
+      await prisma.operationalJob.updateMany({
+        where: { kind: "EXPORT", ...ownedJobWhere(candidate) },
+        data: { progress: 55 },
+      });
+      stored = await serviceContext.objectStorage.put(objectKey, content);
+      rowCount = rows.length;
+      sizeBytes = content.length;
+    }
+
     const hash = createHash("sha256");
     for await (const chunk of await serviceContext.objectStorage.openReadStream(
       stored.objectKey,
@@ -230,10 +271,10 @@ export async function processQueuedExport(
       data: {
         status: "COMPLETED",
         progress: 100,
-        rowCount: rows.length,
+        rowCount,
         objectKey: stored.objectKey,
         checksum: stored.checksum,
-        sizeBytes: BigInt(content.length),
+        sizeBytes: BigInt(sizeBytes),
       },
     });
     if (completed.count !== 1) return true;
@@ -242,7 +283,7 @@ export async function processQueuedExport(
       candidate.requestedBy,
       "DATA_EXPORTED",
       candidate.id,
-      `${candidate.category} · ${format} · ${rows.length} dòng · ${stored.checksum}`,
+      `${candidate.category} · ${format} · ${rowCount} dòng · ${stored.checksum}`,
     );
   } catch (error) {
     await serviceContext.retryExportJob(

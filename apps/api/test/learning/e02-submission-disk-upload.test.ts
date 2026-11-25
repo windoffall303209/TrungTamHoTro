@@ -111,7 +111,9 @@ describe("E02 Disk-backed submission upload, magic/DOCX/antivirus validation & c
     tempDirs.push(storageRoot);
     const storage = createLocalStorage(storageRoot);
     let antivirusClean = true;
-    const scanFileSpy = vi.fn(() =>
+    const scanFileSpy = vi.fn<
+      (filePath: string) => Promise<{ clean: boolean; engine: "clamav"; signature?: string }>
+    >(() =>
       Promise.resolve({
         clean: antivirusClean,
         engine: "clamav" as const,

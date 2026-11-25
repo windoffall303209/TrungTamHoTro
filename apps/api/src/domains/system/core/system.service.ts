@@ -169,6 +169,7 @@ export class SystemService {
       mapAudit: (...args) => owner.mapAudit(...args),
       collectExportRows: (...args) => owner.collectExportRows(...args),
       serializeExport: (...args) => owner.serializeExport(...args),
+      streamExportToFile: (...args) => owner.streamExportToFile(...args),
       logDatabase: (...args) => owner.logDatabase(...args),
       asRecord: asPrismaJsonRecord,
       stringValue: (...args) => owner.stringValue(...args),
@@ -607,6 +608,23 @@ export class SystemService {
     format: DataExport["format"],
   ): Buffer {
     return export_format_ops.serializeExport(rows, format);
+  }
+
+  /** Stream xuất dữ liệu theo lô cursor trực tiếp xuống tệp đĩa với bộ nhớ giới hạn. */
+  private async streamExportToFile(
+    prisma: PrismaService,
+    category: string,
+    format: DataExport["format"],
+    targetPath: string,
+    onBatchWritten?: (rowCount: number) => Promise<void> | void,
+  ): Promise<{ rowCount: number; sizeBytes: number; checksum: string }> {
+    return await export_format_ops.streamExportToFile(
+      prisma,
+      category,
+      format,
+      targetPath,
+      onBatchWritten,
+    );
   }
 
   /** Ghi audit vào DB và che dữ liệu nhạy cảm trước khi lưu. */

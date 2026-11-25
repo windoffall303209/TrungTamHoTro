@@ -82,6 +82,13 @@ export interface SystemServiceContext {
     rows: Array<Record<string, unknown>>,
     format: DataExport["format"],
   ): Buffer;
+  streamExportToFile?(
+    prisma: PrismaService,
+    category: string,
+    format: DataExport["format"],
+    targetPath: string,
+    onBatchWritten?: (rowCount: number) => Promise<void> | void,
+  ): Promise<{ rowCount: number; sizeBytes: number; checksum: string }>;
   logDatabase(
     database: PrismaService | Prisma.TransactionClient,
     actorId: string,
