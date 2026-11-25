@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash, randomUUID } from "node:crypto";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { Prisma } from "../../../generated/prisma/client.js";
+import { AI_CLAIM_LEASE_OPTIONS, canReopenAiClaimAfterFailure, createAiClaimLease, currentAiClaimTime, isAiLeaseExpired, type AiClaimLeaseOptions } from "../../system/ai/ai-claim-policy.js";
 import type { StudyContext, StudyGuide, StudyGuideOptions } from "../../system/ai/ai-study-guide.js";
 import { validateStudyDraftEdit } from "./ai-study-draft-edit.js";
 
@@ -9,14 +10,17 @@ export type SavedStudyGuide = StudyGuide & { model?: string; coverage: StudyCont
 type DraftIdentity = { ownerId: string; materialId: string; sourceVersion: number; options: StudyGuideOptions };
 export type StudyDraftSummary = DraftIdentity & { id: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date; updatedAt: Date };
 type Publication = { publishedResult: SavedStudyGuide | null; publishedAt: Date | null; publicationRevision: number; publishedEditRevision: number | null };
-type Draft = StudyDraftSummary & Publication & { fingerprint: string; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
+type Draft = StudyDraftSummary & Publication & { fingerprint: string; leaseToken?: string | null; leaseExpiresAt?: Date | null; result: SavedStudyGuide | null; editedResult: SavedStudyGuide | null; editRevision: number };
 export type PublishStudyDraft = { expectedRevision: number; expectedPublicationRevision: number; confirmReview: boolean };
 type PublishedSummary = { id: string; sourceVersion: number; publishedAt: Date; publicationRevision: number; language: StudyGuideOptions["language"] };
 
 @Injectable()
-/** Lưu bản nháp riêng, claim theo nội dung trong database trước khi gọi provider. */
+/** Lưu bản nháp riêng, claim kèm lease trong database trước khi gọi provider. */
 export class AiStudyDraftService {
-  constructor(@Optional() private readonly prisma?: PrismaService) {}
+  constructor(
+    @Optional() private readonly prisma?: PrismaService,
+    @Optional() @Inject(AI_CLAIM_LEASE_OPTIONS) private readonly leaseOptions: AiClaimLeaseOptions = {},
+  ) {}
 
   /** Tra đúng yêu cầu riêng trước khi kiểm tra cấu hình nhà cung cấp; không tạo bản ghi giữ quyền xử lý. */
   async find(identity: DraftIdentity): Promise<Draft | null> {
@@ -28,32 +32,66 @@ export class AiStudyDraftService {
     return createHash("sha256").update(JSON.stringify([identity.ownerId, identity.materialId, identity.sourceVersion, identity.options.cardCount, identity.options.language, identity.options.fromPage ?? null, identity.options.toPage ?? null])).digest("hex");
   }
 
-  /** Trả lại kết quả đã lưu hoặc claim một lần tạo; trạng thái mơ hồ không tự gọi lại AI. */
+  /** Trả lại kết quả đã lưu hoặc claim một lần tạo có lease; hết hạn lease chuyển UNCERTAIN và không tự gọi lại. */
   async generate(identity: DraftIdentity, generate: () => Promise<SavedStudyGuide>): Promise<SavedStudyGuide & { draftId: string }> {
     const fingerprint = this.fingerprint(identity);
     const id = `study-${randomUUID()}`;
     const db = this.database();
+    const lease = createAiClaimLease(this.leaseOptions);
     let claimed = false;
     try {
-      await db.aiStudyDraft.create({ data: { id, fingerprint, ownerId: identity.ownerId, materialId: identity.materialId, sourceVersion: identity.sourceVersion, options: identity.options as unknown as Prisma.InputJsonValue } });
+      await db.aiStudyDraft.create({
+        data: {
+          id,
+          fingerprint,
+          ownerId: identity.ownerId,
+          materialId: identity.materialId,
+          sourceVersion: identity.sourceVersion,
+          leaseToken: lease.leaseToken,
+          leaseExpiresAt: lease.leaseExpiresAt,
+          options: identity.options as unknown as Prisma.InputJsonValue,
+        },
+      });
       claimed = true;
     } catch (error) { if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error; }
     const row = await db.aiStudyDraft.findUnique({ where: { fingerprint } }) as unknown as Draft | null;
     if (!row || row.ownerId !== identity.ownerId || row.materialId !== identity.materialId || row.sourceVersion !== identity.sourceVersion) throw new ConflictException("Không xác nhận được bản nháp ôn tập. Hãy thử lại cùng yêu cầu.");
     if (row.state === "READY" && row.result) return { ...row.result, draftId: row.id };
+    if (!claimed && row.state === "GENERATING") {
+      const now = currentAiClaimTime(this.leaseOptions);
+      if (isAiLeaseExpired(row.leaseExpiresAt, now)) {
+        // Hết hạn lease sau crash/restart -> chuyển UNCERTAIN để đối soát, tuyệt đối không tự gọi lại provider.
+        await db.aiStudyDraft.updateMany({
+          where: { id: row.id, state: "GENERATING", leaseToken: row.leaseToken ?? null, leaseExpiresAt: { lte: now } },
+          data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null },
+        });
+        throw new ConflictException("Lần tạo bộ ôn tập trước đã hết thời hạn xử lý và chưa rõ kết quả. Hệ thống không tự gọi lại AI để tránh phí trùng.");
+      }
+    }
     if (!claimed && row.state === "RETRY_AUTHORIZED") {
-      const reopened = await db.aiStudyDraft.updateMany({ where: { id: row.id, state: "RETRY_AUTHORIZED", publishedAt: null }, data: { state: "GENERATING", result: Prisma.JsonNull, editedResult: Prisma.JsonNull } });
+      const reopened = await db.aiStudyDraft.updateMany({
+        where: { id: row.id, state: "RETRY_AUTHORIZED", publishedAt: null },
+        data: { state: "GENERATING", leaseToken: lease.leaseToken, leaseExpiresAt: lease.leaseExpiresAt, result: Prisma.JsonNull, editedResult: Prisma.JsonNull },
+      });
       claimed = reopened.count === 1;
     }
     if (!claimed) throw new ConflictException(row.state === "UNCERTAIN" ? "Lần tạo bộ ôn tập trước chưa rõ kết quả. Hệ thống không tự gọi lại AI để tránh phí trùng." : "Bộ ôn tập đang xử lý hoặc bị gián đoạn. Hãy mở lịch sử bản nháp để kiểm tra, không tạo yêu cầu mới.");
     try {
       const result = await generate();
       if (result.version !== identity.sourceVersion) throw new ConflictException("Phiên bản nguồn của bộ ôn tập không khớp bản nháp. Kết quả chưa được lưu.");
-      const saved = await db.aiStudyDraft.updateMany({ where: { id: row.id, state: "GENERATING" }, data: { state: "READY", result: result as unknown as Prisma.InputJsonValue } });
+      const saved = await db.aiStudyDraft.updateMany({
+        where: { id: row.id, state: "GENERATING", leaseToken: lease.leaseToken },
+        data: { state: "READY", leaseToken: null, leaseExpiresAt: null, result: result as unknown as Prisma.InputJsonValue },
+      });
       if (saved.count !== 1) throw new ConflictException("Không xác nhận được việc lưu bộ ôn tập. Hãy kiểm tra lịch sử bản nháp.");
       return { ...result, draftId: row.id };
     } catch (error) {
-      await db.aiStudyDraft.updateMany({ where: { id: row.id, state: "GENERATING" }, data: { state: "UNCERTAIN" } });
+      // Chỉ mở lại RETRY_AUTHORIZED khi lỗi chắc chắn chưa tính phí; mọi lỗi mơ hồ chuyển UNCERTAIN chờ đối soát.
+      const nextState = canReopenAiClaimAfterFailure(error) ? "RETRY_AUTHORIZED" : "UNCERTAIN";
+      await db.aiStudyDraft.updateMany({
+        where: { id: row.id, state: "GENERATING", leaseToken: lease.leaseToken },
+        data: { state: nextState, leaseToken: null, leaseExpiresAt: null },
+      });
       throw error;
     }
   }

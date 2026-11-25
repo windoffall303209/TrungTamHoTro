@@ -13,6 +13,7 @@ function matches(row: Row, where: Row): boolean {
     if (value && typeof value === "object") {
       if ("not" in value) return actual !== value.not;
       if ("lt" in value) return actual instanceof Date && value.lt instanceof Date ? actual < value.lt : String(actual) < String(value.lt);
+      if ("lte" in value) return actual instanceof Date && value.lte instanceof Date ? actual <= value.lte : String(actual) <= String(value.lte);
       throw new Error(`Unsupported fixture predicate: ${key}`);
     }
     return actual === value;

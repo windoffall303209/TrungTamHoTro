@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { Prisma } from "../../../generated/prisma/client.js";
+import { isAiLeaseExpired } from "../../system/ai/ai-claim-policy.js";
 import {
   ExamOperationsQueryDto,
   GradingOperationsQueryDto,
@@ -417,7 +418,7 @@ export class AiGradingOperationsService {
         );
       const updated = await transaction.aiGradingSuggestion.updateMany({
         where: { id, state: row.state, updatedAt: row.updatedAt },
-        data: { state: "RETRY_AUTHORIZED", result: Prisma.JsonNull },
+        data: { state: "RETRY_AUTHORIZED", leaseToken: null, leaseExpiresAt: null, result: Prisma.JsonNull },
       });
       if (updated.count !== 1)
         throw new ConflictException(
@@ -542,6 +543,8 @@ export class AiGradingOperationsService {
         },
         data: {
           state: "RETRY_AUTHORIZED",
+          leaseToken: null,
+          leaseExpiresAt: null,
           result: Prisma.JsonNull,
           editedResult: Prisma.JsonNull,
         },
@@ -909,6 +912,99 @@ export class AiGradingOperationsService {
         ? { request: request as Record<string, unknown> }
         : {}),
     };
+  }
+
+  /** Chuyển toàn bộ lease GENERATING đã hết hạn sau crash/restart sang UNCERTAIN; tuyệt đối không tự gọi lại AI. */
+  async expireStaleGeneratingLeases(now = new Date()): Promise<{
+    grading: number;
+    study: number;
+    extraction: number;
+    documentAnswer: number;
+    exam: number;
+  }> {
+    if (!this.prisma.isStartupConnectionEnabled()) {
+      throw new ServiceUnavailableException(
+        "Cần cơ sở dữ liệu bền vững để thu hồi lease tác vụ AI đã hết hạn.",
+      );
+    }
+    const [grading, study] = await Promise.all([
+      this.prisma.aiGradingSuggestion.updateMany({
+        where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
+        data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null },
+      }),
+      this.prisma.aiStudyDraft.updateMany({
+        where: { state: "GENERATING", leaseExpiresAt: { lte: now } },
+        data: { state: "UNCERTAIN", leaseToken: null, leaseExpiresAt: null },
+      }),
+    ]);
+
+    const candidates = await this.prisma.$queryRaw<
+      Array<{ key: string; version: number; value: Prisma.JsonValue }>
+    >(Prisma.sql`
+      SELECT "key", version, value
+      FROM system_settings
+      WHERE (
+        "key" LIKE 'ai-doc:%'
+        OR "key" LIKE 'ai-doc-answer:%'
+        OR "key" LIKE 'ai-generation:%'
+      )
+      AND jsonb_typeof(value) = 'object'
+      AND value->>'state' = 'GENERATING'
+      AND value ? 'leaseExpiresAt'
+    `);
+
+    let extraction = 0;
+    let documentAnswer = 0;
+    let exam = 0;
+
+    for (const row of candidates) {
+      if (!row.value || typeof row.value !== "object" || Array.isArray(row.value)) continue;
+      const claim = row.value as Record<string, unknown>;
+      if (!isAiLeaseExpired(typeof claim.leaseExpiresAt === "string" ? claim.leaseExpiresAt : undefined, now)) {
+        continue;
+      }
+      const nextValue = this.buildExpiredSettingValue(row.key, claim);
+      const updated = await this.prisma.systemSetting.updateMany({
+        where: { key: row.key, version: row.version },
+        data: {
+          value: nextValue as Prisma.InputJsonValue,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count !== 1) continue;
+      if (row.key.startsWith("ai-doc:")) extraction += 1;
+      else if (row.key.startsWith("ai-doc-answer:")) documentAnswer += 1;
+      else if (row.key.startsWith("ai-generation:")) exam += 1;
+    }
+
+    return {
+      grading: grading.count,
+      study: study.count,
+      extraction,
+      documentAnswer,
+      exam,
+    };
+  }
+
+  /** Chuẩn hóa payload JSON UNCERTAIN không còn trường lease theo đúng cấu trúc từng kho AI trong system_settings. */
+  private buildExpiredSettingValue(
+    key: string,
+    claim: Record<string, unknown>,
+  ): Record<string, unknown> {
+    if (key.startsWith("ai-doc:")) return { state: "UNCERTAIN" };
+    if (key.startsWith("ai-doc-answer:")) {
+      const request = claim.request;
+      return {
+        state: "UNCERTAIN",
+        ...(request && typeof request === "object" && !Array.isArray(request)
+          ? { request }
+          : {}),
+      };
+    }
+    const { leaseToken: _leaseToken, leaseExpiresAt: _leaseExpiresAt, ...rest } = claim;
+    void _leaseToken;
+    void _leaseExpiresAt;
+    return { ...rest, state: "UNCERTAIN" };
   }
 
   /** Chuẩn hóa metadata bằng chứng trước khi ghi audit. */

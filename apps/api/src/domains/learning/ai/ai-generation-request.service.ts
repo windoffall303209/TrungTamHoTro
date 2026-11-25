@@ -1,11 +1,20 @@
-import { ConflictException, HttpException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { ConflictException, HttpException, Inject, Injectable, Optional, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../../../database/prisma.service.js";
+import { AI_CLAIM_LEASE_OPTIONS, canReopenAiClaimAfterFailure, createAiClaimLease, currentAiClaimTime, hasValidJsonLease, isAiLeaseExpired, type AiClaimLeaseOptions, type AiJsonLease } from "../../system/ai/ai-claim-policy.js";
 import type { GeneratedExamDraft } from "../../system/ai/ai-provider.service.js";
 import type { AiGeneratedExamResult } from "../core/learning.types.js";
 
 type Prepared = { courseId: string; generated: GeneratedExamDraft };
-type RecordValue = { owner: string; hash: string; canonicalRequestId?: string; state: "CLAIMED" | "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
+type RecordValue = AiJsonLease & { owner: string; hash: string; canonicalRequestId?: string; state: "CLAIMED" | "GENERATING" | "READY" | "SAVING" | "COMPLETED" | "UNCERTAIN"; prepared?: Prepared; result?: AiGeneratedExamResult };
+
+/** Loại bỏ thông tin lease tạm khi kết thúc trạng thái GENERATING. */
+function withoutLease(record: RecordValue): Omit<RecordValue, "leaseToken" | "leaseExpiresAt"> {
+  const { leaseToken: _leaseToken, leaseExpiresAt: _leaseExpiresAt, ...rest } = record;
+  void _leaseToken;
+  void _leaseExpiresAt;
+  return rest;
+}
 
 /** Từ chối bản ghi tác vụ hỏng trước khi nó cho phép gọi nhà cung cấp hoặc trả lại kết quả rỗng. */
 function validRecord(value: unknown): value is RecordValue {
@@ -14,6 +23,7 @@ function validRecord(value: unknown): value is RecordValue {
   if (typeof record.owner !== "string" || !record.owner.length || typeof record.hash !== "string" || !/^[a-f0-9]{64}$/.test(record.hash)) return false;
   if (typeof record.state !== "string" || !["CLAIMED", "GENERATING", "READY", "SAVING", "COMPLETED", "UNCERTAIN"].includes(record.state)) return false;
   if (record.canonicalRequestId !== undefined && (typeof record.canonicalRequestId !== "string" || !record.canonicalRequestId.trim() || record.canonicalRequestId.length > 177)) return false;
+  if (!hasValidJsonLease(record)) return false;
   if (record.state === "READY" || record.state === "SAVING") {
     const prepared = record.prepared as Partial<Prepared> | null | undefined;
     if (!prepared || typeof prepared !== "object" || typeof prepared.courseId !== "string" || !prepared.courseId.length || !prepared.generated || typeof prepared.generated !== "object" || Array.isArray(prepared.generated)) return false;
@@ -33,11 +43,14 @@ function canonical(value: unknown): string {
 }
 
 @Injectable()
-/** Claim bền vững trước khi gọi AI; không tự gọi lại provider khi kết quả upstream chưa xác định. */
+/** Claim bền vững kèm lease trước khi gọi AI; không tự gọi lại provider khi kết quả upstream chưa xác định. */
 export class AiGenerationRequestService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() @Inject(AI_CLAIM_LEASE_OPTIONS) private readonly leaseOptions: AiClaimLeaseOptions = {},
+  ) {}
 
-  /** Giữ một lần gọi provider; retry bước lưu từ bản nháp đã cache và trả lại kết quả hoàn tất. */
+  /** Giữ một lần gọi provider có lease; retry bước lưu từ bản nháp đã cache và trả lại kết quả hoàn tất. */
   async run(requestId: string, owner: string, payload: unknown, generate: () => Promise<Prepared>, save: (prepared: Prepared, canonicalRequestId: string) => Promise<AiGeneratedExamResult>, recover: (canonicalRequestId: string) => Promise<AiGeneratedExamResult | undefined>, options: { idempotentSave?: boolean } = {}): Promise<AiGeneratedExamResult> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Sinh đề AI yêu cầu database bền vững để chống tạo trùng. Liên hệ quản trị viên kiểm tra kết nối.");
     const requestKey = `ai-generation:${requestId}`;
@@ -59,20 +72,29 @@ export class AiGenerationRequestService {
     if (row.value.state === "COMPLETED") return row.value.result!;
     const recovered = await recover(canonicalRequestId);
     if (recovered) {
-      await this.replace(key, row.version, { ...row.value, state: "COMPLETED", result: recovered });
+      await this.replace(key, row.version, { ...withoutLease(row.value), state: "COMPLETED", result: recovered });
       return recovered;
     }
+    if (row.value.state === "GENERATING" && isAiLeaseExpired(row.value.leaseExpiresAt, currentAiClaimTime(this.leaseOptions))) {
+      // Hết hạn lease sinh đề sau crash/restart -> chuyển UNCERTAIN chờ đối soát, tuyệt đối không tự gọi lại AI.
+      await this.replace(key, row.version, { ...withoutLease(row.value), state: "UNCERTAIN" });
+      throw new ConflictException("Lần gọi AI trước đã hết thời hạn xử lý và chưa có kết quả xác định. Hệ thống không tự gọi lại để tránh tính phí trùng. Liên hệ quản trị viên kiểm tra mã yêu cầu.");
+    }
     if (row.value.state === "CLAIMED") {
-      // Chỉ CAS thắng mới được gọi provider; CLAIMED có thể tiếp tục sau lỗi tra cứu hoặc restart.
-      if (!await this.replace(key, row.version, { ...row.value, state: "GENERATING" })) throw new ConflictException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.");
-      row = { version: row.version + 1, value: { ...row.value, state: "GENERATING" } };
+      // Chỉ CAS thắng mới được giữ lease và gọi provider; CLAIMED có thể tiếp tục sau lỗi tra cứu hoặc restart.
+      const lease = createAiClaimLease(this.leaseOptions);
+      const generatingValue: RecordValue = { ...withoutLease(row.value), state: "GENERATING", leaseToken: lease.leaseToken, leaseExpiresAt: lease.leaseExpiresAt.toISOString() };
+      if (!await this.replace(key, row.version, generatingValue)) throw new ConflictException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.");
+      row = { version: row.version + 1, value: generatingValue };
       let prepared: Prepared;
       try { prepared = await generate(); }
       catch (error) {
-        await this.replace(key, row.version, { ...row.value, state: "UNCERTAIN" });
+        // Chỉ trả về CLAIMED cho lần gọi chủ động kế tiếp khi lỗi chắc chắn chưa phát sinh phí từ provider.
+        const nextState = canReopenAiClaimAfterFailure(error) ? "CLAIMED" : "UNCERTAIN";
+        await this.replace(key, row.version, { ...withoutLease(row.value), state: nextState });
         throw error;
       }
-      const written = await this.replace(key, row.version, { ...row.value, state: "READY", prepared });
+      const written = await this.replace(key, row.version, { ...withoutLease(row.value), state: "READY", prepared });
       if (!written) throw new ConflictException("Không xác nhận được trạng thái lưu kết quả AI. Không tạo yêu cầu mới; hãy thử lấy lại kết quả.");
       row = (await this.read(key))!;
     }
@@ -80,12 +102,12 @@ export class AiGenerationRequestService {
     // Chỉ bật khi lưu trong giao dịch với mã yêu cầu chính thức duy nhất: lượt lưu trước có thể vẫn đang chạy.
     const resumableSave = row.value.state === "SAVING" && options.idempotentSave === true;
     if (row.value.state !== "READY" && !resumableSave) throw new HttpException("Yêu cầu AI đang xử lý hoặc cần đối soát sau gián đoạn. Thử lại cùng yêu cầu để lấy kết quả; không tạo yêu cầu mới.", 409);
-    if (!await this.replace(key, row.version, { ...row.value, state: "SAVING" })) throw new ConflictException("Yêu cầu AI đang được lưu. Hãy thử lấy lại kết quả.");
+    if (!await this.replace(key, row.version, { ...withoutLease(row.value), state: "SAVING" })) throw new ConflictException("Yêu cầu AI đang được lưu. Hãy thử lấy lại kết quả.");
     const savingVersion = row.version + 1;
     let result: AiGeneratedExamResult;
     try { result = await save(row.value.prepared!, canonicalRequestId); }
-    catch (error) { await this.replace(key, savingVersion, { ...row.value, state: "READY" }); throw error; }
-    await this.replace(key, savingVersion, { ...row.value, state: "COMPLETED", result });
+    catch (error) { await this.replace(key, savingVersion, { ...withoutLease(row.value), state: "READY" }); throw error; }
+    await this.replace(key, savingVersion, { ...withoutLease(row.value), state: "COMPLETED", result });
     return result;
   }
 

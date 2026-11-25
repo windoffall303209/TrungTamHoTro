@@ -2,13 +2,14 @@ import { BadRequestException, ConflictException, ServiceUnavailableException } f
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { PrismaService } from "../../../database/prisma.service.js";
+import { canReopenAiClaimAfterFailure, createAiClaimLease, currentAiClaimTime, isAiLeaseExpired, type AiClaimLeaseOptions, type AiJsonLease } from "../../system/ai/ai-claim-policy.js";
 import type { AiProviderService } from "../../system/ai/ai-provider.service.js";
 import { Prisma } from "../../../generated/prisma/client.js";
 
 export type SavedDocumentAnswer = Awaited<ReturnType<AiProviderService["answerDocument"]>> & { warning: string; version: number };
 export type DocumentAnswerIdentity = { ownerId: string; materialId: string; version: number; question: string; language: "VI" | "EN" | "BILINGUAL" };
 type AnswerRequest = Pick<DocumentAnswerIdentity, "materialId" | "version" | "question" | "language">;
-type Claim = { state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; request?: AnswerRequest; result?: SavedDocumentAnswer };
+type Claim = AiJsonLease & { state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; request?: AnswerRequest; result?: SavedDocumentAnswer };
 export type DocumentAnswerStatus = { state: "NOT_REQUESTED" | "GENERATING" | "UNCERTAIN" } | { state: "READY"; result: SavedDocumentAnswer };
 type HistoryScope = Pick<DocumentAnswerIdentity, "ownerId" | "materialId" | "version">;
 type HistoryItem = { id: string; question: string; language: DocumentAnswerIdentity["language"]; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; createdAt: Date };
@@ -36,7 +37,10 @@ function readAnswer(value: unknown, identity: DocumentAnswerIdentity): SavedDocu
 
 /** Bộ đệm câu trả lời riêng lưu bền vững; bên gọi kiểm tra quyền nguồn trước và sau mỗi lần sử dụng. */
 export class AiDocumentAnswerStore {
-  constructor(private readonly prisma?: PrismaService) {}
+  constructor(
+    private readonly prisma?: PrismaService,
+    private readonly leaseOptions: AiClaimLeaseOptions = {},
+  ) {}
 
   /** Đọc một trang lịch sử riêng theo phiên bản nguồn; tác vụ cũ thiếu thông tin yêu cầu vẫn dùng lại được nhưng không liệt kê. */
   async list(scope: HistoryScope, cursor?: string): Promise<{ items: HistoryItem[]; nextCursor: string | null }> {
@@ -83,7 +87,10 @@ export class AiDocumentAnswerStore {
     if (claim?.state === "RETRY_AUTHORIZED") return { state: "NOT_REQUESTED" };
     const result = claim?.state === "READY" ? readAnswer(claim.result, identity) : undefined;
     if (result) return { state: "READY", result };
-    return { state: claim?.state === "GENERATING" ? "GENERATING" : "UNCERTAIN" };
+    if (claim?.state === "GENERATING" && !isAiLeaseExpired(claim.leaseExpiresAt, currentAiClaimTime(this.leaseOptions))) {
+      return { state: "GENERATING" };
+    }
+    return { state: "UNCERTAIN" };
   }
 
   /** Dùng cùng định danh đã chuẩn hóa cho đọc trạng thái và giữ quyền sinh nội dung. */
@@ -91,15 +98,17 @@ export class AiDocumentAnswerStore {
     return `ai-doc-answer:${createHash("sha256").update(JSON.stringify(["v1", identity.ownerId, identity.materialId, identity.version, identity.question.trim(), identity.language])).digest("hex")}`;
   }
 
-  /** Giữ quyền sinh một câu trả lời theo chủ sở hữu, phiên bản nguồn, câu hỏi và ngôn ngữ; không gọi lại tác vụ chưa rõ kết quả. */
+  /** Giữ quyền sinh một câu trả lời kèm lease theo chủ sở hữu, phiên bản nguồn, câu hỏi và ngôn ngữ. */
   async generate(identity: DocumentAnswerIdentity, generate: () => Promise<SavedDocumentAnswer>): Promise<SavedDocumentAnswer> {
     if (!this.prisma?.isStartupConnectionEnabled()) throw new ServiceUnavailableException("Hỏi đáp AI yêu cầu database bền vững để chống gửi trùng.");
     const key = this.key(identity);
     // Thông tin lịch sử riêng được lưu cùng tác vụ, không nằm trong khóa hoặc dữ liệu hàng đợi quản trị.
     const request = { materialId: identity.materialId, version: identity.version, question: identity.question.trim(), language: identity.language };
+    const lease = createAiClaimLease(this.leaseOptions);
+    const generatingClaim: Claim = { state: "GENERATING", request, leaseToken: lease.leaseToken, leaseExpiresAt: lease.leaseExpiresAt.toISOString() };
     let claimed = false;
     try {
-      await this.prisma.systemSetting.create({ data: { key, updatedBy: identity.ownerId, value: { state: "GENERATING", request } } });
+      await this.prisma.systemSetting.create({ data: { key, updatedBy: identity.ownerId, value: generatingClaim as unknown as Prisma.InputJsonValue } });
       claimed = true;
     } catch (error) {
       if (!error || typeof error !== "object" || !("code" in error) || error.code !== "P2002") throw error;
@@ -108,12 +117,22 @@ export class AiDocumentAnswerStore {
     let claim = row?.value as Claim | undefined;
     const cached = claim?.state === "READY" ? readAnswer(claim.result, identity) : undefined;
     if (cached) return cached;
+    const now = currentAiClaimTime(this.leaseOptions);
+    if (!claimed && row && claim?.state === "GENERATING" && isAiLeaseExpired(claim.leaseExpiresAt, now)) {
+      // Hết hạn lease hỏi đáp AI sau crash/restart -> chuyển UNCERTAIN bằng CAS version, không tự gọi lại provider.
+      const storedRequest = claim.request;
+      await this.prisma.systemSetting.updateMany({
+        where: { key, version: row.version },
+        data: { value: { state: "UNCERTAIN", ...(storedRequest ? { request: storedRequest } : {}) }, version: { increment: 1 } },
+      });
+      throw new ConflictException("Lần hỏi đáp AI trước đã hết thời hạn xử lý và chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.");
+    }
     if (!claimed && row && claim?.state === "RETRY_AUTHORIZED" && row.updatedBy === identity.ownerId && this.sameRequest(claim.request, request)) {
-      const reopened = await this.prisma.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: identity.ownerId }, data: { value: { state: "GENERATING", request }, version: { increment: 1 } } });
+      const reopened = await this.prisma.systemSetting.updateMany({ where: { key, version: row.version, updatedBy: identity.ownerId }, data: { value: generatingClaim as unknown as Prisma.InputJsonValue, version: { increment: 1 } } });
       claimed = reopened.count === 1;
       if (claimed) {
-        row = { ...row, version: row.version + 1, value: { state: "GENERATING", request } };
-        claim = row.value as Claim;
+        row = { ...row, version: row.version + 1, value: generatingClaim as unknown as Prisma.JsonValue };
+        claim = generatingClaim;
       }
     }
     if (!claimed || !row || claim?.state !== "GENERATING") throw new ConflictException("Câu hỏi AI đang xử lý hoặc chưa rõ kết quả. Không gửi lại để tránh phí trùng; liên hệ quản trị viên đối soát.");
@@ -126,7 +145,8 @@ export class AiDocumentAnswerStore {
       if (saved.count !== 1) throw new ConflictException("Không xác nhận được việc lưu câu trả lời AI. Không gửi yêu cầu mới.");
       return result;
     } catch (error) {
-      await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: "UNCERTAIN", request }, version: { increment: 1 } } });
+      const nextState = canReopenAiClaimAfterFailure(error) ? "RETRY_AUTHORIZED" : "UNCERTAIN";
+      await this.prisma.systemSetting.updateMany({ where: { key, version: row.version }, data: { value: { state: nextState, request }, version: { increment: 1 } } });
       throw error;
     }
   }

@@ -478,6 +478,8 @@ model AiGradingSuggestion {
   contextHash String @map("context_hash") @db.Char(64)
   language String @db.VarChar(16)
   state AiGradingSuggestionState @default(GENERATING)
+  leaseToken String? @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
   result Json?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -605,6 +607,8 @@ model AiStudyDraft {
   materialId    String            @map("material_id")
   sourceVersion Int               @map("source_version")
   state         AiStudyDraftState  @default(GENERATING)
+  leaseToken    String?           @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime?        @map("lease_expires_at")
   options       Json
   result        Json?
   editedResult  Json?             @map("edited_result")
