@@ -38,7 +38,6 @@ import {
   Link as LinkIcon,
   List,
   ListChecks,
-  MessageCircle,
   MessageSquare,
   Play,
   Plus,
@@ -78,14 +77,11 @@ import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/
 import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import { QuestionRenderPreview } from "@/features/questions/question-render-preview";
-import { ClassGradebookTable } from "@/features/academic/class-gradebook-table";
 import { Pagination, RichText } from "@/shared/ui/ui";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
-import { UserAvatar } from "@/shared/ui/user-avatar";
 import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
 import {
   detectLectureLinkPlatform,
-  exportGradebookCsv,
   filterClassQuestions,
   filterClassResources,
   getClassQuestionStats,
@@ -100,6 +96,10 @@ import {
   type LectureItem,
   type MaterialDisplayItem,
 } from "./instructor-class-workspace.helpers";
+import { InstructorGradebookTab } from "./tabs/instructor-gradebook-tab";
+import { InstructorMembersTab } from "./tabs/instructor-members-tab";
+import { InstructorRolesTab } from "./tabs/instructor-roles-tab";
+import { InstructorSettingsTab } from "./tabs/instructor-settings-tab";
 import { ClassWorkDetailView, type DetailStatusFilter, type DetailSubTab } from "./class-work-detail-view";
 import {
   ClassAssignmentEditModal,
@@ -2611,172 +2611,21 @@ export function InstructorClassWorkspace({
 
         {/* TAB 3: THÀNH VIÊN */}
         {activeTab === "members" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                  Thành viên lớp học ({learners.length} học sinh)
-                </h2>
-                <p className="text-xs text-slate-500">Danh sách học sinh và giáo viên phụ trách trong lớp</p>
-              </div>
-              <div className="relative w-64">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Tìm học sinh theo tên/email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 uppercase font-extrabold text-[10px]">
-                  <tr>
-                    <th className="px-4 py-3">Họ và tên</th>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Vai trò</th>
-                    <th className="px-4 py-3">Trạng thái</th>
-                    <th className="px-4 py-3 text-right">Nhắn tin</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {/* Giáo viên */}
-                  <tr className="bg-blue-50/40 dark:bg-blue-950/20">
-                    <td className="px-4 py-3 font-bold flex items-center gap-2">
-                      <UserAvatar name={session.user.name} className="size-6 text-[10px]" />
-                      <span>{session.user.name}</span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{session.user.email}</td>
-                    <td className="px-4 py-3">
-                      <span className="px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold text-[10px]">
-                        Giảng viên chính
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-emerald-600 font-bold">Phụ trách</td>
-                    <td className="px-4 py-3 text-right text-slate-400">—</td>
-                  </tr>
-
-                  {/* Học sinh */}
-                  {learners
-                    .filter((l) => !searchQuery || l.displayName.toLowerCase().includes(searchQuery.toLowerCase()))
-                    .map((l) => (
-                      <tr key={l.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="px-4 py-3 font-medium flex items-center gap-2">
-                          <UserAvatar name={l.displayName} className="size-6 text-[10px]" />
-                          <span>{l.displayName}</span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">{l.email}</td>
-                        <td className="px-4 py-3 text-slate-500">Học sinh</td>
-                        <td className="px-4 py-3 text-emerald-600 font-bold">Đang học</td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              window.dispatchEvent(
-                                new CustomEvent("open-mini-chat", {
-                                  detail: {
-                                    id: l.id,
-                                    name: l.displayName,
-                                    role: "LEARNER",
-                                  },
-                                }),
-                              );
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer shrink-0"
-                            title={`Nhắn tin với ${l.displayName}`}
-                          >
-                            <MessageCircle size={14} />
-                            <span>Nhắn tin</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <InstructorMembersTab
+            instructorName={session.user.name}
+            instructorEmail={session.user.email}
+            learners={learners}
+          />
         )}
 
         {/* TAB 4: VAI TRÒ (THÊM ĐỒNG GIÁO VIÊN ĐỂ CHẤM ĐIỂM) */}
         {activeTab === "roles" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                  Vai trò & Phân quyền giảng dạy
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Danh sách giảng viên được phân công. Việc thêm, gỡ hoặc đổi giảng viên chính do quản lý trung tâm thực hiện.
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {/* Giảng viên chính */}
-              <div className="rounded-2xl border border-blue-200 dark:border-blue-800/60 bg-blue-50/40 dark:bg-blue-950/20 p-4 flex items-center justify-between shadow-xs">
-                <div className="flex items-center gap-3">
-                  <UserAvatar name={session.user.name} className="size-10" />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <strong className="text-xs font-bold">{session.user.name}</strong>
-                      <span className="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold">
-                        Giảng viên chính (Primary)
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-500">{session.user.email}</p>
-                  </div>
-                </div>
-                <span className="text-xs font-bold text-blue-600 dark:text-blue-400">Toàn quyền</span>
-              </div>
-
-              {/* Các đồng giáo viên hiện có */}
-              {instructors
-                .filter((ins) => ins.instructorId !== session.user.id)
-                .map((ins, idx) => (
-                  <div
-                    key={idx}
-                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 flex items-center justify-between shadow-xs"
-                  >
-                    <div className="flex items-center gap-3">
-                      <UserAvatar name={ins.displayName || "Đồng giáo viên"} className="size-10" />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <strong className="text-xs font-bold">{ins.displayName || "Đồng giáo viên"}</strong>
-                          <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold">
-                            {ins.role === "ASSISTANT" ? "Trợ giảng" : "Đồng giáo viên"}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500">{ins.email || "Chưa có email"}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.dispatchEvent(
-                            new CustomEvent("open-mini-chat", {
-                              detail: {
-                                id: ins.instructorId,
-                                name: ins.displayName || "Đồng giáo viên",
-                                role: "INSTRUCTOR",
-                              },
-                            }),
-                          );
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-600 dark:text-blue-400 text-xs font-bold transition-colors cursor-pointer shrink-0"
-                        title={`Nhắn tin với ${ins.displayName || "Đồng giáo viên"}`}
-                      >
-                        <MessageCircle size={14} />
-                        <span>Nhắn tin</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </div>
+          <InstructorRolesTab
+            currentUserId={session.user.id}
+            currentUserName={session.user.name}
+            currentUserEmail={session.user.email}
+            instructors={instructors}
+          />
         )}
 
         {/* TAB 5: BÀI TẬP (HỖ TRỢ DANH SÁCH 3 CỘT VÀ XEM CHI TIẾT BẢNG ĐIỂM CHO CẢ TRẮC NGHIỆM & TỰ LUẬN) */}
@@ -3113,44 +2962,7 @@ export function InstructorClassWorkspace({
 
         {/* Bảng điểm theo dữ liệu thật từ API lớp học. */}
         {activeTab === "gradebook" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                  Bảng điểm tổng hợp ({item.name})
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Điểm thi, điểm bài tập và trạng thái chấm bài được tổng hợp từ hệ thống.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="relative w-64">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Tìm theo tên hoặc email..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => exportGradebookCsv(gradebook, item.name)}
-                  className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Download size={14} />
-                  <span>Xuất CSV</span>
-                </button>
-              </div>
-            </div>
-            <ClassGradebookTable
-              rows={gradebook.filter(
-                (row) => !searchQuery || `${row.learnerName} ${row.learnerEmail}`.toLowerCase().includes(searchQuery.toLowerCase()),
-              )}
-              emptyMessage={searchQuery ? "Không tìm thấy học sinh phù hợp." : "Chưa có dữ liệu bảng điểm."}
-            />
-          </div>
+          <InstructorGradebookTab className={item.name} gradebook={gradebook} />
         )}
         {/* TAB 7: BÀI GIẢNG (GIAO DIỆN 3 CỘT MASTER-DETAIL CHUẨN ẢNH 1 ĐỒNG BỘ VỚI HỌC SINH + TÍNH NĂNG GIẢNG VIÊN) */}
         {activeTab === "lectures" && (
@@ -3987,53 +3799,9 @@ export function InstructorClassWorkspace({
           </div>
         )}
 
-        {/* =========================================================================
-            TAB 10: CÀI ĐẶT LỚP HỌC (TÁCH BIỆT)
-            ========================================================================= */}
+        {/* TAB 10: CÀI ĐẶT LỚP HỌC (TÁCH BIỆT) */}
         {activeTab === "settings" && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                Cài đặt lớp học ({item.name})
-              </h2>
-              <p className="text-xs text-slate-500">
-                Thông tin lớp do quản lý trung tâm quản lý
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs space-y-5">
-              <div className="space-y-4">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-                  Thông tin lớp học
-                </h3>
-                <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/60 text-xs">
-                  <div>
-                    <span className="text-slate-400 block text-[10px] font-bold">TÊN LỚP</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{item.name}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] font-bold">MÃ LỚP CHÍNH THỨC</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{item.code}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] font-bold">KHÓA HỌC / HỌC PHẦN</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{course?.name || item.courseId}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] font-bold">KHỐI HỌC</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{item.grade ? `Khối ${item.grade}` : "Chưa đặt"}</strong>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] font-bold">MÔN HỌC</span>
-                    <strong className="text-slate-700 dark:text-slate-200">{item.subject || "Chưa đặt"}</strong>
-                  </div>
-                </div>
-                <p className="text-[11px] leading-relaxed text-slate-500">
-                  Tên, mô tả và quy định của lớp do quản lý trung tâm cập nhật. Số lượt làm bài, hạn nộp và việc cho nộp muộn được cấu hình trong từng đề thi hoặc bài tập.
-                </p>
-              </div>
-            </div>
-          </div>
+          <InstructorSettingsTab item={item} course={course} />
         )}
       </main>
       </div>
