@@ -19,20 +19,25 @@ type Row = { id: string; content: string; revision: number; learnerId: string; a
 /** Dựng bài TXT với checksum thật và chạy service quyền/đọc nguồn thật qua biên kho dữ liệu giả lập. */
 function fixture(): {
   row: Row; files: Map<string, Buffer>; academic: AcademicService; service: AiGradingAssistService;
+  prisma: {
+    assignmentSubmission: { findUnique: ReturnType<typeof vi.fn> };
+    assignmentSubmissionAttachment: { findFirst: ReturnType<typeof vi.fn> };
+    learningClass: { findFirst: ReturnType<typeof vi.fn> };
+  };
   storage: { get: ReturnType<typeof vi.fn<(...args: string[]) => Promise<Buffer>>> };
-  ai: { resolveTask: ReturnType<typeof vi.fn>; suggestGrading: ReturnType<typeof vi.fn> };
+  ai: { resolveTask: ReturnType<typeof vi.fn>; suggestGrading: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> };
 } {
   const files = new Map([["file1", Buffer.from("HTTP is an application-layer protocol.")], ["file2", Buffer.from("Clients send requests to servers.")]]);
   const row: Row = { id: "submission", content: "My answer follows.", revision: 2, learnerId: "private-learner", attachments: [...files].map(([id, buffer]) => ({ id, objectKey: id, originalName: `${id}.txt`, mimeType: "text/plain", sizeBytes: BigInt(buffer.length), checksum: `sha256:${createHash("sha256").update(buffer).digest("hex")}` })), assignment: { classId: "class", version: 3, title: "Explain HTTP", description: "Networking assignment", instructions: "Describe its layer and communication.", rubric: [{ id: "r1", title: "Accuracy", description: "Correct layer", maxPoints: 5 }] } };
   const prisma = {
     assignmentSubmission: { findUnique: vi.fn().mockImplementation(() => Promise.resolve(structuredClone(row))) },
     assignmentSubmissionAttachment: { findFirst: vi.fn().mockImplementation(({ where }: { where: { id: string } }) => { const file = row.attachments.find((item) => item.id === where.id); return Promise.resolve(file ? structuredClone({ ...file, submission: row }) : null); }) },
-    classInstructor: { findMany: vi.fn().mockResolvedValue([{ classId: "class" }]) }, learningClass: { findUnique: vi.fn().mockResolvedValue({ status: "ACTIVE" }) },
+    learningClass: { findFirst: vi.fn().mockResolvedValue({ status: "ACTIVE" }) },
   };
   const storage = { get: vi.fn<(...args: string[]) => Promise<Buffer>>().mockImplementation((key) => Promise.resolve(files.get(key)!)) };
   const academic = new AcademicService(prisma as unknown as PrismaService, storage as unknown as ObjectStorageService, {} as AntivirusService);
-  const ai = { resolveTask: vi.fn().mockResolvedValue({}), suggestGrading: vi.fn().mockResolvedValue({ insufficientEvidence: false, feedback: "Correct explanation", suggestedTotal: 5, requiresHumanReview: true, model: "configured", criteria: [{ criterionId: "r1", suggestedPoints: 5, reasoning: "Correct layer", evidence: [files.get("file1")!.toString()] }] }) };
-  return { row, files, storage, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore()) };
+  const ai = { resolveTask: vi.fn().mockResolvedValue({}), suggestGrading: vi.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue({ insufficientEvidence: false, feedback: "Correct explanation", suggestedTotal: 5, requiresHumanReview: true, model: "configured", criteria: [{ criterionId: "r1", suggestedPoints: 5, reasoning: "Correct layer", evidence: [files.get("file1")!.toString()] }] }) };
+  return { row, files, prisma, storage, academic, ai, service: new AiGradingAssistService(academic, ai as unknown as AiProviderService, testGradingStore()) };
 }
 
 describe("TXT attachment grading context", () => {
@@ -174,5 +179,104 @@ describe("TXT attachment grading context", () => {
     });
     await expect(service.suggest("submission", 2, "VI", session)).rejects.toMatchObject({ status: 409 });
     expect(ai.suggestGrading).not.toHaveBeenCalled();
+  });
+
+  it("inspects TXT, DOCX and mixed PDF/TXT submissions via metadata/cache with zero object storage reads and downloads once during suggest", async () => {
+    const { row, files, storage, academic, ai } = fixture();
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    const extractDocumentPages = vi.fn().mockResolvedValue([{ page: 1, text: files.get("file1")!.toString() }]);
+    const provider = { ...ai, extractDocumentPages };
+    const { prisma: extractionPrisma } = extractionDatabase();
+    const store = testGradingStore();
+    const service = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, extractionPrisma);
+
+    expect(await service.inspect("submission", 2, "VI", session)).toEqual({ state: "NOT_REQUESTED" });
+    expect(storage.get).toHaveBeenCalledTimes(0);
+
+    const saved = await service.suggest("submission", 2, "VI", session);
+    // Mỗi tệp đính kèm chỉ tải đúng một lần trong suggest; hậu kiểm chỉ đối chiếu metadata DB.
+    expect(storage.get).toHaveBeenCalledTimes(2);
+
+    storage.get.mockClear();
+    const restarted = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, extractionPrisma);
+    const inspected = await restarted.inspect("submission", 2, "VI", session);
+    expect(inspected.state).toBe("READY");
+    expect(inspected.suggestionId).toBe(saved.suggestionId);
+    expect(inspected.result?.contextHash).toBe(saved.contextHash);
+    expect(inspected.result?.sources).toEqual(saved.sources);
+    expect(storage.get).toHaveBeenCalledTimes(0);
+
+    // Đổi version bài tập hoặc checksum tệp khiến bản ghi READY cũ không còn khớp, vẫn 0 lần đọc object storage.
+    row.assignment.version += 1;
+    expect(await restarted.inspect("submission", 2, "VI", session)).toEqual({ state: "NOT_REQUESTED" });
+    expect(storage.get).toHaveBeenCalledTimes(0);
+
+    row.assignment.version -= 1;
+    row.attachments[1]!.checksum = `sha256:${"a".repeat(64)}`;
+    expect(await restarted.inspect("submission", 2, "VI", session)).toEqual({ state: "NOT_REQUESTED" });
+    expect(storage.get).toHaveBeenCalledTimes(0);
+  });
+
+  it.each(["permission", "closed", "rubric", "checksum"])("rejects attachment inspect when %s changes mid-lookup without touching object storage", async (change) => {
+    const { row, prisma, storage, academic, ai } = fixture();
+    const store = testGradingStore();
+    const service = new AiGradingAssistService(academic, ai as unknown as AiProviderService, store);
+    await service.suggest("submission", 2, "VI", session);
+    storage.get.mockClear();
+
+    const originalList = store.listForSubmission.bind(store);
+    vi.spyOn(store, "listForSubmission").mockImplementationOnce(async (ownerId, submissionId, language) => {
+      const rows = await originalList(ownerId, submissionId, language);
+      if (change === "permission") prisma.learningClass.findFirst.mockResolvedValue(null);
+      if (change === "closed") prisma.learningClass.findFirst.mockResolvedValue({ status: "CLOSED" });
+      if (change === "rubric") row.assignment.rubric[0]!.maxPoints = 3;
+      if (change === "checksum") row.attachments[0]!.checksum = `sha256:${"b".repeat(64)}`;
+      return rows;
+    });
+
+    await expect(service.inspect("submission", 2, "VI", session)).rejects.toMatchObject({ status: change === "permission" ? 404 : 409 });
+    expect(storage.get).toHaveBeenCalledTimes(0);
+  });
+
+  it("inspects PDF-only UNCERTAIN suggestion from OCR cache with zero storage reads and TXT UNCERTAIN with single download", async () => {
+    const { row, files, storage, academic, ai } = fixture();
+    row.attachments = [row.attachments[0]!];
+    row.attachments[0]!.originalName = "answer.pdf";
+    row.attachments[0]!.mimeType = "application/pdf";
+    const extractDocumentPages = vi.fn().mockResolvedValue([{ page: 1, text: files.get("file1")!.toString() }]);
+    const provider = {
+      ...ai,
+      extractDocumentPages,
+      suggestGrading: vi.fn().mockRejectedValue(new Error("provider timeout")),
+    };
+    const { prisma: extractionPrisma } = extractionDatabase();
+    const store = testGradingStore();
+    const pdfService = new AiGradingAssistService(academic, provider as unknown as AiProviderService, store, extractionPrisma);
+
+    await expect(pdfService.suggest("submission", 2, "VI", session)).rejects.toThrow("provider timeout");
+    expect(storage.get).toHaveBeenCalledTimes(1);
+
+    storage.get.mockClear();
+    expect((await pdfService.inspect("submission", 2, "VI", session)).state).toBe("UNCERTAIN");
+    expect(storage.get).toHaveBeenCalledTimes(0);
+
+    // Trường hợp tệp TXT đang ở UNCERTAIN: chỉ đọc mỗi tệp đúng một lần, không đọc hai lần như trước.
+    const txtFixture = fixture();
+    txtFixture.ai.suggestGrading.mockRejectedValueOnce(new Error("provider timeout"));
+    await expect(txtFixture.service.suggest("submission", 2, "VI", session)).rejects.toThrow("provider timeout");
+    txtFixture.storage.get.mockClear();
+    expect((await txtFixture.service.inspect("submission", 2, "VI", session)).state).toBe("UNCERTAIN");
+    expect(txtFixture.storage.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects attachment metadata change during suggest without a second object storage download", async () => {
+    const { row, storage, service, ai } = fixture();
+    ai.suggestGrading.mockImplementationOnce(() => {
+      row.attachments[0]!.originalName = "replaced.txt";
+      return Promise.resolve({ insufficientEvidence: false, feedback: "Ok", suggestedTotal: 5, requiresHumanReview: true, model: "configured", criteria: [] });
+    });
+    await expect(service.suggest("submission", 2, "VI", session)).rejects.toMatchObject({ status: 409 });
+    expect(storage.get).toHaveBeenCalledTimes(2);
   });
 });

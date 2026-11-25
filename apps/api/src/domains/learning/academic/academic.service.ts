@@ -8,6 +8,7 @@ import { ObjectStorageService } from "../../../infrastructure/object-storage.ser
 import type { AcademicServiceContext } from "./academic.context.js";
 import { AcademicCalendarEvent, AssignmentSubmissionView, AssignmentView, AttachmentDocumentPreview, ClassAnnouncementView, GradebookRow, GradingQueueGroup, MappableSubmissionRow, RubricCriterion, UploadedAssignmentFile } from "./academic.shared.js";
 import {
+  type GradingAiContextMetadata,
   type GradingAnswerSource,
   type GradingDocumentReader,
 } from "../ai/ai-grading-source.js";
@@ -318,6 +319,22 @@ export class AcademicService {
       this.operationContext,
       assignmentId,
       session,
+    );
+  }
+
+  /** Lấy metadata bài nộp, rubric và danh sách tệp từ DB (không đọc object storage) để kiểm quyền và đối chiếu phiên bản. */
+  async gradingAiMetadata(
+    submissionId: string,
+    expectedSubmissionRevision: number,
+    session: AuthenticatedSession,
+    allowDocuments = true,
+  ): Promise<GradingAiContextMetadata> {
+    return await submissions_ops.gradingAiMetadata(
+      this.operationContext,
+      submissionId,
+      expectedSubmissionRevision,
+      session,
+      allowDocuments,
     );
   }
 

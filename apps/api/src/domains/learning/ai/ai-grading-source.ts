@@ -1,11 +1,85 @@
 import { BadRequestException } from "@nestjs/common";
+import { createHash } from "node:crypto";
 
 const GRADING_TEXT_LIMIT = 20_000;
 export const GRADING_TEXT_BYTE_LIMIT = 80_000;
 export type GradingAnswerSource = { attachmentId: string | null; name: string; checksum: string | null; text: string };
 export type VerifiedGradingAttachment = { attachmentId: string; buffer: Buffer; fileName: string; mimeType: string; checksum: string; submissionRevision: number };
+export type GradingAttachmentMetadata = { id: string; originalName: string; mimeType: string; checksum: string; sizeBytes: bigint };
+export type GradingRubricCriterionSnapshot = { id: string; title: string; description: string; maxPoints: number };
+export type GradingAiContextMetadata = {
+  submissionId: string;
+  submissionRevision: number;
+  assignmentVersion: number;
+  instructions: string;
+  inlineContent: string;
+  rubric: GradingRubricCriterionSnapshot[];
+  attachments: GradingAttachmentMetadata[];
+};
 export type GradingDocumentReader = (file: VerifiedGradingAttachment) => Promise<string>;
 export const GRADING_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+/** Tạo dấu vân tay chỉ từ metadata DB để kiểm tra thay đổi ngữ cảnh mà không tải lại tệp từ object storage. */
+export function gradingMetadataFingerprint(metadata: GradingAiContextMetadata): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        submissionId: metadata.submissionId,
+        submissionRevision: metadata.submissionRevision,
+        assignmentVersion: metadata.assignmentVersion,
+        instructions: metadata.instructions,
+        inlineContent: metadata.inlineContent,
+        rubric: metadata.rubric,
+        attachments: metadata.attachments.map((file) => [
+          file.id,
+          file.originalName,
+          file.mimeType,
+          file.checksum,
+          file.sizeBytes.toString(),
+        ]),
+      }),
+    )
+    .digest("hex");
+}
+
+/** Kiểm tra danh sách nguồn đã lưu có khớp nguyên vẹn bài làm trực tiếp và metadata tệp đính kèm hiện hành hay không. */
+export function doesSourcesMatchMetadata(
+  metadata: GradingAiContextMetadata,
+  sources: GradingAnswerSource[] | undefined,
+): boolean {
+  if (!sources || !Array.isArray(sources)) return false;
+  const hasInline = Boolean(metadata.inlineContent.trim());
+  const expectedLength = (hasInline ? 1 : 0) + metadata.attachments.length;
+  if (sources.length !== expectedLength) return false;
+  let offset = 0;
+  if (hasInline) {
+    const inlineSource = sources[0];
+    if (
+      !inlineSource ||
+      inlineSource.attachmentId !== null ||
+      inlineSource.checksum !== null ||
+      inlineSource.name !== "Nội dung bài làm" ||
+      inlineSource.text !== metadata.inlineContent
+    ) {
+      return false;
+    }
+    offset = 1;
+  }
+  for (let index = 0; index < metadata.attachments.length; index += 1) {
+    const file = metadata.attachments[index]!;
+    const source = sources[offset + index];
+    if (
+      !source ||
+      source.attachmentId !== file.id ||
+      source.name !== file.originalName ||
+      source.checksum !== file.checksum ||
+      typeof source.text !== "string"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /** Chỉ chấp nhận tài liệu có MIME phù hợp với phần mở rộng tên tệp. */
 export function isGradingDocument(mimeType: string, name: string): boolean {

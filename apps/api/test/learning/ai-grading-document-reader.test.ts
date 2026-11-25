@@ -107,4 +107,19 @@ describe("private grading OCR reader", () => {
     await expect(reader.read("submission", "teacher", file)).rejects.toMatchObject({ status: 400 });
     expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
   });
+
+  it("reads cached OCR by metadata without requiring attachment bytes and enforces checksum/status checks", async () => {
+    const { reader, ai, aiDocumentExtraction } = fixture();
+    const metadata = { attachmentId: file.attachmentId, fileName: file.fileName, mimeType: file.mimeType, checksum: file.checksum, sizeBytes: BigInt(buffer.length), submissionRevision: file.submissionRevision };
+    await expect(reader.readCached("submission", "teacher", metadata)).rejects.toMatchObject({ status: 409 });
+    await expect(reader.readCached("submission", "teacher", { ...metadata, checksum: "invalid" })).rejects.toMatchObject({ status: 400 });
+    expect(ai.extractDocumentPages).not.toHaveBeenCalled();
+
+    await reader.read("submission", "teacher", file, true);
+    expect(await reader.readCached("submission", "teacher", metadata)).toBe("First page\n\nSecond page");
+    expect(ai.extractDocumentPages).toHaveBeenCalledTimes(1);
+
+    await expect(reader.readCached("submission", "teacher", { ...metadata, checksum: `sha256:${"0".repeat(64)}` })).rejects.toMatchObject({ status: 409 });
+    expect(aiDocumentExtraction.findUnique).toHaveBeenCalled();
+  });
 });

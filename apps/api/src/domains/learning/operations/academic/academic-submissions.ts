@@ -20,6 +20,7 @@ import {
   decodeGradingText,
   GRADING_TEXT_BYTE_LIMIT,
   isGradingDocument,
+  type GradingAiContextMetadata,
   type GradingAnswerSource,
   type GradingDocumentReader,
 } from "../../ai/ai-grading-source.js";
@@ -477,22 +478,14 @@ export async function listSubmissions(
   return rows.map((row) => serviceContext.mapSubmission(row));
 }
 
-/** Lấy đúng bài nộp và rubric cho AI, không đưa tên/email hoặc điểm cũ vào ngữ cảnh chấm. */
-export async function gradingAiContext(
+/** Tải và xác thực metadata bài nộp, rubric và tệp đính kèm trực tiếp từ DB (không đọc object storage). */
+export async function gradingAiMetadata(
   serviceContext: AcademicServiceContext,
   submissionId: string,
   expectedSubmissionRevision: number,
   session: AuthenticatedSession,
-  readDocument?: GradingDocumentReader,
-): Promise<{
-  submissionId: string;
-  submissionRevision: number;
-  assignmentVersion: number;
-  instructions: string;
-  answer: string;
-  rubric: RubricCriterion[];
-  sources?: GradingAnswerSource[];
-}> {
+  allowDocuments = true,
+): Promise<GradingAiContextMetadata> {
   if (
     !Number.isInteger(expectedSubmissionRevision) ||
     expectedSubmissionRevision < 1
@@ -526,20 +519,17 @@ export async function gradingAiContext(
     throw new ConflictException(
       "Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.",
     );
-  const base = {
-    submissionId: submission.id,
-    submissionRevision: submission.revision,
-    assignmentVersion: submission.assignment.version,
-    instructions: [
-      submission.assignment.title,
-      submission.assignment.description,
-      submission.assignment.instructions,
-    ].join("\n\n"),
-    answer: submission.content,
-    rubric: serviceContext.rubric(submission.assignment.rubric, Number(submission.assignment.maxScore)),
-  };
+  const instructions = [
+    submission.assignment.title,
+    submission.assignment.description,
+    submission.assignment.instructions,
+  ].join("\n\n");
+  const rubric = serviceContext.rubric(
+    submission.assignment.rubric,
+    Number(submission.assignment.maxScore),
+  );
   validateGradingDefinition({
-    instructions: base.instructions,
+    instructions,
     rubric: submission.assignment.rubric,
   });
   if (!submission.attachments.length) {
@@ -547,53 +537,96 @@ export async function gradingAiContext(
       throw new BadRequestException(
         "Bài nộp chưa có nội dung văn bản để gợi ý chấm.",
       );
-    return base;
+  } else {
+    if (
+      submission.attachments.length > 5 ||
+      submission.attachments.some(
+        (file) =>
+          !(
+            file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)
+          ) &&
+          !(allowDocuments && isGradingDocument(file.mimeType, file.originalName)),
+      )
+    )
+      throw new BadRequestException(
+        "Chấm AI hỗ trợ văn bản, TXT, DOCX, PDF và ảnh PNG/JPEG/WebP. Hãy chấm thủ công Word DOC cũ hoặc định dạng khác để không bỏ sót nội dung tệp.",
+      );
+    if (
+      submission.attachments.some(
+        (file) =>
+          file.mimeType === "text/plain" &&
+          (file.sizeBytes <= 0n ||
+            file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT)),
+      )
+    )
+      throw new BadRequestException(
+        "Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.",
+      );
+    if (
+      submission.attachments.some(
+        (file) => file.sizeBytes <= 0n || file.sizeBytes > 12n * 1024n * 1024n,
+      ) ||
+      submission.attachments.reduce((sum, file) => sum + file.sizeBytes, 0n) >
+        24n * 1024n * 1024n
+    )
+      throw new BadRequestException(
+        "Tệp trích xuất cho chấm AI phải từ 1 byte đến 12 MB, tổng không quá 24 MB.",
+      );
   }
-  if (
-    submission.attachments.length > 5 ||
-    submission.attachments.some(
-      (file) =>
-        !(
-          file.mimeType === "text/plain" && /\.txt$/i.test(file.originalName)
-        ) &&
-        !(readDocument && isGradingDocument(file.mimeType, file.originalName)),
-    )
-  )
-    throw new BadRequestException(
-      "Chấm AI hỗ trợ văn bản, TXT, DOCX, PDF và ảnh PNG/JPEG/WebP. Hãy chấm thủ công Word DOC cũ hoặc định dạng khác để không bỏ sót nội dung tệp.",
-    );
-  if (
-    submission.attachments.some(
-      (file) =>
-        file.mimeType === "text/plain" &&
-        (file.sizeBytes <= 0n ||
-          file.sizeBytes > BigInt(GRADING_TEXT_BYTE_LIMIT)),
-    )
-  )
-    throw new BadRequestException(
-      "Tệp TXT cho chấm AI phải có nội dung và không vượt quá 80.000 byte.",
-    );
-  if (
-    submission.attachments.some(
-      (file) => file.sizeBytes <= 0n || file.sizeBytes > 12n * 1024n * 1024n,
-    ) ||
-    submission.attachments.reduce((sum, file) => sum + file.sizeBytes, 0n) >
-      24n * 1024n * 1024n
-  )
-    throw new BadRequestException(
-      "Tệp trích xuất cho chấm AI phải từ 1 byte đến 12 MB, tổng không quá 24 MB.",
-    );
-  const sources: GradingAnswerSource[] = submission.content.trim()
+  return {
+    submissionId: submission.id,
+    submissionRevision: submission.revision,
+    assignmentVersion: submission.assignment.version,
+    instructions,
+    inlineContent: submission.content,
+    rubric,
+    attachments: submission.attachments,
+  };
+}
+
+/** Lấy đúng bài nộp và rubric cho AI, không đưa tên/email hoặc điểm cũ vào ngữ cảnh chấm. */
+export async function gradingAiContext(
+  serviceContext: AcademicServiceContext,
+  submissionId: string,
+  expectedSubmissionRevision: number,
+  session: AuthenticatedSession,
+  readDocument?: GradingDocumentReader,
+): Promise<{
+  submissionId: string;
+  submissionRevision: number;
+  assignmentVersion: number;
+  instructions: string;
+  answer: string;
+  rubric: RubricCriterion[];
+  sources?: GradingAnswerSource[];
+}> {
+  const metadata = await gradingAiMetadata(
+    serviceContext,
+    submissionId,
+    expectedSubmissionRevision,
+    session,
+    Boolean(readDocument),
+  );
+  const base = {
+    submissionId: metadata.submissionId,
+    submissionRevision: metadata.submissionRevision,
+    assignmentVersion: metadata.assignmentVersion,
+    instructions: metadata.instructions,
+    answer: metadata.inlineContent,
+    rubric: metadata.rubric,
+  };
+  if (!metadata.attachments.length) return base;
+  const sources: GradingAnswerSource[] = metadata.inlineContent.trim()
     ? [
         {
           attachmentId: null,
           name: "Nội dung bài làm",
           checksum: null,
-          text: submission.content,
+          text: metadata.inlineContent,
         },
       ]
     : [];
-  for (const file of submission.attachments) {
+  for (const file of metadata.attachments) {
     const verified = await serviceContext.readSubmissionAttachment(
       submissionId,
       file.id,
@@ -625,28 +658,12 @@ export async function gradingAiContext(
     });
   }
   const answer = combineGradingSources(sources);
-  const current = await serviceContext.prisma.assignmentSubmission.findUnique({
-    where: { id: submissionId },
-    include: {
-      assignment: true,
-      attachments: {
-        where: { removedAt: null },
-        orderBy: { id: "asc" },
-        select: {
-          id: true,
-          originalName: true,
-          mimeType: true,
-          checksum: true,
-          sizeBytes: true,
-        },
-      },
-    },
-  });
-  if (!current) throw new NotFoundException("Không tìm thấy bài nộp.");
-  await serviceContext.requireTeachingAccess(
-    current.assignment.classId,
+  const current = await gradingAiMetadata(
+    serviceContext,
+    submissionId,
+    expectedSubmissionRevision,
     session,
-    true,
+    Boolean(readDocument),
   );
   const sameFiles =
     JSON.stringify(
@@ -659,7 +676,7 @@ export async function gradingAiContext(
       ]),
     ) ===
     JSON.stringify(
-      submission.attachments.map((file) => [
+      metadata.attachments.map((file) => [
         file.id,
         file.originalName,
         file.mimeType,
@@ -668,18 +685,12 @@ export async function gradingAiContext(
       ]),
     );
   const sameAssignment =
-    current.assignment.version === submission.assignment.version &&
-    current.assignment.classId === submission.assignment.classId &&
-    [
-      current.assignment.title,
-      current.assignment.description,
-      current.assignment.instructions,
-    ].join("\n\n") === base.instructions &&
-    JSON.stringify(serviceContext.rubric(current.assignment.rubric, Number(current.assignment.maxScore))) ===
-      JSON.stringify(base.rubric);
+    current.assignmentVersion === metadata.assignmentVersion &&
+    current.instructions === metadata.instructions &&
+    JSON.stringify(current.rubric) === JSON.stringify(metadata.rubric);
   if (
-    current.revision !== submission.revision ||
-    current.content !== submission.content ||
+    current.submissionRevision !== metadata.submissionRevision ||
+    current.inlineContent !== metadata.inlineContent ||
     !sameAssignment ||
     !sameFiles
   )

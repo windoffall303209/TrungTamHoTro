@@ -9,7 +9,8 @@ import type { GradingAnswerSource } from "./ai-grading-source.js";
 
 export type GradingIdentity = { ownerId: string; submissionId: string; contextHash: string; language: ExamLanguage };
 export type SavedGradingSuggestion = GradingSuggestion & { model: string; submissionRevision: number; assignmentVersion: number; contextHash: string; sources?: GradingAnswerSource[] };
-type Stored = GradingIdentity & { id: string; fingerprint: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; leaseToken?: string | null; leaseExpiresAt?: Date | null; result: SavedGradingSuggestion | null };
+export type StoredGradingSuggestion = GradingIdentity & { id: string; fingerprint: string; state: "RETRY_AUTHORIZED" | "GENERATING" | "READY" | "UNCERTAIN"; leaseToken?: string | null; leaseExpiresAt?: Date | null; result: SavedGradingSuggestion | null };
+type Stored = StoredGradingSuggestion;
 
 @Injectable()
 /** Claim bền vững kèm lease cho mỗi ngữ cảnh bài nộp; không fallback sang memory khi database bị lỗi. */
@@ -25,6 +26,16 @@ export class AiGradingStoreService {
     const db = this.database();
     const row = await db.aiGradingSuggestion.findUnique({ where: { fingerprint } }) as unknown as Stored | null;
     return structuredClone(row);
+  }
+
+  /** Đọc các bản ghi gợi ý của chính giảng viên cho bài nộp và ngôn ngữ theo index sẵn có; không gọi provider. */
+  async listForSubmission(ownerId: string, submissionId: string, language: ExamLanguage): Promise<Stored[]> {
+    const db = this.database();
+    const rows = await db.aiGradingSuggestion.findMany({
+      where: { ownerId, submissionId, language },
+      orderBy: { createdAt: "desc" },
+    }) as unknown as Stored[];
+    return structuredClone(rows);
   }
 
   /** Chỉ worker giữ được lease mới gọi AI; READY phát lại, hết hạn lease hoặc lỗi mơ hồ chuyển UNCERTAIN. */

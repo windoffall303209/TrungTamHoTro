@@ -13,12 +13,12 @@ const bytes = Buffer.from("Evidence from the submission.");
 /** Dựng metadata nguồn và kho bytes; permission service chạy thật trên phân công được mock. */
 function fixture(): {
   row: { id: string; objectKey: string; originalName: string; mimeType: string; checksum: string; sizeBytes: bigint; submission: { revision: number; learnerId: string; assignment: { classId: string; version: number } } };
-  prisma: { assignmentSubmissionAttachment: { findFirst: ReturnType<typeof vi.fn> }; classInstructor: { findMany: ReturnType<typeof vi.fn> } };
+  prisma: { assignmentSubmissionAttachment: { findFirst: ReturnType<typeof vi.fn> }; learningClass: { findFirst: ReturnType<typeof vi.fn> } };
   storage: { get: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<Buffer>>> };
   service: AcademicService;
 } {
   const row = { id: "file", objectKey: "private/file", originalName: "answer.txt", mimeType: "text/plain", checksum: `sha256:${createHash("sha256").update(bytes).digest("hex")}`, sizeBytes: BigInt(bytes.length), submission: { revision: 2, learnerId: "learner", assignment: { classId: "class", version: 3 } } };
-  const prisma = { assignmentSubmissionAttachment: { findFirst: vi.fn().mockImplementation(() => Promise.resolve(structuredClone(row))) }, classInstructor: { findMany: vi.fn().mockResolvedValue([{ classId: "class" }]) } };
+  const prisma = { assignmentSubmissionAttachment: { findFirst: vi.fn().mockImplementation(() => Promise.resolve(structuredClone(row))) }, learningClass: { findFirst: vi.fn().mockResolvedValue({ status: "ACTIVE" }) } };
   const storage = { get: vi.fn<(...args: unknown[]) => Promise<Buffer>>().mockResolvedValue(bytes) };
   return { row, prisma, storage, service: new AcademicService(prisma as unknown as PrismaService, storage as unknown as ObjectStorageService, {} as AntivirusService) };
 }
@@ -36,7 +36,7 @@ describe("verified submission attachment reads", () => {
     prisma.assignmentSubmissionAttachment.findFirst.mockResolvedValueOnce(null);
     await expect(service.readSubmissionAttachment("submission", "file", teacher)).rejects.toMatchObject({ status: 404 });
     await expect(service.readSubmissionAttachment("submission", "file", { ...learner, user: { ...learner.user, id: "other" } })).rejects.toMatchObject({ status: 404 });
-    prisma.classInstructor.findMany.mockResolvedValueOnce([]);
+    prisma.learningClass.findFirst.mockResolvedValueOnce(null);
     await expect(service.readSubmissionAttachment("submission", "file", teacher)).rejects.toMatchObject({ status: 404 });
     await expect(service.readSubmissionAttachment("submission", "file", teacher, 1)).rejects.toMatchObject({ status: 409 });
     await expect(service.readSubmissionAttachment("submission", "file", teacher, 0)).rejects.toMatchObject({ status: 400 });
@@ -61,7 +61,7 @@ describe("verified submission attachment reads", () => {
       if (change === "mime") row.mimeType = "application/pdf";
       if (change === "name") row.originalName = "changed.txt";
       if (change === "assignment") row.submission.assignment.version++;
-      if (change === "permission") prisma.classInstructor.findMany.mockResolvedValueOnce([]);
+      if (change === "permission") prisma.learningClass.findFirst.mockResolvedValueOnce(null);
       if (change === "owner") row.submission.learnerId = "other";
       return Promise.resolve(bytes);
     });
