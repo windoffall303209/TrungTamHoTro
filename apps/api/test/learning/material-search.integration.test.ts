@@ -52,4 +52,20 @@ describe.skipIf(!enabled)("PostgreSQL paginated material search", () => {
     expect((await learning.searchAccessibleMaterials({ query: prefix, page: 999 }, ownerId, "INSTRUCTOR")).total).toBe(120);
     await expect(learning.searchAccessibleMaterials({ query: "x".repeat(256) }, ownerId, "INSTRUCTOR")).rejects.toThrow();
   });
+
+  it("keeps literal Unicode, escaped tags and field boundaries with the indexed prefilter", async () => {
+    const materialId = `${prefix}-0`;
+    const tags = ['nháy"kép', 'đường\\dẫn', 'tỷ lệ 100%', 'ký_hiệu', 'alpha', 'beta'];
+    await prisma.material.update({ where: { id: materialId }, data: { tags } });
+    try {
+      for (const query of tags) {
+        const page = await learning.searchAccessibleMaterials({ query, materialId }, ownerId, "INSTRUCTOR");
+        expect(page.items.map((item) => item.id)).toContain(materialId);
+      }
+      expect((await learning.searchAccessibleMaterials({ query: "alpha\nbeta", materialId }, ownerId, "INSTRUCTOR")).total).toBe(0);
+      expect((await learning.searchAccessibleMaterials({ query: 'nháy"kép', materialId }, "unassigned", "INSTRUCTOR")).total).toBe(0);
+    } finally {
+      await prisma.material.update({ where: { id: materialId }, data: { tags: ["MiXeD_Tag"] } });
+    }
+  });
 });

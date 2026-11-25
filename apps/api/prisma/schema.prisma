@@ -215,6 +215,7 @@ model User {
   aiGradingSuggestions     AiGradingSuggestion[]
   mfaRecoveryCodes         MfaRecoveryCode[]
 
+  @@index([username(ops: raw("gin_trgm_ops")), displayName(ops: raw("gin_trgm_ops")), email(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_search_trgm_idx")
   @@map("users")
 }
 
@@ -330,6 +331,7 @@ model Course {
 
   @@index([ownerId, status])
   @@index([grade, subject])
+  @@index([code(ops: raw("gin_trgm_ops")), name(ops: raw("gin_trgm_ops")), description(ops: raw("gin_trgm_ops"))], type: Gin, map: "courses_search_trgm_idx")
   @@map("courses")
 }
 
@@ -401,6 +403,7 @@ model LearningClass {
   @@index([term])
   @@index([grade, subject])
   @@unique([code, term])
+  @@index([code(ops: raw("gin_trgm_ops")), name(ops: raw("gin_trgm_ops")), term(ops: raw("gin_trgm_ops"))], type: Gin, map: "learning_classes_search_trgm_idx")
   @@map("learning_classes")
 }
 
@@ -553,6 +556,7 @@ model ClassEnrollment {
 }
 
 model Material {
+  // GIN expression index tìm kiếm name/folder/tags được quản lý trong migration 20261124020000.
   id               String                @id @default(cuid())
   classId          String                @map("class_id")
   courseId         String                @map("course_id")
@@ -772,6 +776,7 @@ model ForumTopic {
 
   @@index([classId, createdAt])
   @@index([authorId])
+  // Expression GIN index forum_topics_search_text_trgm_idx is managed by SQL migration.
   @@map("forum_topics")
 }
 
@@ -1045,6 +1050,7 @@ model ProgressIntervention {
 }
 
 model OutboxDelivery {
+  // Partial index available_at cho PENDING/FAILED/PROCESSING được quản lý bằng migration SQL 20261124010000.
   id                String    @id @db.VarChar(191)
   eventType         String    @map("event_type") @db.VarChar(100)
   aggregateType     String    @map("aggregate_type") @db.VarChar(100)
@@ -1069,6 +1075,7 @@ model OutboxDelivery {
 }
 
 model ChatConversation {
+  messageSequence BigInt @default(0) @map("message_sequence")
   id          String               @id @default(cuid())
   type        ChatConversationType
   classId     String?              @unique @map("class_id")
@@ -1085,6 +1092,7 @@ model ChatConversation {
 }
 
 model ChatConversationMember {
+  // CLASS membership is maintained by transactional triggers in 20261124070000_chat_membership_projection.
   conversationId String           @map("conversation_id")
   userId         String           @map("user_id")
   roleSnapshot   String           @map("role_snapshot") @db.VarChar(50)
@@ -1102,6 +1110,7 @@ model ChatConversationMember {
 }
 
 model ChatMessage {
+  streamSequence BigInt @default(0) @map("stream_sequence")
   id              String           @id @default(cuid())
   conversationId  String           @map("conversation_id")
   senderId        String           @map("sender_id")
@@ -1119,6 +1128,7 @@ model ChatMessage {
   createdAt       DateTime         @default(now()) @map("created_at")
 
   @@unique([senderId, clientMessageId])
+  @@unique([conversationId, streamSequence])
   @@index([conversationId, createdAt])
   @@index([replyToId])
   @@map("chat_messages")

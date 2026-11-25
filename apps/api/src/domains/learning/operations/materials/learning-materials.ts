@@ -235,10 +235,13 @@ export async function searchAccessibleMaterials(
       conditions.push(
         Prisma.sql`EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE lower(t.value) = lower(${input.tag.trim()}))`,
       );
-    if (query)
+    if (query) {
+      // Index trigram lọc ứng viên; điều kiện gốc bên dưới loại match qua ranh giới trường/tag.
+      conditions.push(Prisma.sql`public.wind_material_search_text(m.name, m.folder, m.tags) ILIKE ${contains(query)}`);
       conditions.push(
         Prisma.sql`(m.name ILIKE ${contains(query)} OR m.folder ILIKE ${contains(query)} OR EXISTS (SELECT 1 FROM ${tags} AS t(value) WHERE t.value ILIKE ${contains(query)}))`,
       );
+    }
     const where = conditions.length
       ? Prisma.join(conditions, " AND ")
       : Prisma.sql`TRUE`;

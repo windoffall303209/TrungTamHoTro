@@ -110,6 +110,33 @@ export async function importEnrollments(
   actorId: string,
 ): Promise<EnrollmentImportResult[]> {
   const normalized = userIds.map((value) => value.trim()).filter(Boolean);
+  const prisma = serviceContext.database();
+  const usersById = new Map<string, string>();
+  const usersByEmail = new Map<string, string>();
+  const lookupErrors = new Map<string, unknown>();
+  if (prisma) {
+    const identifiers = [...new Set(normalized)];
+    // Giới hạn tham số mỗi truy vấn; không đọc từng tài khoản hoặc nạp toàn bộ danh bạ.
+    for (let offset = 0; offset < identifiers.length; offset += 500) {
+      const batch = identifiers.slice(offset, offset + 500);
+      try {
+        const users = await prisma.user.findMany({
+          where: {
+            status: { in: ["ACTIVE", "PENDING"] },
+            OR: [{ id: { in: batch } }, { email: { in: batch.map((value) => value.toLowerCase()) } }],
+            roles: { some: { role: { code: "LEARNER" } } },
+          },
+          select: { id: true, email: true },
+        });
+        for (const user of users) {
+          usersById.set(user.id, user.id);
+          if (user.email) usersByEmail.set(user.email, user.id);
+        }
+      } catch (error) {
+        for (const identifier of batch) lookupErrors.set(identifier, error);
+      }
+    }
+  }
   const seen = new Set<string>();
   const results: EnrollmentImportResult[] = [];
   for (const identifier of normalized) {
@@ -124,18 +151,8 @@ export async function importEnrollments(
     }
     seen.add(key);
     try {
-      const prisma = serviceContext.database();
-      const user = prisma
-        ? await prisma.user.findFirst({
-            where: {
-              status: { in: ["ACTIVE", "PENDING"] },
-              OR: [{ id: identifier }, { email: key }],
-              roles: { some: { role: { code: "LEARNER" } } },
-            },
-            select: { id: true },
-          })
-        : null;
-      const userId = user?.id ?? identifier;
+      if (lookupErrors.has(identifier)) throw lookupErrors.get(identifier);
+      const userId = usersById.get(identifier) ?? usersByEmail.get(key) ?? identifier;
       await serviceContext.enrollLearner(classId, userId, actorId);
       results.push({
         userId,

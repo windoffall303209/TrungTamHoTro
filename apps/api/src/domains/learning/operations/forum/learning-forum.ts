@@ -150,6 +150,8 @@ export async function listTopicsPage(
     if (query) {
       const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
       const tags = Prisma.sql`jsonb_array_elements_text(CASE WHEN jsonb_typeof(ft.tags) = 'array' THEN ft.tags ELSE '[]'::jsonb END)`;
+      // GIN thu hẹp ứng viên; OR gốc vẫn loại kết quả chỉ khớp qua ranh giới trường/tag.
+      conditions.push(Prisma.sql`public.wind_material_search_text(ft.title, ft.body, ft.tags) ILIKE ${pattern}`);
       conditions.push(
         Prisma.sql`(ft.title ILIKE ${pattern} OR ft.body ILIKE ${pattern} OR EXISTS (SELECT 1 FROM ${tags} AS tg(value) WHERE tg.value ILIKE ${pattern}))`,
       );

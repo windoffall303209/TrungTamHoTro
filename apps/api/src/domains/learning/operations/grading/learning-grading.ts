@@ -190,23 +190,17 @@ export async function gradeAttempt(
     if (!isFirstPublishedGrade && (!reason || reason.length < 5))
       throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
     return prisma.$transaction(async (transaction) => {
-      // Ghi tuần tự trên cùng kết nối transaction để tránh truy vấn pg chồng nhau.
-      for (const item of questionScores ?? []) {
-        await transaction.attemptAnswer.upsert({
-          where: {
-            attemptId_questionId: {
-              attemptId,
-              questionId: item.questionId,
-            },
-          },
-          update: { score: item.score },
-          create: {
-            attemptId,
-            questionId: item.questionId,
-            answerData: [],
-            score: item.score,
-          },
-        });
+      if (questionScores?.length) {
+        // Gộp điểm trên cùng transaction; khi xung đột chỉ đổi điểm, giữ nguyên bài làm.
+        const questionIds = questionScores.map((item) => item.questionId);
+        const scores = questionScores.map((item) => item.score);
+        await transaction.$executeRaw`
+          INSERT INTO attempt_answers (attempt_id, question_id, answer_data, score, updated_at)
+          SELECT ${attemptId}, graded.question_id, '[]'::jsonb, graded.score, CURRENT_TIMESTAMP
+          FROM unnest(${questionIds}::text[], ${scores}::numeric[]) AS graded(question_id, score)
+          ON CONFLICT (attempt_id, question_id)
+          DO UPDATE SET score = EXCLUDED.score, updated_at = EXCLUDED.updated_at
+        `;
       }
       const updatedAttempt = await transaction.examAttempt.update({
         where: { id: attemptId },

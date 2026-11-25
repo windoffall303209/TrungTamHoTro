@@ -400,17 +400,21 @@ export async function createQuestion(
 ): Promise<LearningQuestion> {
   const normalized = serviceContext.validateQuestionInput(input);
   const contentHash = serviceContext.questionContentHash(normalized.content);
-  await assertQuestionCourseAccess(serviceContext, normalized.courseId, authorId);
   const prisma = serviceContext.database();
   if (prisma) {
-    const course = await prisma.course.findUnique({
-      where: { id: normalized.courseId },
-    });
+    // Gộp quyền khóa học, sự tồn tại và kiểm tra trùng; mỗi dòng import vẫn ghi độc lập.
+    const [course] = await prisma.$queryRaw<Array<{ duplicate: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM questions q WHERE q.course_id = c.id AND q.content_hash = ${contentHash}
+      ) AS duplicate
+      FROM courses c
+      WHERE c.id = ${normalized.courseId} AND EXISTS (
+        SELECT 1 FROM learning_classes lc
+        JOIN class_instructors ci ON ci.class_id = lc.id
+        WHERE lc.course_id = c.id AND ci.instructor_id = ${authorId}
+      )`;
     if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
-    const duplicate = await prisma.question.findFirst({
-      where: { courseId: normalized.courseId, contentHash },
-    });
-    if (duplicate)
+    if (course.duplicate)
       throw new ConflictException(
         "Nội dung câu hỏi đã tồn tại trong khóa học.",
       );
@@ -434,6 +438,7 @@ export async function createQuestion(
       }),
     );
   }
+  await assertQuestionCourseAccess(serviceContext, normalized.courseId, authorId);
   if (
     serviceContext.questions.some(
       (item) =>

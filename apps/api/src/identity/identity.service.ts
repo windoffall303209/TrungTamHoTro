@@ -199,10 +199,16 @@ export class IdentityService {
     }
     // Quản lý trung tâm không cần và không được thấy danh sách/email tài khoản quản trị hệ thống.
     if (actorRoleCode !== "SYSTEM_ADMIN") where.NOT = { roles: { some: { role: { code: "SYSTEM_ADMIN" } } } };
-    const [rows, total, active, locked] = await Promise.all([
+    // Thống kê ACTIVE/LOCKED vẫn độc lập với tab trạng thái, nhưng giữ phạm vi tìm kiếm và quyền.
+    const statisticsWhere = { ...where };
+    delete statisticsWhere.status;
+    const [rows, groups] = await Promise.all([
       prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
-      prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),
+      prisma.user.groupBy({ by: ["status"], where: statisticsWhere, _count: { _all: true } }),
     ]);
+    const total = groups.reduce((sum, group) => sum + (!input.status || group.status === input.status ? group._count._all : 0), 0);
+    const active = groups.find((group) => group.status === "ACTIVE")?._count._all ?? 0;
+    const locked = groups.find((group) => group.status === "LOCKED")?._count._all ?? 0;
     return { items: rows.map((row) => this.mapUser(row)), total, active, locked, page, pageSize };
   }
 
@@ -784,53 +790,23 @@ export class IdentityService {
       throw new BadRequestException(
         "Tài khoản đang giữ việc ở nhiều miền quyền; cần bàn giao từng miền trước khi đổi vai trò.",
       );
-    for (const classItem of impact.classes) {
-      const existingTarget = await transaction.classInstructor.findUnique({
-        where: {
-          classId_instructorId: {
-            classId: classItem.id,
-            instructorId: toUserId,
-          },
-        },
+    if (impact.classes.length) {
+      const classIds = impact.classes.map((item) => item.id);
+      const assignmentRoles = impact.classes.map((item) => item.assignmentRole);
+      // Chỉ PRIMARY ghi đè phân công đã có; bàn giao phụ giữ nguyên role và metadata của người nhận.
+      await transaction.$executeRaw`
+        INSERT INTO class_instructors (class_id, instructor_id, role, assigned_by, assigned_at)
+        SELECT incoming.class_id, ${toUserId}, incoming.role::"InstructorAssignmentRole", ${actorId}, CURRENT_TIMESTAMP
+        FROM unnest(${classIds}::text[], ${assignmentRoles}::text[]) AS incoming(class_id, role)
+        ORDER BY incoming.class_id
+        ON CONFLICT (class_id, instructor_id) DO UPDATE
+        SET role = EXCLUDED.role, assigned_by = EXCLUDED.assigned_by, assigned_at = EXCLUDED.assigned_at
+        WHERE EXCLUDED.role = 'PRIMARY'::"InstructorAssignmentRole"`;
+      const removed = await transaction.classInstructor.deleteMany({
+        where: { classId: { in: classIds }, instructorId: fromUserId },
       });
-      if (classItem.assignmentRole === "PRIMARY") {
-        await transaction.classInstructor.upsert({
-          where: {
-            classId_instructorId: {
-              classId: classItem.id,
-              instructorId: toUserId,
-            },
-          },
-          update: {
-            role: "PRIMARY",
-            assignedBy: actorId,
-            assignedAt: new Date(),
-          },
-          create: {
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: "PRIMARY",
-            assignedBy: actorId,
-          },
-        });
-      } else if (!existingTarget) {
-        await transaction.classInstructor.create({
-          data: {
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: "CO_INSTRUCTOR",
-            assignedBy: actorId,
-          },
-        });
-      }
-      await transaction.classInstructor.delete({
-        where: {
-          classId_instructorId: {
-            classId: classItem.id,
-            instructorId: fromUserId,
-          },
-        },
-      });
+      if (removed.count !== classIds.length)
+        throw new ConflictException("Phân công lớp đã thay đổi. Hãy xem trước bàn giao lại.");
     }
     // Mọi cập nhật thuộc cùng transaction, phải chờ truy vấn trước hoàn tất.
     await transaction.regradeRequest.updateMany({

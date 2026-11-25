@@ -45,6 +45,7 @@ export class SystemService {
   private settings: SystemSettings = defaultSettings();
 
   private maintenanceCache?: { value: boolean; expiresAt: number };
+  private maintenanceRead?: Promise<boolean>;
 
   private integrations: IntegrationConfig[] = [
     "GOOGLE_MEET",
@@ -190,9 +191,18 @@ export class SystemService {
    */
   async isMaintenanceMode(): Promise<boolean> {
     if (this.maintenanceCache && this.maintenanceCache.expiresAt > Date.now()) return this.maintenanceCache.value;
-    const value = (await this.getSettings()).maintenanceMode;
-    this.maintenanceCache = { value, expiresAt: Date.now() + SystemService.MAINTENANCE_CACHE_MS };
-    return value;
+    if (this.maintenanceRead) return this.maintenanceRead;
+    const pending = this.getSettings().then((settings) => {
+      // Cấu hình vừa được cập nhật: không trả hoặc cache kết quả của lượt đọc cũ.
+      if (this.maintenanceRead !== pending) return this.isMaintenanceMode();
+      const value = settings.maintenanceMode;
+      this.maintenanceCache = { value, expiresAt: Date.now() + SystemService.MAINTENANCE_CACHE_MS };
+      return value;
+    }).finally(() => {
+      if (this.maintenanceRead === pending) this.maintenanceRead = undefined;
+    });
+    this.maintenanceRead = pending;
+    return pending;
   }
 
   /** Hợp nhất cấu hình, kiểm tra quota/múi giờ, lưu trực tiếp vào system_settings và ghi audit. */
@@ -208,6 +218,7 @@ export class SystemService {
       );
     } finally {
       this.maintenanceCache = undefined;
+      this.maintenanceRead = undefined;
     }
   }
 

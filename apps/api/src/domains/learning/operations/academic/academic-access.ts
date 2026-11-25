@@ -46,25 +46,19 @@ export async function requireTeachingAccess(
     throw new ForbiddenException(
       "Nghiệp vụ học thuật chỉ dành cho giảng viên được phân công.",
     );
-  if (
-    !session.permissions.includes("exam:manage") ||
-    !(await serviceContext.accessibleClassIds(session)).includes(classId)
-  )
+  if (!session.permissions.includes("exam:manage"))
     throw new NotFoundException(
       "Không tìm thấy lớp học trong phạm vi quản lý.",
     );
-  if (requireWritable) {
-    const classItem = await serviceContext.prisma.learningClass.findUnique({
-      where: { id: classId },
-      select: { status: true },
-    });
-    if (!classItem)
-      throw new NotFoundException(
-        "Không tìm thấy lớp học trong phạm vi quản lý.",
-      );
-    if (classItem.status === "CLOSED")
+  // Kiểm tra phân công và trạng thái trong cùng truy vấn, không tải mọi lớp của giảng viên.
+  const classItem = await serviceContext.prisma.learningClass.findFirst({
+    where: { id: classId, instructors: { some: { instructorId: session.user.id } } },
+    select: { status: true },
+  });
+  if (!classItem)
+    throw new NotFoundException("Không tìm thấy lớp học trong phạm vi quản lý.");
+  if (requireWritable && classItem.status === "CLOSED")
       throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  }
 }
 
 /** Cấp quản lý (quản lý trung tâm/quản trị) được đọc dữ liệu học thuật của mọi lớp ở chế độ chỉ đọc. */

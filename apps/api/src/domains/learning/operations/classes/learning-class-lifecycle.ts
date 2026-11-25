@@ -208,50 +208,33 @@ export async function databaseClassClosureReadiness(
   database: Prisma.TransactionClient,
   classId: string,
 ): Promise<ClassClosureReadiness> {
-  const current = await database.learningClass.findUnique({
-    where: { id: classId },
-  });
+  const checkedAt = new Date();
+  // Một snapshot SQL cho trạng thái lớp và bảy blocker; tránh tám round-trip trên cùng kết nối.
+  const [current] = await database.$queryRaw<Array<{
+    status: LearningClass["status"]; endAt: Date;
+    openExams: number; inProgressAttempts: number; pendingGrades: number;
+    openAssignments: number; pendingAssignmentGrades: number; openRegrades: number; activeSessions: number;
+  }>>`
+    SELECT c.status, c.end_at AS "endAt",
+      (SELECT count(*)::int FROM exams e WHERE e.class_id = c.id
+        AND (e.status = 'PENDING_REVIEW' OR (e.status = 'PUBLISHED' AND e.close_at > ${checkedAt}))) AS "openExams",
+      (SELECT count(*)::int FROM exam_attempts a JOIN exams e ON e.id = a.exam_id
+        WHERE e.class_id = c.id AND a.status = 'IN_PROGRESS') AS "inProgressAttempts",
+      (SELECT count(*)::int FROM exam_attempts a JOIN exams e ON e.id = a.exam_id
+        WHERE e.class_id = c.id AND a.status = 'SUBMITTED') AS "pendingGrades",
+      (SELECT count(*)::int FROM assignments a WHERE a.class_id = c.id
+        AND a.status = 'PUBLISHED' AND a.due_at > ${checkedAt}) AS "openAssignments",
+      (SELECT count(*)::int FROM assignment_submissions s JOIN assignments a ON a.id = s.assignment_id
+        WHERE a.class_id = c.id AND s.status = 'SUBMITTED') AS "pendingAssignmentGrades",
+      (SELECT count(*)::int FROM regrade_requests r JOIN exam_attempts a ON a.id = r.attempt_id
+        JOIN exams e ON e.id = a.exam_id WHERE e.class_id = c.id AND r.status IN ('OPEN', 'IN_REVIEW')) AS "openRegrades",
+      (SELECT count(*)::int FROM live_sessions s WHERE s.class_id = c.id
+        AND s.status IN ('SCHEDULED', 'LIVE')) AS "activeSessions"
+    FROM learning_classes c WHERE c.id = ${classId}
+  `;
   if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
-  const [
-    openExams,
-    inProgressAttempts,
-    pendingGrades,
-    openAssignments,
-    pendingAssignmentGrades,
-    openRegrades,
-    activeSessions,
-  ] = await Promise.all([
-    database.exam.count({
-      where: {
-        classId,
-        OR: [
-          { status: "PENDING_REVIEW" },
-          { status: "PUBLISHED", closeAt: { gt: new Date() } },
-        ],
-      },
-    }),
-    database.examAttempt.count({
-      where: { exam: { classId }, status: "IN_PROGRESS" },
-    }),
-    database.examAttempt.count({
-      where: { exam: { classId }, status: "SUBMITTED" },
-    }),
-    database.assignment.count({
-      where: { classId, status: "PUBLISHED", dueAt: { gt: new Date() } },
-    }),
-    database.assignmentSubmission.count({
-      where: { assignment: { classId }, status: "SUBMITTED" },
-    }),
-    database.regradeRequest.count({
-      where: {
-        attempt: { exam: { classId } },
-        status: { in: ["OPEN", "IN_REVIEW"] },
-      },
-    }),
-    database.liveSession.count({
-      where: { classId, status: { in: ["SCHEDULED", "LIVE"] } },
-    }),
-  ]);
+  const { openExams, inProgressAttempts, pendingGrades, openAssignments,
+    pendingAssignmentGrades, openRegrades, activeSessions } = current;
   return serviceContext.buildClassClosureReadiness(
     current.status,
     current.endAt,
@@ -322,26 +305,16 @@ export async function closeClass(
             },
           },
         });
-        const recipients = await transaction.classEnrollment.findMany({
-          where: { classId, status: "ACTIVE" },
-          select: { learnerId: true },
-        });
-        for (const recipient of recipients)
-          await transaction.notification.upsert({
-            where: {
-              dedupKey: `class-archived:${classId}:${recipient.learnerId}`,
-            },
-            update: { readAt: null, createdAt: new Date() },
-            create: {
-              id: id("notification"),
-              recipientId: recipient.learnerId,
-              type: "CLASS_ARCHIVED",
-              title: "Lớp học đã kết thúc và chuyển sang chỉ đọc",
-              entityType: "CLASS",
-              entityId: classId,
-              dedupKey: `class-archived:${classId}:${recipient.learnerId}`,
-            },
-          });
+        // Chọn người nhận và ghi thông báo trong một lệnh; trigger outbox chạy theo cả lô.
+        const notificationPrefix = id("notification");
+        await transaction.$executeRaw`
+          INSERT INTO notifications (id, recipient_id, type, title, entity_type, entity_id, dedup_key, read_at, created_at)
+          SELECT ${notificationPrefix} || ':' || learner_id, learner_id, 'CLASS_ARCHIVED',
+            'Lớp học đã kết thúc và chuyển sang chỉ đọc', 'CLASS', ${classId},
+            'class-archived:' || ${classId} || ':' || learner_id, NULL, CURRENT_TIMESTAMP
+          FROM class_enrollments WHERE class_id = ${classId} AND status = 'ACTIVE'
+          ON CONFLICT (dedup_key) DO UPDATE SET read_at = NULL, created_at = EXCLUDED.created_at
+        `;
       },
       { isolationLevel: "Serializable" },
     );

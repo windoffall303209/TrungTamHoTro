@@ -1,8 +1,54 @@
 import { BadRequestException } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SystemService } from "../../src/domains/system/core/system.service.js";
 
 describe("SystemService", () => {
+  it("gộp 100 lượt kiểm tra bảo trì đồng thời thành một lượt đọc cấu hình", async () => {
+    const service = new SystemService();
+    const settings = await service.getSettings();
+    const read = vi.spyOn(service, "getSettings").mockResolvedValue(settings);
+    expect(await Promise.all(Array.from({ length: 100 }, () => service.isMaintenanceMode())))
+      .toEqual(Array(100).fill(settings.maintenanceMode));
+    expect(read).toHaveBeenCalledTimes(1);
+    await service.isMaintenanceMode();
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("cho đọc lại sau lỗi thay vì giữ promise thất bại", async () => {
+    const service = new SystemService();
+    const settings = await service.getSettings();
+    const read = vi.spyOn(service, "getSettings").mockRejectedValueOnce(new Error("DB unavailable")).mockResolvedValue(settings);
+    await expect(service.isMaintenanceMode()).rejects.toThrow("DB unavailable");
+    await expect(service.isMaintenanceMode()).resolves.toBe(settings.maintenanceMode);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("gộp lại các lượt đọc khi TTL hết hạn", async () => {
+    const service = new SystemService();
+    const settings = await service.getSettings();
+    const read = vi.spyOn(service, "getSettings").mockResolvedValue(settings);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+    try {
+      await service.isMaintenanceMode();
+      clock.mockReturnValue(15_001);
+      await Promise.all(Array.from({ length: 100 }, () => service.isMaintenanceMode()));
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally { clock.mockRestore(); }
+  });
+
+  it("không cache kết quả đọc cũ sau khi cập nhật cờ bảo trì", async () => {
+    const service = new SystemService();
+    const settings = await service.getSettings();
+    let finish!: (value: typeof settings) => void;
+    const read = vi.spyOn(service, "getSettings").mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const oldRead = service.isMaintenanceMode();
+    await service.updateSettings({ maintenanceMode: true }, "usr-admin");
+    finish({ ...settings, maintenanceMode: false });
+    await expect(oldRead).resolves.toBe(true);
+    await expect(service.isMaintenanceMode()).resolves.toBe(true);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it("không giả lập backup khi hạ tầng thật chưa hoạt động", async () => {
     const service = new SystemService();
     await expect(service.runBackup("FULL", "usr-admin")).rejects.toThrow("yêu cầu kết nối database");
