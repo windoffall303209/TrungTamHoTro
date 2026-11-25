@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -53,57 +53,27 @@ function shortFileTag(mimeType: string, fileName: string): string {
   return "FILE";
 }
 
-/** Khung nội dung chi tiết cho một bài nộp tự luận (tách key theo submissionId + revision để reset state sạch). */
-function SubmissionWorkAndGradingPane({
+/** Cột hiển thị bài làm và tệp đính kèm tách memo để việc nhập điểm/nhận xét không re-render trình xem tài liệu hoặc KaTeX. */
+const SubmissionContentColumn = memo(function SubmissionContentColumn({
   assignment,
   submission,
-  canGrade,
   layoutMode,
-  hasNextStudent,
-  onSaved,
-  onNextStudent,
 }: {
   assignment: Assignment;
   submission: AssignmentSubmission;
-  canGrade: boolean;
   layoutMode: ReviewLayoutMode;
-  hasNextStudent: boolean;
-  onSaved: (updated: AssignmentSubmission, advanceNext: boolean) => void;
-  onNextStudent: () => void;
 }) {
-  const { session, notify } = useApp();
+  const { notify } = useApp();
   const { locale } = useI18n();
   const [selectedAttachmentId, setSelectedAttachmentId] = useState(
     () => submission.attachments[0]?.id ?? "",
   );
-  const [rubricScores, setRubricScores] = useState<Record<string, number>>(() =>
-    Object.fromEntries(
-      assignment.rubric.map((criterion) => [
-        criterion.id,
-        submission.rubricScores.find((entry) => entry.criterionId === criterion.id)?.score ?? 0,
-      ]),
-    ),
-  );
-  const [feedback, setFeedback] = useState(() => submission.feedback ?? "");
-  const [correctionReason, setCorrectionReason] = useState("");
-  const [saving, setSaving] = useState(false);
   const [copiedAnswer, setCopiedAnswer] = useState(false);
 
   const activeAttachment =
     submission.attachments.find((item) => item.id === selectedAttachmentId) ??
     submission.attachments[0] ??
     null;
-
-  const computedTotal = useMemo(
-    () =>
-      Math.round(
-        assignment.rubric.reduce(
-          (sum, criterion) => sum + (Number(rubricScores[criterion.id]) || 0),
-          0,
-        ) * 100,
-      ) / 100,
-    [assignment.rubric, rubricScores],
-  );
 
   // Sao chép nội dung văn bản bài làm của học sinh vào clipboard.
   const handleCopyContent = async () => {
@@ -117,6 +87,159 @@ function SubmissionWorkAndGradingPane({
       notify("Không sao chép được văn bản.", "error");
     }
   };
+
+  return (
+    <div className="space-y-4 min-w-0">
+      {/* Thẻ thông tin học sinh nộp bài */}
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <UserAvatar name={submission.learnerName} className="size-10 text-sm shrink-0" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
+                  {submission.learnerName}
+                </h2>
+                <StatusBadge status={submission.status} />
+                {typeof submission.score === "number" && (
+                  <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
+                    {submission.score} / {assignment.maxScore} điểm
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
+                {submission.learnerEmail && <span>{submission.learnerEmail}</span>}
+                <span className="inline-flex items-center gap-1">
+                  <Clock size={12} />
+                  Nộp lúc {new Date(submission.submittedAt).toLocaleString(locale)}
+                </span>
+                <span>Phiên bản nộp #{submission.revision}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Nội dung văn bản học sinh nhập trực tiếp */}
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 sm:p-5 shadow-xs space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+            <FileText size={14} className="text-sky-600" />
+            <span>Nội dung trả lời trực tiếp của học sinh</span>
+          </h3>
+          {submission.content.trim() && (
+            <button
+              type="button"
+              onClick={() => void handleCopyContent()}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              {copiedAnswer ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+              <span>{copiedAnswer ? "Đã sao chép" : "Sao chép bài viết"}</span>
+            </button>
+          )}
+        </div>
+        {submission.content.trim() ? (
+          <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 text-sm leading-7 text-slate-800 dark:text-slate-100">
+            <RichText className="prose-sm max-w-none">{submission.content}</RichText>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-3 text-xs text-slate-500">
+            Học sinh không nhập văn bản trực tiếp (chỉ nộp tệp đính kèm bên dưới).
+          </p>
+        )}
+      </section>
+
+      {/* Trình xem tệp đính kèm toàn diện */}
+      <section className="space-y-3" aria-label="Tệp đính kèm bài làm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+            <Paperclip size={14} className="text-sky-600" />
+            <span>Tệp bài làm đính kèm ({submission.attachments.length})</span>
+          </h3>
+        </div>
+
+        {submission.attachments.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center text-xs text-slate-500">
+            Bài nộp này không có tệp đính kèm.
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {submission.attachments.map((file, idx) => {
+                const active = activeAttachment?.id === file.id;
+                return (
+                  <button
+                    key={file.id}
+                    type="button"
+                    onClick={() => setSelectedAttachmentId(file.id)}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer ${
+                      active
+                        ? "border-sky-500 bg-sky-50 text-sky-800 dark:border-sky-500 dark:bg-sky-950/60 dark:text-sky-200 shadow-2xs"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-sky-300"
+                    }`}
+                  >
+                    <span className="rounded bg-slate-900/10 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-extrabold">
+                      {shortFileTag(file.mimeType, file.originalName)}
+                    </span>
+                    <span className="max-w-[180px] truncate">{`${idx + 1}. ${file.originalName}`}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {activeAttachment && (
+              <DocumentRichViewer
+                key={`${submission.id}:${activeAttachment.id}`}
+                kind="SUBMISSION_ATTACHMENT"
+                submissionId={submission.id}
+                attachment={activeAttachment}
+                heightClass={layoutMode === "DOCUMENT_FOCUS" ? "h-[78dvh]" : "h-[68dvh]"}
+              />
+            )}
+          </>
+        )}
+      </section>
+    </div>
+  );
+});
+
+/** Biểu mẫu chấm điểm rubric & nhận xét được cô lập hoàn toàn state nhập liệu khỏi cột tài liệu và khung ngoài. */
+const SubmissionGradingForm = memo(function SubmissionGradingForm({
+  assignment,
+  submission,
+  canGrade,
+  hasNextStudent,
+  onSaved,
+}: {
+  assignment: Assignment;
+  submission: AssignmentSubmission;
+  canGrade: boolean;
+  hasNextStudent: boolean;
+  onSaved: (updated: AssignmentSubmission, advanceNext: boolean) => void;
+}) {
+  const { session, notify } = useApp();
+  const [rubricScores, setRubricScores] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      assignment.rubric.map((criterion) => [
+        criterion.id,
+        submission.rubricScores.find((entry) => entry.criterionId === criterion.id)?.score ?? 0,
+      ]),
+    ),
+  );
+  const [feedback, setFeedback] = useState(() => submission.feedback ?? "");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const computedTotal = useMemo(
+    () =>
+      Math.round(
+        assignment.rubric.reduce(
+          (sum, criterion) => sum + (Number(rubricScores[criterion.id]) || 0),
+          0,
+        ) * 100,
+      ) / 100,
+    [assignment.rubric, rubricScores],
+  );
 
   // Gửi điểm từng tiêu chí rubric và nhận xét giảng viên lên API chấm bài.
   const submitGrade = async (advanceNext: boolean) => {
@@ -157,6 +280,198 @@ function SubmissionWorkAndGradingPane({
     }
   };
 
+  return (
+    <aside className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 sm:p-5 shadow-xs space-y-4 xl:sticky xl:top-4">
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+          <BookOpenCheck size={16} className="text-sky-600" />
+          <span>Chấm điểm & Nhận xét</span>
+        </h3>
+        <span className="rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 px-2.5 py-0.5 text-xs font-black text-sky-700 dark:text-sky-300 tabular-nums">
+          {computedTotal} / {assignment.maxScore}
+        </span>
+      </div>
+
+      {canGrade && (
+        <AssignmentAiGrading
+          assignment={assignment}
+          submission={submission}
+          onUse={(scores, nextFeedback) => {
+            setRubricScores(scores);
+            setFeedback(nextFeedback);
+          }}
+        />
+      )}
+
+      <form
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitGrade(false);
+        }}
+      >
+        <div className="space-y-3">
+          {assignment.rubric.map((criterion) => {
+            const value = rubricScores[criterion.id] ?? 0;
+            return (
+              <div
+                key={criterion.id}
+                className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
+                      {criterion.title}
+                    </p>
+                    {criterion.description && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {criterion.description}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 text-[11px] font-bold text-slate-500">
+                    Tối đa {criterion.maxPoints}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    aria-label={`Điểm ${criterion.title}`}
+                    className={`${inputClass} py-1.5 text-xs font-bold tabular-nums w-28`}
+                    max={criterion.maxPoints}
+                    min={0}
+                    required
+                    step="0.01"
+                    type="number"
+                    disabled={!canGrade || saving}
+                    value={value}
+                    onChange={(event) =>
+                      setRubricScores((prev) => ({
+                        ...prev,
+                        [criterion.id]: Number(event.target.value),
+                      }))
+                    }
+                  />
+                  {canGrade && (
+                    <div className="flex flex-wrap gap-1">
+                      {[0, 0.5, 0.75, 1].map((ratio) => {
+                        const preset = Math.round(criterion.maxPoints * ratio * 100) / 100;
+                        return (
+                          <button
+                            key={ratio}
+                            type="button"
+                            onClick={() =>
+                              setRubricScores((prev) => ({
+                                ...prev,
+                                [criterion.id]: preset,
+                              }))
+                            }
+                            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-sky-400 hover:text-sky-600 cursor-pointer"
+                          >
+                            {Math.round(ratio * 100)}%
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <Field label="Nhận xét chi tiết cho học sinh">
+          <textarea
+            aria-label="Nhận xét chi tiết"
+            className={inputClass}
+            minLength={3}
+            placeholder="Ghi nhận ưu điểm, lỗi cần khắc phục hoặc gợi ý sửa bài..."
+            required
+            rows={4}
+            disabled={!canGrade || saving}
+            value={feedback}
+            onChange={(event) => setFeedback(event.target.value)}
+          />
+        </Field>
+
+        {submission.status === "GRADED" && (
+          <Field label="Lý do sửa điểm đã công bố">
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {QUICK_CORRECTION_REASONS.map((reason) => (
+                <button
+                  key={reason}
+                  type="button"
+                  disabled={!canGrade || saving}
+                  onClick={() => setCorrectionReason(reason)}
+                  className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-medium hover:border-sky-400 hover:text-sky-600 cursor-pointer"
+                >
+                  {reason}
+                </button>
+              ))}
+            </div>
+            <textarea
+              aria-label="Lý do sửa điểm"
+              className={inputClass}
+              minLength={3}
+              placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
+              required
+              rows={2}
+              disabled={!canGrade || saving}
+              value={correctionReason}
+              onChange={(event) => setCorrectionReason(event.target.value)}
+            />
+          </Field>
+        )}
+
+        {canGrade && (
+          <div className="flex flex-col gap-2 pt-1">
+            <Button type="submit" disabled={saving}>
+              <Send size={14} />
+              <span>{saving ? "Đang lưu điểm..." : "Lưu điểm rubric"}</span>
+            </Button>
+            {hasNextStudent && (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={saving}
+                onClick={() => void submitGrade(true)}
+              >
+                <CheckCircle2 size={14} />
+                <span>Lưu & sang học sinh tiếp theo</span>
+              </Button>
+            )}
+          </div>
+        )}
+
+        {!hasNextStudent && canGrade && submissionsDoneBadge(submission)}
+      </form>
+
+      {!canGrade && (
+        <p className="text-xs text-slate-500">
+          Bạn đang ở chế độ chỉ xem; chỉ giảng viên phân công mới có quyền chấm điểm.
+        </p>
+      )}
+    </aside>
+  );
+});
+
+/** Khung nội dung chi tiết cho một bài nộp tự luận, tách cột tài liệu và biểu mẫu chấm điểm độc lập. */
+const SubmissionWorkAndGradingPane = memo(function SubmissionWorkAndGradingPane({
+  assignment,
+  submission,
+  canGrade,
+  layoutMode,
+  hasNextStudent,
+  onSaved,
+  onNextStudent,
+}: {
+  assignment: Assignment;
+  submission: AssignmentSubmission;
+  canGrade: boolean;
+  layoutMode: ReviewLayoutMode;
+  hasNextStudent: boolean;
+  onSaved: (updated: AssignmentSubmission, advanceNext: boolean) => void;
+  onNextStudent: () => void;
+}) {
   const showGradingPanel = layoutMode !== "READ_ONLY";
 
   return (
@@ -167,291 +482,20 @@ function SubmissionWorkAndGradingPane({
           : "space-y-5"
       }
     >
-      {/* Khung chính: thông tin bài nộp, văn bản trả lời & trình xem trước tệp kích thước lớn */}
-      <div className="space-y-4 min-w-0">
-        {/* Thẻ thông tin học sinh nộp bài */}
-        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 shadow-xs">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <UserAvatar name={submission.learnerName} className="size-10 text-sm shrink-0" />
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">
-                    {submission.learnerName}
-                  </h2>
-                  <StatusBadge status={submission.status} />
-                  {typeof submission.score === "number" && (
-                    <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                      {submission.score} / {assignment.maxScore} điểm
-                    </span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {submission.learnerEmail && <span>{submission.learnerEmail}</span>}
-                  <span className="inline-flex items-center gap-1">
-                    <Clock size={12} />
-                    Nộp lúc {new Date(submission.submittedAt).toLocaleString(locale)}
-                  </span>
-                  <span>Phiên bản nộp #{submission.revision}</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+      <SubmissionContentColumn
+        assignment={assignment}
+        submission={submission}
+        layoutMode={layoutMode}
+      />
 
-        {/* Nội dung văn bản học sinh nhập trực tiếp */}
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 sm:p-5 shadow-xs space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-              <FileText size={14} className="text-sky-600" />
-              <span>Nội dung trả lời trực tiếp của học sinh</span>
-            </h3>
-            {submission.content.trim() && (
-              <button
-                type="button"
-                onClick={() => void handleCopyContent()}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-              >
-                {copiedAnswer ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                <span>{copiedAnswer ? "Đã sao chép" : "Sao chép bài viết"}</span>
-              </button>
-            )}
-          </div>
-          {submission.content.trim() ? (
-            <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 p-4 text-sm leading-7 text-slate-800 dark:text-slate-100">
-              <RichText className="prose-sm max-w-none">{submission.content}</RichText>
-            </div>
-          ) : (
-            <p className="rounded-xl border border-dashed border-slate-200 dark:border-slate-800 px-4 py-3 text-xs text-slate-500">
-              Học sinh không nhập văn bản trực tiếp (chỉ nộp tệp đính kèm bên dưới).
-            </p>
-          )}
-        </section>
-
-        {/* Trình xem tệp đính kèm toàn diện */}
-        <section className="space-y-3" aria-label="Tệp đính kèm bài làm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-              <Paperclip size={14} className="text-sky-600" />
-              <span>Tệp bài làm đính kèm ({submission.attachments.length})</span>
-            </h3>
-          </div>
-
-          {submission.attachments.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-8 text-center text-xs text-slate-500">
-              Bài nộp này không có tệp đính kèm.
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap gap-2">
-                {submission.attachments.map((file, idx) => {
-                  const active = activeAttachment?.id === file.id;
-                  return (
-                    <button
-                      key={file.id}
-                      type="button"
-                      onClick={() => setSelectedAttachmentId(file.id)}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition cursor-pointer ${
-                        active
-                          ? "border-sky-500 bg-sky-50 text-sky-800 dark:border-sky-500 dark:bg-sky-950/60 dark:text-sky-200 shadow-2xs"
-                          : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:border-sky-300"
-                      }`}
-                    >
-                      <span className="rounded bg-slate-900/10 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-extrabold">
-                        {shortFileTag(file.mimeType, file.originalName)}
-                      </span>
-                      <span className="max-w-[180px] truncate">{`${idx + 1}. ${file.originalName}`}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {activeAttachment && (
-                <DocumentRichViewer
-                  key={`${submission.id}:${activeAttachment.id}`}
-                  kind="SUBMISSION_ATTACHMENT"
-                  submissionId={submission.id}
-                  attachment={activeAttachment}
-                  heightClass={layoutMode === "DOCUMENT_FOCUS" ? "h-[78dvh]" : "h-[68dvh]"}
-                />
-              )}
-            </>
-          )}
-        </section>
-      </div>
-
-      {/* Cột chấm điểm Rubric + Gợi ý AI */}
       {showGradingPanel && (
-        <aside className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 sm:p-5 shadow-xs space-y-4 xl:sticky xl:top-4">
-          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <BookOpenCheck size={16} className="text-sky-600" />
-              <span>Chấm điểm & Nhận xét</span>
-            </h3>
-            <span className="rounded-full bg-sky-50 dark:bg-sky-950/60 border border-sky-200 dark:border-sky-800 px-2.5 py-0.5 text-xs font-black text-sky-700 dark:text-sky-300 tabular-nums">
-              {computedTotal} / {assignment.maxScore}
-            </span>
-          </div>
-
-          {canGrade && (
-            <AssignmentAiGrading
-              assignment={assignment}
-              submission={submission}
-              onUse={(scores, nextFeedback) => {
-                setRubricScores(scores);
-                setFeedback(nextFeedback);
-              }}
-            />
-          )}
-
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void submitGrade(false);
-            }}
-          >
-            <div className="space-y-3">
-              {assignment.rubric.map((criterion) => {
-                const value = rubricScores[criterion.id] ?? 0;
-                return (
-                  <div
-                    key={criterion.id}
-                    className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 space-y-2"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                          {criterion.title}
-                        </p>
-                        {criterion.description && (
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {criterion.description}
-                          </p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-[11px] font-bold text-slate-500">
-                        Tối đa {criterion.maxPoints}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        aria-label={`Điểm ${criterion.title}`}
-                        className={`${inputClass} py-1.5 text-xs font-bold tabular-nums w-28`}
-                        max={criterion.maxPoints}
-                        min={0}
-                        required
-                        step="0.01"
-                        type="number"
-                        disabled={!canGrade || saving}
-                        value={value}
-                        onChange={(event) =>
-                          setRubricScores((prev) => ({
-                            ...prev,
-                            [criterion.id]: Number(event.target.value),
-                          }))
-                        }
-                      />
-                      {canGrade && (
-                        <div className="flex flex-wrap gap-1">
-                          {[0, 0.5, 0.75, 1].map((ratio) => {
-                            const preset = Math.round(criterion.maxPoints * ratio * 100) / 100;
-                            return (
-                              <button
-                                key={ratio}
-                                type="button"
-                                onClick={() =>
-                                  setRubricScores((prev) => ({
-                                    ...prev,
-                                    [criterion.id]: preset,
-                                  }))
-                                }
-                                className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-sky-400 hover:text-sky-600 cursor-pointer"
-                              >
-                                {Math.round(ratio * 100)}%
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <Field label="Nhận xét chi tiết cho học sinh">
-              <textarea
-                aria-label="Nhận xét chi tiết"
-                className={inputClass}
-                minLength={3}
-                placeholder="Ghi nhận ưu điểm, lỗi cần khắc phục hoặc gợi ý sửa bài..."
-                required
-                rows={4}
-                disabled={!canGrade || saving}
-                value={feedback}
-                onChange={(event) => setFeedback(event.target.value)}
-              />
-            </Field>
-
-            {submission.status === "GRADED" && (
-              <Field label="Lý do sửa điểm đã công bố">
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {QUICK_CORRECTION_REASONS.map((reason) => (
-                    <button
-                      key={reason}
-                      type="button"
-                      disabled={!canGrade || saving}
-                      onClick={() => setCorrectionReason(reason)}
-                      className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-medium hover:border-sky-400 hover:text-sky-600 cursor-pointer"
-                    >
-                      {reason}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  aria-label="Lý do sửa điểm"
-                  className={inputClass}
-                  minLength={3}
-                  placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
-                  required
-                  rows={2}
-                  disabled={!canGrade || saving}
-                  value={correctionReason}
-                  onChange={(event) => setCorrectionReason(event.target.value)}
-                />
-              </Field>
-            )}
-
-            {canGrade && (
-              <div className="flex flex-col gap-2 pt-1">
-                <Button type="submit" disabled={saving}>
-                  <Send size={14} />
-                  <span>{saving ? "Đang lưu điểm..." : "Lưu điểm rubric"}</span>
-                </Button>
-                {hasNextStudent && (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={saving}
-                    onClick={() => void submitGrade(true)}
-                  >
-                    <CheckCircle2 size={14} />
-                    <span>Lưu & sang học sinh tiếp theo</span>
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {!hasNextStudent && canGrade && submissionsDoneBadge(submission)}
-          </form>
-
-          {!canGrade && (
-            <p className="text-xs text-slate-500">
-              Bạn đang ở chế độ chỉ xem; chỉ giảng viên phân công mới có quyền chấm điểm.
-            </p>
-          )}
-        </aside>
+        <SubmissionGradingForm
+          assignment={assignment}
+          submission={submission}
+          canGrade={canGrade}
+          hasNextStudent={hasNextStudent}
+          onSaved={onSaved}
+        />
       )}
       {!showGradingPanel && hasNextStudent && (
         <div className="flex justify-end">
@@ -463,7 +507,7 @@ function SubmissionWorkAndGradingPane({
       )}
     </div>
   );
-}
+});
 
 /** Hiển thị thông báo phụ gọn khi đã hoàn tất bài cuối cùng trong danh sách. */
 function submissionsDoneBadge(submission: AssignmentSubmission) {

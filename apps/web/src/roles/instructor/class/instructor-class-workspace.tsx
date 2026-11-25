@@ -93,9 +93,10 @@ import { InstructorGradebookTab } from "./tabs/instructor-gradebook-tab";
 import { InstructorLecturesTab } from "./tabs/instructor-lectures-tab";
 import { InstructorMaterialsTab } from "./tabs/instructor-materials-tab";
 import { InstructorMembersTab } from "./tabs/instructor-members-tab";
+import { InstructorQuestionsTab } from "./tabs/instructor-questions-tab";
 import { InstructorRolesTab } from "./tabs/instructor-roles-tab";
 import { InstructorSettingsTab } from "./tabs/instructor-settings-tab";
-import { ClassWorkDetailView, type DetailStatusFilter, type DetailSubTab } from "./class-work-detail-view";
+import { ClassWorkDetailView } from "./class-work-detail-view";
 import {
   ClassAssignmentEditModal,
   ClassAssignmentPreviewModal,
@@ -214,11 +215,8 @@ export function InstructorClassWorkspace({
   const [newFolderInput, setNewFolderInput] = useState("");
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
 
-  // Chế độ xem bài tập: "list" (danh sách 3 cột) hoặc "detail" (chi tiết & bảng điểm)
+  // Chế độ xem bài tập: "list" (danh sách 3 cột) hoặc "detail" (chi tiết & bảng điểm; state tìm kiếm/lọc cô lập trong ClassWorkDetailView)
   const [assignmentViewMode, setAssignmentViewMode] = useState<"list" | "detail">("list");
-  const [assignmentDetailSubTab, setAssignmentDetailSubTab] = useState<DetailSubTab>("gradebook");
-  const [assignmentStatusFilter, setAssignmentStatusFilter] = useState<DetailStatusFilter>("ALL");
-  const [assignmentStudentSearch, setAssignmentStudentSearch] = useState("");
   const [assignmentListDisplayMode, setAssignmentListDisplayMode] = useState<"list" | "grid">("list");
   const [assignmentSort, setAssignmentSort] = useState<"newest" | "oldest">("newest");
 
@@ -956,6 +954,15 @@ export function InstructorClassWorkspace({
     if (!manualExamModalOpen && !editingClassExam) return;
     void loadPublishedExamPool();
   }, [manualExamModalOpen, editingClassExam, loadPublishedExamPool]);
+
+  /** Cập nhật từ khóa tìm kiếm ngân hàng câu hỏi sau debounce ở tab con và đưa về trang 1. */
+  const handleQuestionSearchCommit = useCallback(
+    (nextQuery: string) => {
+      setQuestionBankSearch(nextQuery);
+      resetQuestionPage();
+    },
+    [resetQuestionPage],
+  );
 
   /** Làm mới trang câu hỏi và hủy bộ nhớ đệm câu hỏi xuất bản sau khi thay đổi dữ liệu. */
   const refreshQuestionData = async () => {
@@ -2598,6 +2605,7 @@ export function InstructorClassWorkspace({
           <>
             {assignmentViewMode === "detail" && selectedWork ? (
               <ClassWorkDetailView
+                key={selectedWork.id}
                 work={
                   selectedClassExam
                     ? { kind: "EXAM", exam: selectedClassExam }
@@ -2607,12 +2615,6 @@ export function InstructorClassWorkspace({
                 locale={locale}
                 learners={learners}
                 submissions={selectedSubmissions}
-                subTab={assignmentDetailSubTab}
-                onChangeSubTab={setAssignmentDetailSubTab}
-                statusFilter={assignmentStatusFilter}
-                onChangeStatusFilter={setAssignmentStatusFilter}
-                studentSearch={assignmentStudentSearch}
-                onChangeStudentSearch={setAssignmentStudentSearch}
                 changingWork={changingWork}
                 onBack={() => setAssignmentViewMode("list")}
                 onOpenPreviewModal={openWorkPreview}
@@ -2854,10 +2856,7 @@ export function InstructorClassWorkspace({
 
                           <button
                             type="button"
-                            onClick={() => {
-                              setAssignmentDetailSubTab("gradebook");
-                              setAssignmentViewMode("detail");
-                            }}
+                            onClick={() => setAssignmentViewMode("detail")}
                             aria-label="Xem chi tiết"
                             title="Xem bảng điểm cả bài tập"
                             className="w-full flex items-center justify-between gap-2 text-left px-3.5 py-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-xs font-bold transition-colors cursor-pointer"
@@ -2985,218 +2984,38 @@ export function InstructorClassWorkspace({
 
         {/* TAB 9: NGÂN HÀNG CÂU HỎI LỚP HỌC */}
         {activeTab === "questions" && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100">
-                  Ngân hàng câu hỏi riêng lớp {item.name}
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Tổng hợp tất cả câu hỏi được tách tự động từ bài tập và đề kiểm tra trong lớp này
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExamCreationMode("MANUAL");
-                    setManualExamTitle(t(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString(locale)}`));
-                    setManualExamModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <FileCheck2 size={15} />
-                  <span>Tạo đề</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenCreationHub("QUESTION")}
-                  className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-xs"
-                >
-                  <Plus size={15} />
-                  <span>Soạn câu hỏi mới</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Thanh phân loại Trắc nghiệm / Tự luận và Tìm kiếm */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuestionBankTab("ALL");
-                    resetQuestionPage();
-                  }}
-                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                    questionBankTab === "ALL"
-                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                  }`}
-                >
-                  <span>Tất cả</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold">
-                    {questionSummary.total}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuestionBankTab("MULTIPLE_CHOICE");
-                    resetQuestionPage();
-                  }}
-                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                    questionBankTab === "MULTIPLE_CHOICE"
-                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                  }`}
-                >
-                  <span>Trắc nghiệm</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold">
-                    {questionSummary.multipleChoice}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQuestionBankTab("ESSAY");
-                    resetQuestionPage();
-                  }}
-                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
-                    questionBankTab === "ESSAY"
-                      ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-2xs font-extrabold"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
-                  }`}
-                >
-                  <span>Tự luận</span>
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-bold">
-                    {questionSummary.essay}
-                  </span>
-                </button>
-              </div>
-
-              {/* Ô tìm kiếm và lọc độ khó */}
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 sm:w-60">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Tìm câu hỏi, nguồn..."
-                    value={questionBankSearch}
-                    onChange={(e) => {
-                      setQuestionBankSearch(e.target.value);
-                      resetQuestionPage();
-                    }}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-
-                <select
-                  value={questionBankDifficulty}
-                  onChange={(e) => {
-                    setQuestionBankDifficulty(e.target.value);
-                    resetQuestionPage();
-                  }}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-medium text-slate-900 dark:text-slate-100"
-                >
-                  <option value="ALL">Tất cả độ khó</option>
-                  <option value="Cơ bản">Cơ bản</option>
-                  <option value="Thông hiểu">Thông hiểu</option>
-                  <option value="Vận dụng">Vận dụng</option>
-                  <option value="Vận dụng cao">Vận dụng cao</option>
-                </select>
-              </div>
-            </div>
-
-            {questionBankError ? (
-              <div className="rounded-2xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/70 dark:bg-rose-950/30 p-4 flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-rose-700 dark:text-rose-300">{questionBankError}</p>
-                <button
-                  type="button"
-                  onClick={() => void loadClassQuestionBank()}
-                  className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-xs font-bold hover:bg-rose-700 cursor-pointer shrink-0"
-                >
-                  Thử lại
-                </button>
-              </div>
-            ) : null}
-
-            <div className="space-y-3">
-              {questionBankLoading && pagedClassQuestions.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center">
-                  <p className="text-xs text-slate-500 font-medium">Đang tải ngân hàng câu hỏi...</p>
-                </div>
-              ) : pagedClassQuestions.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-800 p-8 text-center space-y-3">
-                  <FileQuestion size={32} className="mx-auto text-slate-400" />
-                  <p className="text-xs text-slate-500 font-medium">
-                    {questionSummary.total === 0
-                      ? "Chưa có câu hỏi nào trong ngân hàng riêng của lớp."
-                      : "Không tìm thấy câu hỏi nào phù hợp với bộ lọc hiện tại."}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenCreationHub("QUESTION")}
-                    className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-xs inline-flex items-center gap-1.5"
-                  >
-                    <Sparkles size={14} />
-                    <span>Khởi tạo câu hỏi bằng AI hoặc Thủ công</span>
-                  </button>
-                </div>
-              ) : (
-                pagedClassQuestions.map((q) => (
-                  <div
-                    key={q.id}
-                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3 hover:border-slate-300 dark:hover:border-slate-700 transition"
-                  >
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60">
-                          {q.type}
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
-                          {q.difficulty}
-                        </span>
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          Nguồn: <strong className="text-slate-600 dark:text-slate-300">{q.source}</strong>
-                        </span>
-                        <span className="text-[10px] text-slate-400">({q.createdAt})</span>
-                      </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditQuestion(q)}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-slate-200 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          <Edit3 size={12} />
-                          <span>Chỉnh sửa</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <QuestionRenderPreview
-                      content={q.content}
-                      options={q.options}
-                      correctOptionIndexes={q.correctAnswers}
-                      solution={q.solution}
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-
-            <Pagination
-              page={questionDisplayPage}
-              pageSize={questionPageSize}
-              totalItems={questionTotalItems}
-              itemLabel="câu hỏi"
-              onPageChange={setQuestionPage}
-              onPageSizeChange={setQuestionPageSize}
-            />
-          </div>
+          <InstructorQuestionsTab
+            className={item.name}
+            questionBankTab={questionBankTab}
+            questionBankSearch={questionBankSearch}
+            questionBankDifficulty={questionBankDifficulty}
+            questionSummary={questionSummary}
+            questionBankLoading={questionBankLoading}
+            questionBankError={questionBankError}
+            pagedClassQuestions={pagedClassQuestions}
+            questionDisplayPage={questionDisplayPage}
+            questionPageSize={questionPageSize}
+            questionTotalItems={questionTotalItems}
+            onChangeTab={(nextTab) => {
+              setQuestionBankTab(nextTab);
+              resetQuestionPage();
+            }}
+            onSearchCommit={handleQuestionSearchCommit}
+            onChangeDifficulty={(nextDifficulty) => {
+              setQuestionBankDifficulty(nextDifficulty);
+              resetQuestionPage();
+            }}
+            onPageChange={setQuestionPage}
+            onPageSizeChange={setQuestionPageSize}
+            onRetry={() => void loadClassQuestionBank()}
+            onOpenCreateExam={() => {
+              setExamCreationMode("MANUAL");
+              setManualExamTitle(t(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString(locale)}`));
+              setManualExamModalOpen(true);
+            }}
+            onOpenCreateQuestion={() => handleOpenCreationHub("QUESTION")}
+            onEditQuestion={handleOpenEditQuestion}
+          />
         )}
 
         {/* TAB 10: CÀI ĐẶT LỚP HỌC (TÁCH BIỆT) */}

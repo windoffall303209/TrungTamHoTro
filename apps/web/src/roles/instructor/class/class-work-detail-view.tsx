@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ChevronDown,
@@ -47,19 +47,19 @@ function formatAttemptDuration(startedAt?: string, submittedAt?: string): string
   return `${minutes}p ${String(seconds).padStart(2, "0")}s`;
 }
 
-/** Giao diện Xem chi tiết & Bảng điểm thống nhất cho cả bài tập trắc nghiệm và tự luận. */
-export function ClassWorkDetailView({
+/** Giao diện Xem chi tiết & Bảng điểm thống nhất, tự cô lập state tìm kiếm/lọc để gõ phím không re-render workspace cha. */
+export const ClassWorkDetailView = memo(function ClassWorkDetailView({
   work,
   roleCode,
   locale,
   learners,
   submissions,
-  subTab,
-  onChangeSubTab,
-  statusFilter,
-  onChangeStatusFilter,
-  studentSearch,
-  onChangeStudentSearch,
+  subTab: controlledSubTab,
+  onChangeSubTab: controlledOnChangeSubTab,
+  statusFilter: controlledStatusFilter,
+  onChangeStatusFilter: controlledOnChangeStatusFilter,
+  studentSearch: controlledStudentSearch,
+  onChangeStudentSearch: controlledOnChangeStudentSearch,
   changingWork,
   onBack,
   onOpenPreviewModal,
@@ -75,12 +75,12 @@ export function ClassWorkDetailView({
   locale: string;
   learners: DirectoryUser[];
   submissions: AssignmentSubmission[];
-  subTab: DetailSubTab;
-  onChangeSubTab: (tab: DetailSubTab) => void;
-  statusFilter: DetailStatusFilter;
-  onChangeStatusFilter: (filter: DetailStatusFilter) => void;
-  studentSearch: string;
-  onChangeStudentSearch: (value: string) => void;
+  subTab?: DetailSubTab;
+  onChangeSubTab?: (tab: DetailSubTab) => void;
+  statusFilter?: DetailStatusFilter;
+  onChangeStatusFilter?: (filter: DetailStatusFilter) => void;
+  studentSearch?: string;
+  onChangeStudentSearch?: (value: string) => void;
   changingWork: boolean;
   onBack: () => void;
   onOpenPreviewModal: () => void;
@@ -93,6 +93,15 @@ export function ClassWorkDetailView({
 }) {
   const { notify } = useApp();
   const router = useRouter();
+  const [localSubTab, setLocalSubTab] = useState<DetailSubTab>(controlledSubTab ?? "gradebook");
+  const [localStatusFilter, setLocalStatusFilter] = useState<DetailStatusFilter>(controlledStatusFilter ?? "ALL");
+  const [localStudentSearch, setLocalStudentSearch] = useState(controlledStudentSearch ?? "");
+  const subTab = controlledSubTab ?? localSubTab;
+  const onChangeSubTab = controlledOnChangeSubTab ?? setLocalSubTab;
+  const statusFilter = controlledStatusFilter ?? localStatusFilter;
+  const onChangeStatusFilter = controlledOnChangeStatusFilter ?? setLocalStatusFilter;
+  const studentSearch = controlledStudentSearch ?? localStudentSearch;
+  const onChangeStudentSearch = controlledOnChangeStudentSearch ?? setLocalStudentSearch;
   const [examAttempts, setExamAttempts] = useState<ExamAttempt[]>([]);
   const [examQuestions, setExamQuestions] = useState<Question[]>([]);
   const [loadingExamData, setLoadingExamData] = useState(false);
@@ -739,4 +748,4 @@ export function ClassWorkDetailView({
       )}
     </div>
   );
-}
+});
