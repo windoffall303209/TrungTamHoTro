@@ -161,15 +161,17 @@ export async function submitAssignment(
   let row;
   try {
     for (const file of files) {
-      const scan = await serviceContext.antivirus.scan(file.buffer);
+      const scan = file.path
+        ? await serviceContext.antivirus.scanFile(file.path)
+        : await serviceContext.antivirus.scan(file.buffer);
       if (!scan.clean)
         throw new BadRequestException(
           `Tệp ${file.originalName} không an toàn và đã bị từ chối.`,
         );
-      const saved = await serviceContext.objectStorage.put(
-        `assignment-submissions/${session.user.id}/${randomUUID()}`,
-        file.buffer,
-      );
+      const objectKey = `assignment-submissions/${session.user.id}/${randomUUID()}`;
+      const saved = file.path
+        ? await serviceContext.objectStorage.putFile(objectKey, file.path)
+        : await serviceContext.objectStorage.put(objectKey, file.buffer);
       stored.push({ ...file, ...saved });
     }
     row = await serviceContext.prisma.$transaction(

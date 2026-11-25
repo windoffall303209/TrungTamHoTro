@@ -25,7 +25,7 @@ export function validateAssignmentFiles(files: UploadedAssignmentFile[]): void {
     if (
       file.size <= 0 ||
       file.size > 20 * 1024 * 1024 ||
-      file.buffer.length !== file.size
+      (file.path ? file.buffer.length <= 0 : file.buffer.length !== file.size)
     )
       throw new BadRequestException(
         `Tệp ${file.originalName} phải có dung lượng từ 1 byte đến 20 MB.`,

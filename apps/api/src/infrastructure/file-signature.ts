@@ -1,5 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
-import { validateDocxArchive } from "./validate-docx-archive.js";
+import { createReadStream } from "node:fs";
+import { validateDocxArchive, validateDocxArchiveFile } from "./validate-docx-archive.js";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const OOXML_ZIP_TYPES = new Set([
@@ -75,9 +76,27 @@ export function matchesFileSignature(mimeType: string, head: Buffer): boolean | 
   }
 }
 
+/** Quét toàn bộ tệp văn bản trên đĩa theo luồng để phát hiện byte NUL hoặc chuỗi UTF-8 hỏng mà không nạp cả tệp vào RAM. */
+async function assertSafeTextFile(filePath: string, originalName: string): Promise<void> {
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  try {
+    for await (const raw of createReadStream(filePath, { highWaterMark: 64 * 1024 })) {
+      const chunk = raw as Buffer;
+      if (chunk.includes(0)) {
+        throw new BadRequestException(`Nội dung tệp ${originalName} không khớp với phần mở rộng.`);
+      }
+      decoder.decode(chunk, { stream: true });
+    }
+    decoder.decode();
+  } catch (error) {
+    if (error instanceof BadRequestException) throw error;
+    throw new BadRequestException(`Nội dung tệp ${originalName} không khớp với phần mở rộng.`);
+  }
+}
+
 /**
  * Chặn tệp người dùng nguy hiểm: MIME có thể chứa script, nội dung không khớp chữ ký đã khai báo và DOCX độc hại
- * (khi có đủ nội dung trong bộ nhớ). allowUnknownTypes cho phép MIME do quản trị cấu hình mà chưa có chữ ký.
+ * (cả tệp trong bộ nhớ lẫn tệp tạm trên đĩa). allowUnknownTypes cho phép MIME do quản trị cấu hình mà chưa có chữ ký.
  */
 export async function assertSafeUpload(
   file: { mimeType: string; buffer: Buffer; originalName: string; path?: string },
@@ -87,8 +106,13 @@ export async function assertSafeUpload(
   const signature = matchesFileSignature(mimeType, file.buffer);
   if (ACTIVE_CONTENT_MIME_TYPES.has(mimeType) || signature === false || (signature === undefined && !options.allowUnknownTypes))
     throw new BadRequestException(`Nội dung tệp ${file.originalName} không khớp với phần mở rộng.`);
-  // Tệp lớn lưu trên đĩa chỉ giữ phần đầu trong buffer; kiểm tra sâu DOCX khi có toàn bộ nội dung.
-  if (mimeType === DOCX && !file.path) await validateDocxArchive(file.buffer);
+  if (mimeType === "text/plain" && file.path) {
+    await assertSafeTextFile(file.path, file.originalName);
+  }
+  if (mimeType === DOCX) {
+    if (file.path) await validateDocxArchiveFile(file.path);
+    else await validateDocxArchive(file.buffer);
+  }
 }
 
 /** Từ chối danh sách MIME cấu hình có chứa định dạng có thể chạy script. */

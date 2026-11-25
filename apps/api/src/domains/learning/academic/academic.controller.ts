@@ -18,10 +18,11 @@ import {
   UseInterceptors,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
-import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
-import { FilesInterceptor } from "@nestjs/platform-express";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
+import { readFileHead } from "../../../infrastructure/file-streams.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
+import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
+import { SubmissionUploadInterceptor } from "../../../infrastructure/submission-upload.interceptor.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import {
@@ -184,13 +185,9 @@ export class AcademicController {
 
   @Post("learner/assignments/:assignmentId/submissions")
   @RequirePermissions("exam:view")
-  @UseInterceptors(
-    FilesInterceptor("files", 5, {
-      limits: { fileSize: 20 * 1024 * 1024, files: 5 },
-    }),
-  )
-  /** Nộp nội dung và tệp bài tập sau khi chuẩn hóa metadata từ Multer. */
-  submitAssignment(
+  @UseInterceptors(SubmissionUploadInterceptor)
+  /** Nộp nội dung và tệp bài tập qua thư mục tạm trên đĩa, chỉ đọc phần đầu để kiểm tra chữ ký tệp. */
+  async submitAssignment(
     @Param("assignmentId") assignmentId: string,
     @Body() input: SubmitAssignmentDto,
     @CurrentSession() session: AuthenticatedSession,
@@ -199,14 +196,15 @@ export class AcademicController {
       originalname: string;
       mimetype: string;
       size: number;
-      buffer: Buffer;
+      buffer?: Buffer;
+      path?: string;
     }> = [],
   ): Promise<AssignmentSubmissionView> {
     return this.academic.submitAssignment(
       assignmentId,
       input.content,
       session,
-      this.uploads(files),
+      await this.uploads(files),
       input.expectedRevision,
       input.keepAttachmentIds,
     );
@@ -214,13 +212,9 @@ export class AcademicController {
 
   @Post("learner/assignment-submissions/:submissionId/attachments")
   @RequirePermissions("exam:view")
-  @UseInterceptors(
-    FilesInterceptor("files", 5, {
-      limits: { fileSize: 20 * 1024 * 1024, files: 5 },
-    }),
-  )
-  /** Bổ sung tệp vào bài nộp còn thuộc quyền chỉnh sửa của học viên. */
-  addAttachments(
+  @UseInterceptors(SubmissionUploadInterceptor)
+  /** Bổ sung tệp vào bài nộp qua đĩa tạm (không đệm toàn tệp trong RAM). */
+  async addAttachments(
     @Param("submissionId") submissionId: string,
     @CurrentSession() session: AuthenticatedSession,
     @UploadedFiles()
@@ -228,12 +222,13 @@ export class AcademicController {
       originalname: string;
       mimetype: string;
       size: number;
-      buffer: Buffer;
+      buffer?: Buffer;
+      path?: string;
     }> = [],
   ): Promise<AssignmentSubmissionView> {
     return this.academic.addSubmissionAttachments(
       submissionId,
-      this.uploads(files),
+      await this.uploads(files),
       session,
     );
   }
@@ -417,22 +412,37 @@ export class AcademicController {
     );
   }
 
-  /** Chuẩn hóa tên multipart và chỉ chuyển các trường service cần xử lý. */
-  private uploads(
+  /** Chuẩn hóa tên multipart và chỉ nạp 8 KB đầu khi tệp đã ghi ra đĩa tạm, tránh đệm toàn tệp vào RAM. */
+  private async uploads(
     files: Array<{
       originalname: string;
       mimetype: string;
       size: number;
-      buffer: Buffer;
+      buffer?: Buffer;
+      path?: string;
     }>,
-  ): UploadedAssignmentFile[] {
-    if (files.some((file) => !file.buffer))
-      throw new BadRequestException("Không đọc được dữ liệu tệp tải lên.");
-    return files.map((file) => ({
-      originalName: normalizeMultipartFileName(file.originalname),
-      mimeType: file.mimetype,
-      size: file.size,
-      buffer: file.buffer,
-    }));
+  ): Promise<UploadedAssignmentFile[]> {
+    const normalized: UploadedAssignmentFile[] = [];
+    for (const file of files) {
+      if (file.path) {
+        normalized.push({
+          originalName: normalizeMultipartFileName(file.originalname),
+          mimeType: file.mimetype,
+          size: file.size,
+          path: file.path,
+          buffer: await readFileHead(file.path),
+        });
+      } else if (file.buffer) {
+        normalized.push({
+          originalName: normalizeMultipartFileName(file.originalname),
+          mimeType: file.mimetype,
+          size: file.size,
+          buffer: file.buffer,
+        });
+      } else {
+        throw new BadRequestException("Không đọc được dữ liệu tệp tải lên.");
+      }
+    }
+    return normalized;
   }
 }

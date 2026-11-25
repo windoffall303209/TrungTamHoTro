@@ -12,6 +12,7 @@ export interface UploadedAssignmentFile {
   mimeType: string;
   size: number;
   buffer: Buffer;
+  path?: string;
 }
 
 interface AssignmentAttachmentView {

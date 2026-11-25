@@ -1445,6 +1445,7 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Yêu cầu đề bài": "Assignment prompt",
   "Phạm vi byte yêu cầu không hợp lệ.": "Requested byte range is not satisfiable.",
   "Không thể kết nối Cloudinary để kiểm tra tệp.": "Unable to connect to Cloudinary to inspect the file.",
+  "Hệ thống đang xử lý quá nhiều lượt nộp tệp. Hãy thử lại sau.": "Too many submission uploads in progress. Please try again later.",
 };
 
 
