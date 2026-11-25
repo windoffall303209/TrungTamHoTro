@@ -639,9 +639,16 @@ export async function closeTicketByReporter(
         throw new ConflictException(
           "Chỉ được đóng ticket đã có kết quả xử lý.",
         );
-      const updated = await transaction.supportTicket.update({
-        where: { id: ticketId },
+      const changed = await transaction.supportTicket.updateMany({
+        where: { id: ticketId, reporterId, status: "RESOLVED" },
         data: { status: "CLOSED" },
+      });
+      if (changed.count !== 1)
+        throw new ConflictException(
+          "Phiếu vừa thay đổi ở nơi khác. Hãy tải lại trước khi đóng.",
+        );
+      const updated = await transaction.supportTicket.findUniqueOrThrow({
+        where: { id: ticketId },
         include: { attachments: true },
       });
       await transaction.auditLog.create({

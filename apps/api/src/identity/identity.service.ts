@@ -674,29 +674,49 @@ export class IdentityService {
         : currentRoleCodes;
     const nextRoleCode = nextRoleCodes[0] ?? currentRoleCode;
     const nextStatus = target.status ?? user.status;
+    const changesAccess =
+      !this.sameRoleSet(currentRoleCodes, nextRoleCodes) ||
+      nextStatus !== user.status;
+    // Chỉ yêu cầu và thực hiện bàn giao các miền công việc mà tài khoản thực sự mất quyền đảm nhiệm.
+    const losesTeachingAccess =
+      nextStatus !== "ACTIVE" || !nextRoleCodes.includes("INSTRUCTOR");
+    const losesOperationalAccess =
+      nextStatus !== "ACTIVE" ||
+      (!nextRoleCodes.includes("CENTER_MANAGER") &&
+        !nextRoleCodes.includes("SYSTEM_ADMIN"));
     // Prisma dùng một kết nối cho transaction; đọc lần lượt để tránh truy vấn chồng nhau.
-    const assignments = await transaction.classInstructor.findMany({
-      where: {
-        instructorId: userId,
-        class: { status: { in: ["DRAFT", "ACTIVE"] } },
-      },
-      include: {
-        class: { select: { id: true, code: true, name: true, status: true } },
-      },
-      orderBy: { class: { code: "asc" } },
-    });
-    const regrades = await transaction.regradeRequest.count({
-      where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
-    });
-    const interventions = await transaction.progressIntervention.count({
-      where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-    });
-    const supportTickets = await transaction.supportTicket.count({
-      where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-    });
-    const upcomingSessions = await transaction.liveSession.count({
-      where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
-    });
+    const assignments = losesTeachingAccess
+      ? await transaction.classInstructor.findMany({
+          where: {
+            instructorId: userId,
+            class: { status: { in: ["DRAFT", "ACTIVE"] } },
+          },
+          include: {
+            class: { select: { id: true, code: true, name: true, status: true } },
+          },
+          orderBy: { class: { code: "asc" } },
+        })
+      : [];
+    const regrades = losesTeachingAccess
+      ? await transaction.regradeRequest.count({
+          where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
+        })
+      : 0;
+    const interventions = losesTeachingAccess
+      ? await transaction.progressIntervention.count({
+          where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        })
+      : 0;
+    const supportTickets = losesOperationalAccess
+      ? await transaction.supportTicket.count({
+          where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        })
+      : 0;
+    const upcomingSessions = losesTeachingAccess
+      ? await transaction.liveSession.count({
+          where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
+        })
+      : 0;
     const activeSessions = await transaction.authSession.count({
       where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
     });
@@ -713,12 +733,8 @@ export class IdentityService {
       supportTickets,
       upcomingSessions,
     };
-    const changesAccess =
-      !this.sameRoleSet(currentRoleCodes, nextRoleCodes) ||
-      nextStatus !== user.status;
     const requiresHandoff =
       changesAccess &&
-      (nextStatus !== "ACTIVE" || !currentRoleCodes.every((code) => nextRoleCodes.includes(code))) &&
       (classes.length > 0 ||
         Object.values(openWork).some((count) => count > 0));
     const tokenPayload = JSON.stringify({
@@ -761,34 +777,32 @@ export class IdentityService {
       );
     const target = await transaction.user.findUnique({
       where: { id: toUserId },
-      include: { roles: { include: { role: true }, take: 1 } },
+      include: { roles: { include: { role: true } } },
     });
     if (!target || target.status !== "ACTIVE")
       throw new BadRequestException(
         "Người nhận bàn giao phải là tài khoản đang hoạt động.",
       );
-    const targetRole = this.getRoleCode(target);
+    // Đọc đầy đủ tập vai trò của người nhận để hỗ trợ bàn giao cho tài khoản đa vai trò.
+    const targetRoleCodes = target.roles.map(({ role }) => role.code as RoleCode);
+    if (!targetRoleCodes.length) this.getRoleCode(target);
+    const hasTeachingRole = targetRoleCodes.includes("INSTRUCTOR");
+    const hasOperationalRole = targetRoleCodes.some(
+      (code) => code === "CENTER_MANAGER" || code === "SYSTEM_ADMIN",
+    );
     const teachingWork =
       impact.classes.length +
       impact.openWork.regrades +
       impact.openWork.interventions +
       impact.openWork.upcomingSessions;
-    const operationalWork =
-      impact.openWork.supportTickets;
-    if (teachingWork && targetRole !== "INSTRUCTOR")
+    const operationalWork = impact.openWork.supportTickets;
+    if (teachingWork && !hasTeachingRole)
       throw new BadRequestException(
         "Công việc giảng dạy phải bàn giao cho một giảng viên đang hoạt động.",
       );
-    if (
-      operationalWork &&
-      !["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(targetRole)
-    )
+    if (operationalWork && !hasOperationalRole)
       throw new BadRequestException(
         "Phiếu hỗ trợ hoặc kiểm duyệt phải bàn giao cho quản lý hay quản trị viên.",
-      );
-    if (teachingWork && operationalWork)
-      throw new BadRequestException(
-        "Tài khoản đang giữ việc ở nhiều miền quyền; cần bàn giao từng miền trước khi đổi vai trò.",
       );
     if (impact.classes.length) {
       const classIds = impact.classes.map((item) => item.id);
@@ -808,29 +822,37 @@ export class IdentityService {
       if (removed.count !== classIds.length)
         throw new ConflictException("Phân công lớp đã thay đổi. Hãy xem trước bàn giao lại.");
     }
-    // Mọi cập nhật thuộc cùng transaction, phải chờ truy vấn trước hoàn tất.
-    await transaction.regradeRequest.updateMany({
-      where: {
-        assignedToId: fromUserId,
-        status: { in: ["OPEN", "IN_REVIEW"] },
-      },
-      data: { assignedToId: toUserId },
-    });
-    await transaction.progressIntervention.updateMany({
-      where: { ownerId: fromUserId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-      data: { ownerId: toUserId },
-    });
-    await transaction.liveSession.updateMany({
-      where: { hostId: fromUserId, status: { in: ["SCHEDULED", "LIVE"] } },
-      data: { hostId: toUserId },
-    });
-    await transaction.supportTicket.updateMany({
-      where: {
-        assigneeId: fromUserId,
-        status: { in: ["OPEN", "IN_PROGRESS"] },
-      },
-      data: { assigneeId: toUserId },
-    });
+    // Chỉ chuyển từng nhóm công việc thực sự nằm trong phạm vi bàn giao của bản xem trước.
+    if (impact.openWork.regrades > 0) {
+      await transaction.regradeRequest.updateMany({
+        where: {
+          assignedToId: fromUserId,
+          status: { in: ["OPEN", "IN_REVIEW"] },
+        },
+        data: { assignedToId: toUserId },
+      });
+    }
+    if (impact.openWork.interventions > 0) {
+      await transaction.progressIntervention.updateMany({
+        where: { ownerId: fromUserId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        data: { ownerId: toUserId },
+      });
+    }
+    if (impact.openWork.upcomingSessions > 0) {
+      await transaction.liveSession.updateMany({
+        where: { hostId: fromUserId, status: { in: ["SCHEDULED", "LIVE"] } },
+        data: { hostId: toUserId },
+      });
+    }
+    if (impact.openWork.supportTickets > 0) {
+      await transaction.supportTicket.updateMany({
+        where: {
+          assigneeId: fromUserId,
+          status: { in: ["OPEN", "IN_PROGRESS"] },
+        },
+        data: { assigneeId: toUserId },
+      });
+    }
   }
 
   /** Ánh xạ bản ghi Prisma sang hợp đồng IdentityUser không chứa trường bí mật. */

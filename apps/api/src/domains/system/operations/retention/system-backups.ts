@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { withTemporaryFile } from "../../../../infrastructure/file-streams.js";
+import { startOperationalLease } from "../operational-lease.js";
 import { BackupRun, RestoreRun } from "../../core/system.shared.js";
 import type { SystemServiceContext } from "../../core/system.context.js";
 
@@ -186,14 +188,26 @@ export async function approveRestore(
     restore.backup.status !== "COMPLETED"
   )
     throw new BadRequestException("Điểm sao lưu không còn hợp lệ.");
-  if (restore.mode === "OPERATIONAL" && restore.targetDatabase && isReservedRestoreTarget(serviceContext, restore.targetDatabase))
+  if (
+    restore.mode === "OPERATIONAL" &&
+    (!restore.targetDatabase?.trim() ||
+      !/^[a-zA-Z0-9_]+$/.test(restore.targetDatabase.trim()) ||
+      isReservedRestoreTarget(serviceContext, restore.targetDatabase.trim()))
+  )
     throw new BadRequestException(
-      "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.",
+      "Database đích không hợp lệ hoặc trùng database đang vận hành hay database hệ thống của PostgreSQL.",
     );
   const backup = restore.backup;
-  // Đọc cờ bảo trì và chuyển RUNNING trong cùng khóa advisory với updateSettings để không ai tắt bảo trì chen giữa.
+  // Đọc cờ bảo trì, chặn restore song song và gắn hạn lease trong cùng khóa advisory với updateSettings.
   const claimed = await prisma.$transaction(async (transaction) => {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('system_settings.platform', 0))`;
+    const activeRestores = await transaction.operationalJob.count({
+      where: { kind: "RESTORE", status: "RUNNING" },
+    });
+    if (activeRestores > 0)
+      throw new ConflictException(
+        "Đang có tiến trình khôi phục khác chạy; hãy chờ hoàn tất trước khi phê duyệt tiếp.",
+      );
     if (restore.mode === "OPERATIONAL") {
       const platform = await transaction.systemSetting.findUnique({ where: { key: "platform" } });
       const maintenanceMode = platform
@@ -206,13 +220,25 @@ export async function approveRestore(
     }
     return transaction.operationalJob.updateMany({
       where: { kind: "RESTORE", id: restoreId, status: "PENDING" },
-      data: { status: "RUNNING", approvedBy: approverId, approvedAt: new Date() },
+      data: {
+        status: "RUNNING",
+        approvedBy: approverId,
+        approvedAt: new Date(),
+        availableAt: serviceContext.jobLeaseExpiry(),
+        attempts: { increment: 1 },
+      },
     });
   });
   if (claimed.count !== 1)
     throw new BadRequestException(
       "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.",
     );
+  const lease = startOperationalLease(() =>
+    prisma.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "RUNNING", availableAt: { gt: new Date() } },
+      data: { availableAt: serviceContext.jobLeaseExpiry() },
+    }),
+  );
   try {
     const result = await withTemporaryFile(async (path) => {
       const expectedSize = Number(backup.sizeBytes);
@@ -232,10 +258,11 @@ export async function approveRestore(
         throw new BadRequestException(
           "Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.",
         );
+      await lease.assertOwned();
       return restore.mode === "OPERATIONAL"
         ? serviceContext.databaseBackup!.restoreToDatabase(
             path,
-            restore.targetDatabase ?? "",
+            restore.targetDatabase!.trim(),
           )
         : serviceContext.databaseBackup!.verifyRestore(path);
     });
@@ -243,9 +270,16 @@ export async function approveRestore(
       restore.mode === "OPERATIONAL"
         ? `Checksum hợp lệ; đã khôi phục ${result.tableCount} bảng và ${result.rowCount} dòng vào database staging ${result.database}. Cần cutover hạ tầng theo runbook riêng.`
         : `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
-    const row = await prisma.operationalJob.update({
-      where: { kind: "RESTORE", id: restoreId },
+    const completed = await prisma.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "RUNNING" },
       data: { status: "COMPLETED", verification, completedAt: new Date() },
+    });
+    if (completed.count !== 1)
+      throw new ConflictException(
+        "Tiến trình khôi phục đã mất quyền xử lý trước khi ghi nhận hoàn tất.",
+      );
+    const row = await prisma.operationalJob.findUnique({
+      where: { kind: "RESTORE", id: restoreId },
     });
     await serviceContext.logDatabase(
       prisma,
@@ -256,11 +290,11 @@ export async function approveRestore(
       restore.backup.id,
       verification,
     );
-    return serviceContext.mapRestore(row);
+    return serviceContext.mapRestore(row ?? { ...restore, status: "COMPLETED", verification });
   } catch (error) {
     await prisma.operationalJob
-      .update({
-        where: { id: restoreId, kind: "RESTORE" },
+      .updateMany({
+        where: { id: restoreId, kind: "RESTORE", status: "RUNNING" },
         data: {
           status: "FAILED",
           verification:
@@ -273,10 +307,13 @@ export async function approveRestore(
       });
     if (
       error instanceof BadRequestException ||
+      error instanceof ConflictException ||
       error instanceof ServiceUnavailableException
     )
       throw error;
     throw new ServiceUnavailableException("Khôi phục thất bại.");
+  } finally {
+    await lease.stop();
   }
 }
 

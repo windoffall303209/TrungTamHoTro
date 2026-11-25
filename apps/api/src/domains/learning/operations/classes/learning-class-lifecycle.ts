@@ -99,63 +99,7 @@ export async function getClassClosureReadiness(
 ): Promise<ClassClosureReadiness> {
   const prisma = serviceContext.database();
   if (prisma) {
-    const current = await prisma.learningClass.findUnique({
-      where: { id: classId },
-    });
-    if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
-    const [
-      openExams,
-      inProgressAttempts,
-      pendingGrades,
-      openAssignments,
-      pendingAssignmentGrades,
-      openRegrades,
-      activeSessions,
-    ] = await prisma.$transaction([
-      prisma.exam.count({
-        where: {
-          classId,
-          OR: [
-            { status: "PENDING_REVIEW" },
-            { status: "PUBLISHED", closeAt: { gt: new Date() } },
-          ],
-        },
-      }),
-      prisma.examAttempt.count({
-        where: { exam: { classId }, status: "IN_PROGRESS" },
-      }),
-      prisma.examAttempt.count({
-        where: { exam: { classId }, status: "SUBMITTED" },
-      }),
-      prisma.assignment.count({
-        where: { classId, status: "PUBLISHED", dueAt: { gt: new Date() } },
-      }),
-      prisma.assignmentSubmission.count({
-        where: { assignment: { classId }, status: "SUBMITTED" },
-      }),
-      prisma.regradeRequest.count({
-        where: {
-          attempt: { exam: { classId } },
-          status: { in: ["OPEN", "IN_REVIEW"] },
-        },
-      }),
-      prisma.liveSession.count({
-        where: { classId, status: { in: ["SCHEDULED", "LIVE"] } },
-      }),
-    ]);
-    return serviceContext.buildClassClosureReadiness(
-      current.status,
-      current.endAt,
-      {
-        openExams,
-        inProgressAttempts,
-        pendingGrades,
-        openAssignments,
-        pendingAssignmentGrades,
-        openRegrades,
-        activeSessions,
-      },
-    );
+    return serviceContext.databaseClassClosureReadiness(prisma, classId);
   }
   const item = serviceContext.findClass(classId);
   const classExams = serviceContext.exams.filter(
@@ -363,8 +307,8 @@ export async function reopenClass(
       if (!current) throw new NotFoundException("Không tìm thấy lớp học.");
       if (current.status !== "CLOSED")
         throw new ConflictException("Chỉ lớp đã đóng mới có thể mở lại.");
-      await transaction.learningClass.update({
-        where: { id: classId },
+      const updated = await transaction.learningClass.updateMany({
+        where: { id: classId, status: "CLOSED" },
         data: {
           status: "ACTIVE",
           closeReason: null,
@@ -373,6 +317,10 @@ export async function reopenClass(
           archivedAt: null,
         },
       });
+      if (updated.count !== 1)
+        throw new ConflictException(
+          "Trạng thái lớp đã thay đổi; chỉ lớp đã đóng mới có thể mở lại.",
+        );
       await transaction.auditLog.create({
         data: {
           actorId,

@@ -43,6 +43,22 @@ export async function drainOperationalJobs(
     },
     data: { status: "PENDING", progress: 0, availableAt: now },
   });
+  // Thu hồi restore RUNNING bị kẹt sau sự cố tiến trình sang FAILED (tuyệt đối không tự chạy lại) để mở khóa bảo trì.
+  await prisma.operationalJob.updateMany({
+    where: {
+      kind: "RESTORE",
+      status: "RUNNING",
+      availableAt: { lte: now },
+    },
+    data: {
+      status: "FAILED",
+      progress: 0,
+      completedAt: now,
+      verification:
+        "Tiến trình khôi phục đã hết hạn lease do gián đoạn; đã đánh dấu thất bại để mở khóa bảo trì và không tự chạy lại.",
+      errorMessage: "Restore bị gián đoạn quá hạn lease.",
+    },
+  });
   const processed = { backup: 0, export: 0 };
   for (let index = 0; index < Math.max(1, Math.min(limit, 30)); index += 1) {
     if (await serviceContext.processQueuedBackup(prisma)) {
