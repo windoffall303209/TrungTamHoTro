@@ -6,7 +6,7 @@ import { AppModule } from "../../src/app.module.js";
 import { DatabaseEventsService } from "../../src/database/database-events.service.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
 import { EngagementController } from "../../src/domains/learning/engagement/engagement.controller.js";
-import { LearningService } from "../../src/domains/learning/core/learning.service.js";
+import { EngagementSupportService } from "../../src/domains/learning/engagement/engagement-support.service.js";
 import type { LearningNotification } from "../../src/domains/learning/core/learning.types.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 
@@ -14,7 +14,7 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("notification ev
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let bus: DatabaseEventsService;
-  let learning: LearningService;
+  let learning: EngagementSupportService;
   const prefix = `ne-${randomUUID()}`;
   const recipients = [`${prefix}-a`, `${prefix}-b`];
   const snapshots: LearningNotification[][][] = [[], []];
@@ -26,7 +26,7 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("notification ev
     moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     prisma = moduleRef.get(PrismaService);
     bus = moduleRef.get(DatabaseEventsService);
-    learning = moduleRef.get(LearningService);
+    learning = moduleRef.get(EngagementSupportService);
     await prisma.user.createMany({ data: recipients.map((id) => ({ id, username: id, displayName: id })) });
     await firstValueFrom(bus.watch().pipe(filter((event) => event.kind === "resync"), timeout(5000)));
     const controller = new EngagementController(learning, bus);

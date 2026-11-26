@@ -6,7 +6,7 @@ import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import { DatabaseEventsService, type DatabaseEvent } from "../../src/database/database-events.service.js";
 import type { ChatService } from "../../src/domains/learning/chat/chat.service.js";
 import type { ChatMessageView, ChatStreamEvent } from "../../src/domains/learning/chat/chat.types.js";
-import type { LearningService } from "../../src/domains/learning/core/learning.service.js";
+import type { EngagementSupportService } from "../../src/domains/learning/engagement/engagement-support.service.js";
 import { RealtimeController, parseRealtimeConversations, type RealtimeFrame } from "../../src/domains/learning/engagement/realtime.controller.js";
 
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -24,7 +24,7 @@ describe("realtime multiplex", () => {
   });
 
   it("requires system permission before adding the operations channel", () => {
-    const controller = new RealtimeController({} as ChatService, {} as LearningService, {} as DatabaseEventsService);
+    const controller = new RealtimeController({} as ChatService, {} as EngagementSupportService, {} as DatabaseEventsService);
     const session = { user: { id: "user" }, permissions: [] } as unknown as AuthenticatedSession;
     expect(() => controller.watch(session, "[]", "true")).toThrow(expect.objectContaining({ status: 403 }));
     expect(() => controller.watch(session, "[]", "bad")).toThrow(expect.objectContaining({ status: 400 }));
@@ -39,7 +39,7 @@ describe("realtime multiplex", () => {
     const second = new Subject<ChatStreamEvent>();
     const watchMessages = vi.fn((id: string) => id === "c1" ? first : second);
     const listNotifications = vi.fn().mockResolvedValue([]);
-    const controller = new RealtimeController({ watchMessages } as unknown as ChatService, { listNotifications } as unknown as LearningService, bus);
+    const controller = new RealtimeController({ watchMessages } as unknown as ChatService, { listNotifications } as unknown as EngagementSupportService, bus);
     const session = { user: { id: "user" }, permissions: ["system:configure"] } as AuthenticatedSession;
     const frames: RealtimeFrame[] = [];
     const subscription = controller.watch(session, '[{"id":"c1","cursor":"m1"},{"id":"c2","cursor":"m2"}]', "true")

@@ -9,7 +9,7 @@ import { ResponseInterceptor } from "../../src/common/response.interceptor.js";
 import { DatabaseEventsService, type DatabaseEvent } from "../../src/database/database-events.service.js";
 import type { ChatService } from "../../src/domains/learning/chat/chat.service.js";
 import type { ChatStreamEvent } from "../../src/domains/learning/chat/chat.types.js";
-import type { LearningService } from "../../src/domains/learning/core/learning.service.js";
+import type { EngagementSupportService } from "../../src/domains/learning/engagement/engagement-support.service.js";
 import { RealtimeController, type RealtimeFrame } from "../../src/domains/learning/engagement/realtime.controller.js";
 
 let controller: RealtimeController;
@@ -34,7 +34,7 @@ beforeAll(async () => {
   const bus = new DatabaseEventsService({} as ConfigService<Environment, true>);
   vi.spyOn(bus, "watch").mockReturnValue(signals.asObservable());
   controller = new RealtimeController({ watchMessages } as unknown as ChatService,
-    { listNotifications: notifications } as unknown as LearningService, bus);
+    { listNotifications: notifications } as unknown as EngagementSupportService, bus);
   const module = await Test.createTestingModule({ controllers: [HttpFixture] }).compile();
   app = module.createNestApplication();
   app.useGlobalInterceptors(new ResponseInterceptor());

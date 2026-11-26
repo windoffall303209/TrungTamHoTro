@@ -11,7 +11,8 @@ import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
 import { AttachRecordingDto, CancelSessionDto, CompleteRecordingDto, CreatePostDto, CreateSessionDto, CreateTicketCommentDto, CreateTicketDto, CreateProgressInterventionDto, CreateTopicDto, ModerateTopicDto, ProgressQueryDto, TransferProgressInterventionDto, TransitionSessionDto, UpdatePostDto, UpdateProgressInterventionDto, UpdateSessionDto, UpdateTicketDto } from "../core/learning.dto.js";
-import { LearningService, type ForumPostPageResult } from "../core/learning.service.js";
+import type { ForumPostPageResult } from "../operations/forum/learning-forum.js";
+import { EngagementSupportService } from "./engagement-support.service.js";
 import type { ClassProgressReport, ForumPost, ForumTopic, LearningNotification, LiveSession, ProgressIntervention, SupportAttachment, SupportTicket, TicketComment } from "../core/learning.types.js";
 import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 
@@ -19,7 +20,7 @@ import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-si
 @Controller()
 /** API tương tác học tập: diễn đàn, thông báo, kiểm duyệt, lớp trực tuyến, hỗ trợ và báo cáo. */
 export class EngagementController {
-  constructor(private readonly learning: LearningService, @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
+  constructor(private readonly learning: EngagementSupportService, @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
 
   @Get("forum/topics") @RequirePermissions("forum:view")
   /** Liệt kê chủ đề diễn đàn trong các lớp phiên hiện tại truy cập được. */

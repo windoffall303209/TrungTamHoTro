@@ -15,6 +15,7 @@ import { ContentController } from "../../src/domains/learning/content/content.co
 import { LearningService } from "../../src/domains/learning/core/learning.service.js";
 import { CourseClassService } from "../../src/domains/learning/courses/course-class.service.js";
 import { CourseController } from "../../src/domains/learning/courses/course.controller.js";
+import { EngagementSupportService } from "../../src/domains/learning/engagement/engagement-support.service.js";
 import { EngagementController } from "../../src/domains/learning/engagement/engagement.controller.js";
 import { ExamAssessmentService } from "../../src/domains/learning/exams/exam-assessment.service.js";
 import { SystemController } from "../../src/domains/system/core/system.controller.js";
@@ -245,7 +246,6 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
   });
 
   it("Controller kiểm tra chặt tham số truy vấn cho các endpoint phân trang", () => {
-    const service = new LearningService();
     const contentController = new ContentController(
       new ContentMaterialService(),
       new ExamAssessmentService(),
@@ -268,7 +268,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
     expect(() => courseController.listClassesPage({ status: "PUBLISHED" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ typeGroup: "INVALID" }, session)).toThrow(BadRequestException);
 
-    const engagementController = new EngagementController(service);
+    const engagementController = new EngagementController(new EngagementSupportService());
     expect(() => engagementController.listSessionsPage({ status: "INVALID" }, session)).toThrow(BadRequestException);
     expect(() => engagementController.listTicketsPage({ status: "INVALID" }, session)).toThrow(BadRequestException);
 

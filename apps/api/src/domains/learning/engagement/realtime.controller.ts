@@ -6,7 +6,7 @@ import { RequireAuthentication } from "../../../auth/require-permissions.decorat
 import { DatabaseEventsService } from "../../../database/database-events.service.js";
 import { ChatService } from "../chat/chat.service.js";
 import type { ChatMessageView } from "../chat/chat.types.js";
-import { LearningService } from "../core/learning.service.js";
+import { EngagementSupportService } from "./engagement-support.service.js";
 import type { LearningNotification } from "../core/learning.types.js";
 
 export interface RealtimeConversation { id: string; cursor?: string }
@@ -44,7 +44,7 @@ export function parseRealtimeConversations(raw?: string): RealtimeConversation[]
 /** Ghép các kênh đã xác thực thành một HTTP SSE; không chia sẻ payload giữa các phiên. */
 export class RealtimeController {
   /** Dùng lại kiểm quyền, cursor và snapshot của từng domain. */
-  constructor(private readonly chat: ChatService, private readonly learning: LearningService,
+  constructor(private readonly chat: ChatService, private readonly learning: EngagementSupportService,
     private readonly events: DatabaseEventsService) {}
 
   /** Cursor nằm trong từng subscription chat; client reconnect phải gửi lại toàn bộ cursor riêng, không dùng ID SSE toàn cục. */

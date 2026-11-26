@@ -2,6 +2,7 @@ import { LearningRuntimeService } from "./learning-runtime.service.js";
 import { CourseClassService } from "../courses/course-class.service.js";
 import { ContentMaterialService } from "../content/content-material.service.js";
 import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
+import { EngagementSupportService } from "../engagement/engagement-support.service.js";
 import { Injectable, Optional } from "@nestjs/common";
 import type { ExamPage, ExamPageQuery } from "../operations/exams/learning-exam-page.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
@@ -16,30 +17,26 @@ import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { ScannedQuestionDraft } from "../../system/ai/ai-provider.service.js";
 import { SystemService } from "../../system/core/system.service.js";
-import type { LearningServiceContext } from "./learning.context.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
 import { type ExamGenerationContext, type MaterialAccessAction, type MaterialDownload, type MaterialSearchResult, type MaterialSummaryBucket, type QuestionSummary, type UploadedMaterialFile } from "./learning.shared.js";
 import type { ClassCapabilities, ClassClosureReadiness, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 import type * as classes_ops from "../operations/classes/learning-classes.js";
 import type * as courses_ops from "../operations/courses/learning-courses.js";
-import * as forum_ops from "../operations/forum/learning-forum.js";
-import * as live_sessions_ops from "../operations/live/learning-live-sessions.js";
-import * as moderation_ops from "../operations/moderation/learning-moderation.js";
-import * as progress_ops from "../operations/progress/learning-progress.js";
+import type * as forum_ops from "../operations/forum/learning-forum.js";
+import type * as live_sessions_ops from "../operations/live/learning-live-sessions.js";
 import type * as questions_ops from "../operations/questions/learning-questions.js";
-import * as recordings_ops from "../operations/live/learning-recordings.js";
-import * as support_ops from "../operations/support/learning-support.js";
+import type * as support_ops from "../operations/support/learning-support.js";
 export * from "./learning.shared.js";
 export type { ForumPostPageResult } from "../operations/forum/learning-forum.js";
 
 @Injectable()
-/** Facade điều phối tương thích ngược của miền đào tạo, ủy quyền theo từng domain service và dùng chung LearningRuntimeService. */
+/** Facade điều phối tương thích ngược của miền đào tạo, ủy quyền trọn vẹn cho 4 domain service và LearningRuntimeService. */
 export class LearningService {
   private readonly runtime: LearningRuntimeService;
   private readonly courseClass: CourseClassService;
   private readonly contentMaterial: ContentMaterialService;
   private readonly examAssessment: ExamAssessmentService;
-  private readonly operationContext: LearningServiceContext;
+  private readonly engagementSupport: EngagementSupportService;
 
   constructor(
     @Optional() prisma?: PrismaService,
@@ -51,14 +48,15 @@ export class LearningService {
     @Optional() courseClass?: CourseClassService,
     @Optional() contentMaterial?: ContentMaterialService,
     @Optional() examAssessment?: ExamAssessmentService,
+    @Optional() engagementSupport?: EngagementSupportService,
   ) {
     this.runtime =
       runtime ??
       new LearningRuntimeService(prisma, config, objectStorage, antivirus, system);
-    this.operationContext = this.runtime.context;
     this.courseClass = courseClass ?? new CourseClassService(this.runtime);
     this.contentMaterial = contentMaterial ?? new ContentMaterialService(this.runtime);
     this.examAssessment = examAssessment ?? new ExamAssessmentService(this.runtime);
+    this.engagementSupport = engagementSupport ?? new EngagementSupportService(this.runtime);
   }
 
   /** Liệt kê khóa học từ DB hoặc bộ nhớ kiểm thử. */
@@ -811,11 +809,8 @@ export class LearningService {
 
 
   /** Liệt kê chủ đề theo lớp truy cập được, ưu tiên chủ đề ghim rồi mới theo cập nhật. */
-  async listTopics(
-    role: string,
-    actorId: string,
-  ): Promise<ForumTopic[]> {
-    return await forum_ops.listTopics(this.operationContext, role, actorId);
+  async listTopics(role: string, actorId: string): Promise<ForumTopic[]> {
+    return await this.engagementSupport.listTopics(role, actorId);
   }
 
   /** Phân trang chủ đề diễn đàn trực tiếp từ DB kèm bộ lọc lớp, ghim, bài của tôi và từ khóa. */
@@ -824,12 +819,7 @@ export class LearningService {
     actorId: string,
     filters: forum_ops.ForumTopicPageFilters = {},
   ): Promise<PaginatedResult<ForumTopic>> {
-    return await forum_ops.listTopicsPage(
-      this.operationContext,
-      role,
-      actorId,
-      filters,
-    );
+    return await this.engagementSupport.listTopicsPage(role, actorId, filters);
   }
 
   /** Kiểm tra thành viên/chính sách nội dung rồi tạo chủ đề và thông báo thành viên lớp. */
@@ -839,13 +829,7 @@ export class LearningService {
     authorId: string,
     authorRole = authorId === "usr-learner" ? "LEARNER" : "INSTRUCTOR",
   ): Promise<ForumTopic> {
-    return await forum_ops.createTopic(
-      this.operationContext,
-      classId,
-      input,
-      authorId,
-      authorRole,
-    );
+    return await this.engagementSupport.createTopic(classId, input, authorId, authorRole);
   }
 
   /** Ghim hoặc khóa chủ đề với lý do bắt buộc và ghi audit người điều phối. */
@@ -854,26 +838,12 @@ export class LearningService {
     input: { isLocked?: boolean; isPinned?: boolean; reason: string },
     actorId: string,
   ): Promise<ForumTopic> {
-    return await forum_ops.moderateTopic(
-      this.operationContext,
-      topicId,
-      input,
-      actorId,
-    );
+    return await this.engagementSupport.moderateTopic(topicId, input, actorId);
   }
 
   /** Kiểm tra quyền lớp rồi trả cây bài viết, ẩn nội dung đã xóa/kiểm duyệt phù hợp. */
-  async listPosts(
-    topicId: string,
-    role: string,
-    actorId: string,
-  ): Promise<ForumPost[]> {
-    return await forum_ops.listPosts(
-      this.operationContext,
-      topicId,
-      role,
-      actorId,
-    );
+  async listPosts(topicId: string, role: string, actorId: string): Promise<ForumPost[]> {
+    return await this.engagementSupport.listPosts(topicId, role, actorId);
   }
 
   /** Phân trang bình luận gốc của chủ đề kèm đầy đủ phản hồi thuộc từng gốc đó. */
@@ -883,13 +853,7 @@ export class LearningService {
     actorId: string,
     filters: { page?: number; pageSize?: number } = {},
   ): Promise<forum_ops.ForumPostPageResult> {
-    return await forum_ops.listPostsPage(
-      this.operationContext,
-      topicId,
-      role,
-      actorId,
-      filters,
-    );
+    return await this.engagementSupport.listPostsPage(topicId, role, actorId, filters);
   }
 
   /** Validate nội dung, chủ đề chưa khóa, parent/tệp/mention hợp lệ rồi tạo post và thông báo. */
@@ -901,8 +865,7 @@ export class LearningService {
     rawAttachmentIds: string[] = [],
     rawMentionedUserIds: string[] = [],
   ): Promise<ForumPost> {
-    return await forum_ops.createPost(
-      this.operationContext,
+    return await this.engagementSupport.createPost(
       topicId,
       body,
       authorId,
@@ -913,40 +876,23 @@ export class LearningService {
   }
 
   /** Cho đúng tác giả sửa bài chưa bị xóa/ẩn và chạy lại chính sách nội dung. */
-  async updatePost(
-    postId: string,
-    body: string,
-    authorId: string,
-  ): Promise<ForumPost> {
-    return await forum_ops.updatePost(
-      this.operationContext,
-      postId,
-      body,
-      authorId,
-    );
+  async updatePost(postId: string, body: string, authorId: string): Promise<ForumPost> {
+    return await this.engagementSupport.updatePost(postId, body, authorId);
   }
 
   /** Xóa mềm bài viết của tác giả để giữ tính toàn vẹn chuỗi thảo luận. */
-  async deletePost(
-    postId: string,
-    authorId: string,
-  ): Promise<ForumPost> {
-    return await forum_ops.deletePost(this.operationContext, postId, authorId);
+  async deletePost(postId: string, authorId: string): Promise<ForumPost> {
+    return await this.engagementSupport.deletePost(postId, authorId);
   }
 
   /** Liệt kê thông báo của đúng người nhận theo thời gian mới nhất. */
-  async listNotifications(
-    recipientId: string,
-  ): Promise<LearningNotification[]> {
-    return await moderation_ops.listNotifications(
-      this.operationContext,
-      recipientId,
-    );
+  async listNotifications(recipientId: string): Promise<LearningNotification[]> {
+    return await this.engagementSupport.listNotifications(recipientId);
   }
 
   /** Đánh dấu toàn bộ thông báo của người nhận là đã đọc và trả danh sách mới. */
   async markAllNotificationsRead(recipientId: string): Promise<LearningNotification[]> {
-    return await moderation_ops.markAllNotificationsRead(this.operationContext, recipientId);
+    return await this.engagementSupport.markAllNotificationsRead(recipientId);
   }
 
   /** Đánh dấu đã đọc bằng điều kiện recipientId để ngăn sửa thông báo người khác. */
@@ -954,23 +900,12 @@ export class LearningService {
     notificationId: string,
     recipientId: string,
   ): Promise<LearningNotification> {
-    return await moderation_ops.markNotificationRead(
-      this.operationContext,
-      notificationId,
-      recipientId,
-    );
+    return await this.engagementSupport.markNotificationRead(notificationId, recipientId);
   }
 
   /** Liệt kê buổi trực tuyến theo quan hệ lớp và trạng thái truy cập của vai trò. */
-  async listSessions(
-    role: string,
-    actorId: string,
-  ): Promise<LiveSession[]> {
-    return await live_sessions_ops.listSessions(
-      this.operationContext,
-      role,
-      actorId,
-    );
+  async listSessions(role: string, actorId: string): Promise<LiveSession[]> {
+    return await this.engagementSupport.listSessions(role, actorId);
   }
 
   /** Phân trang buổi học trực tuyến theo lớp, trạng thái và khoảng thời gian trên DB. */
@@ -979,12 +914,7 @@ export class LearningService {
     actorId: string,
     filters: live_sessions_ops.LiveSessionPageFilters = {},
   ): Promise<PaginatedResult<LiveSession>> {
-    return await live_sessions_ops.listSessionsPage(
-      this.operationContext,
-      role,
-      actorId,
-      filters,
-    );
+    return await this.engagementSupport.listSessionsPage(role, actorId, filters);
   }
 
   /** Validate lịch/quyền lớp, lưu link Google Meet hoặc cấp phòng từ provider có fallback rồi thông báo thành viên. */
@@ -996,13 +926,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<LiveSession> {
-    return await live_sessions_ops.createSession(
-      this.operationContext,
-      classId,
-      input,
-      actorId,
-      actorRole,
-    );
+    return await this.engagementSupport.createSession(classId, input, actorId, actorRole);
   }
 
   /** Cập nhật lịch và liên kết phòng họp trước khi buổi học diễn ra và lưu lý do audit. */
@@ -1015,13 +939,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<LiveSession> {
-    return await live_sessions_ops.updateSession(
-      this.operationContext,
-      sessionId,
-      input,
-      actorId,
-      actorRole,
-    );
+    return await this.engagementSupport.updateSession(sessionId, input, actorId, actorRole);
   }
 
   /** Hủy buổi chưa hoàn tất, ghi lý do và gửi thông báo tới lớp. */
@@ -1031,13 +949,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<LiveSession> {
-    return await live_sessions_ops.cancelSession(
-      this.operationContext,
-      sessionId,
-      reason,
-      actorId,
-      actorRole,
-    );
+    return await this.engagementSupport.cancelSession(sessionId, reason, actorId, actorRole);
   }
 
   /** Kiểm soát chuyển trạng thái buổi học và cập nhật mốc vận hành liên quan. */
@@ -1046,12 +958,7 @@ export class LearningService {
     status: LiveSession["status"],
     actorId: string,
   ): Promise<LiveSession> {
-    return await live_sessions_ops.transitionSession(
-      this.operationContext,
-      sessionId,
-      status,
-      actorId,
-    );
+    return await this.engagementSupport.transitionSession(sessionId, status, actorId);
   }
 
   /** Xác minh ghi danh/quyền lớp/cửa sổ tham dự và trả URL phòng họp hợp lệ. */
@@ -1060,12 +967,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<{ attendeeUrl: string; joinedAt: string }> {
-    return await live_sessions_ops.joinSession(
-      this.operationContext,
-      sessionId,
-      actorId,
-      actorRole,
-    );
+    return await this.engagementSupport.joinSession(sessionId, actorId, actorRole);
   }
 
   /** Gắn nguồn bản ghi cho buổi đã hoàn tất và chuyển sang trạng thái xử lý. */
@@ -1074,12 +976,7 @@ export class LearningService {
     recordingUrl: string,
     actorId: string,
   ): Promise<LiveSession> {
-    return await recordings_ops.attachRecording(
-      this.operationContext,
-      sessionId,
-      recordingUrl,
-      actorId,
-    );
+    return await this.engagementSupport.attachRecording(sessionId, recordingUrl, actorId);
   }
 
   /** Chốt xử lý bản ghi, tính ngày hết hạn hoặc lưu lỗi và thông báo học viên khi sẵn sàng. */
@@ -1090,8 +987,7 @@ export class LearningService {
     errorMessage: string | undefined,
     actorId: string,
   ): Promise<LiveSession> {
-    return await recordings_ops.completeRecording(
-      this.operationContext,
+    return await this.engagementSupport.completeRecording(
       sessionId,
       status,
       retentionDays,
@@ -1101,15 +997,8 @@ export class LearningService {
   }
 
   /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
-  async getSessionSummary(
-    sessionId: string,
-    learnerId: string,
-  ): Promise<object> {
-    return await recordings_ops.getSessionSummary(
-      this.operationContext,
-      sessionId,
-      learnerId,
-    );
+  async getSessionSummary(sessionId: string, learnerId: string): Promise<object> {
+    return await this.engagementSupport.getSessionSummary(sessionId, learnerId);
   }
 
   /** Phát URL nội bộ ký theo session, learner và hạn để bảo vệ bản ghi. */
@@ -1117,11 +1006,7 @@ export class LearningService {
     sessionId: string,
     learnerId: string,
   ): Promise<{ url: string; expiresAt: string }> {
-    return await recordings_ops.createRecordingAccess(
-      this.operationContext,
-      sessionId,
-      learnerId,
-    );
+    return await this.engagementSupport.createRecordingAccess(sessionId, learnerId);
   }
 
   /** Xác minh chữ ký/hạn/quyền học viên rồi mới trả URL provider thực. */
@@ -1131,8 +1016,7 @@ export class LearningService {
     signature: string,
     learnerId: string,
   ): Promise<{ recordingUrl: string }> {
-    return await recordings_ops.resolveRecordingAccess(
-      this.operationContext,
+    return await this.engagementSupport.resolveRecordingAccess(
       sessionId,
       expires,
       signature,
@@ -1141,11 +1025,8 @@ export class LearningService {
   }
 
   /** Liệt kê tất cả phiếu cho nhân sự hỗ trợ hoặc chỉ phiếu của người gửi. */
-  async listTickets(
-    role: string,
-    actorId: string,
-  ): Promise<SupportTicket[]> {
-    return await support_ops.listTickets(this.operationContext, role, actorId);
+  async listTickets(role: string, actorId: string): Promise<SupportTicket[]> {
+    return await this.engagementSupport.listTickets(role, actorId);
   }
 
   /** Phân trang danh sách phiếu hỗ trợ theo vai trò, trạng thái và từ khóa. */
@@ -1154,12 +1035,7 @@ export class LearningService {
     actorId: string,
     filters: support_ops.SupportTicketPageFilters = {},
   ): Promise<PaginatedResult<SupportTicket>> {
-    return await support_ops.listTicketsPage(
-      this.operationContext,
-      role,
-      actorId,
-      filters,
-    );
+    return await this.engagementSupport.listTicketsPage(role, actorId, filters);
   }
 
   /** Validate nội dung, chống phiếu trùng đang mở và tạo SLA theo mức độ nghiêm trọng. */
@@ -1170,16 +1046,12 @@ export class LearningService {
     > & { clientRequestId?: string },
     reporterId: string,
   ): Promise<SupportTicket> {
-    return await support_ops.createTicket(
-      this.operationContext,
-      input,
-      reporterId,
-    );
+    return await this.engagementSupport.createTicket(input, reporterId);
   }
 
   /** Adapter tương thích cũ ánh xạ vai trò demo sang userId để đọc thông báo. */
   listRoleNotifications(role: string): Promise<LearningNotification[]> {
-    return support_ops.listRoleNotifications(this.operationContext, role);
+    return this.engagementSupport.listRoleNotifications(role);
   }
 
   /** Adapter tương thích cũ đánh dấu thông báo theo userId mặc định của vai trò. */
@@ -1187,11 +1059,7 @@ export class LearningService {
     notificationId: string,
     role: string,
   ): Promise<LearningNotification> {
-    return support_ops.markRoleNotificationRead(
-      this.operationContext,
-      notificationId,
-      role,
-    );
+    return this.engagementSupport.markRoleNotificationRead(notificationId, role);
   }
 
   /** Kiểm tra quyền phiếu, magic bytes/virus rồi lưu tệp bằng chứng và metadata. */
@@ -1201,13 +1069,7 @@ export class LearningService {
     role: string,
     uploaderId: string,
   ): Promise<SupportAttachment> {
-    return await support_ops.addSupportAttachment(
-      this.operationContext,
-      ticketId,
-      upload,
-      role,
-      uploaderId,
-    );
+    return await this.engagementSupport.addSupportAttachment(ticketId, upload, role, uploaderId);
   }
 
   /** Trả bytes bằng chứng cho đúng người gửi hoặc vai trò quản lý hỗ trợ. */
@@ -1217,13 +1079,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<MaterialDownload> {
-    return await support_ops.readSupportAttachment(
-      this.operationContext,
-      ticketId,
-      attachmentId,
-      role,
-      actorId,
-    );
+    return await this.engagementSupport.readSupportAttachment(ticketId, attachmentId, role, actorId);
   }
 
   /** Mở luồng tải bằng chứng hỗ trợ có hỗ trợ HTTP Range và kiểm chứng checksum. */
@@ -1240,8 +1096,7 @@ export class LearningService {
     fileName: string;
     mimeType: string;
   }> {
-    return await support_ops.readSupportAttachmentStream(
-      this.operationContext,
+    return await this.engagementSupport.readSupportAttachmentStream(
       ticketId,
       attachmentId,
       role,
@@ -1258,12 +1113,7 @@ export class LearningService {
     > & { expectedUpdatedAt?: string },
     actorId: string,
   ): Promise<SupportTicket> {
-    return await support_ops.updateTicket(
-      this.operationContext,
-      ticketId,
-      input,
-      actorId,
-    );
+    return await this.engagementSupport.updateTicket(ticketId, input, actorId);
   }
 
   /** Cho đúng người gửi đóng phiếu chưa hoàn tất và ghi mốc đóng. */
@@ -1271,11 +1121,7 @@ export class LearningService {
     ticketId: string,
     reporterId: string,
   ): Promise<SupportTicket> {
-    return await support_ops.closeTicketByReporter(
-      this.operationContext,
-      ticketId,
-      reporterId,
-    );
+    return await this.engagementSupport.closeTicketByReporter(ticketId, reporterId);
   }
 
   /** Kiểm tra người gửi hoặc quyền hỗ trợ trước khi trả trao đổi của phiếu. */
@@ -1284,12 +1130,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<TicketComment[]> {
-    return await support_ops.listTicketComments(
-      this.operationContext,
-      ticketId,
-      role,
-      actorId,
-    );
+    return await this.engagementSupport.listTicketComments(ticketId, role, actorId);
   }
 
   /** Thêm trao đổi hợp lệ vào phiếu truy cập được và cập nhật thời gian hoạt động. */
@@ -1299,13 +1140,7 @@ export class LearningService {
     role: string,
     authorId: string,
   ): Promise<TicketComment> {
-    return await support_ops.addTicketComment(
-      this.operationContext,
-      ticketId,
-      body,
-      role,
-      authorId,
-    );
+    return await this.engagementSupport.addTicketComment(ticketId, body, role, authorId);
   }
 
   /** Tổng hợp điểm danh, điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
@@ -1315,13 +1150,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<ClassProgressReport> {
-    return await progress_ops.getClassProgress(
-      this.operationContext,
-      classId,
-      input,
-      actorId,
-      actorRole,
-    );
+    return await this.engagementSupport.getClassProgress(classId, input, actorId, actorRole);
   }
 
   /** Tạo kế hoạch can thiệp, giao đúng giảng viên của lớp và lưu riêng người tạo. */
@@ -1334,8 +1163,7 @@ export class LearningService {
     createdById: string,
     actorRole: string,
   ): Promise<ProgressIntervention> {
-    return await progress_ops.createProgressIntervention(
-      this.operationContext,
+    return await this.engagementSupport.createProgressIntervention(
       classId,
       input,
       createdById,
@@ -1344,13 +1172,8 @@ export class LearningService {
   }
 
   /** Liệt kê hành động hỗ trợ đang thuộc trách nhiệm của người dùng hiện tại. */
-  async listMyProgressInterventions(
-    ownerId: string,
-  ): Promise<ProgressIntervention[]> {
-    return await progress_ops.listMyProgressInterventions(
-      this.operationContext,
-      ownerId,
-    );
+  async listMyProgressInterventions(ownerId: string): Promise<ProgressIntervention[]> {
+    return await this.engagementSupport.listMyProgressInterventions(ownerId);
   }
 
   /** Nhận, hoàn tất hoặc hủy hành động hỗ trợ theo quyền sở hữu và điều kiện kết quả. */
@@ -1364,8 +1187,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<ProgressIntervention> {
-    return await progress_ops.updateProgressIntervention(
-      this.operationContext,
+    return await this.engagementSupport.updateProgressIntervention(
       interventionId,
       input,
       actorId,
@@ -1381,8 +1203,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<ProgressIntervention> {
-    return await progress_ops.transferProgressIntervention(
-      this.operationContext,
+    return await this.engagementSupport.transferProgressIntervention(
       interventionId,
       assigneeId,
       rawReason,
