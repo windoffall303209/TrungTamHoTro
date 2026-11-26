@@ -122,4 +122,31 @@ describe("outbox lease recovery", () => {
     expect(updateCall).toBeDefined();
     expect(updateCall![0].data.status).toBe("SKIPPED");
   });
+
+  it("aborts drain without skipping learner notification emails when reading platform settings fails transiently", async () => {
+    const f = fixture("PENDING", 0);
+    f.candidate.eventType = "NOTIFICATION_CREATED";
+    f.prisma.user.findUnique.mockResolvedValue({
+      email: "learner@wind.edu.vn",
+      status: "ACTIVE",
+      roles: [{ role: { code: "LEARNER" } }],
+    });
+    const findSetting = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient db timeout"))
+      .mockResolvedValueOnce({
+        key: "platform",
+        value: { learnerEmailNotificationsEnabled: true },
+      });
+    (f.prisma as Record<string, unknown>).systemSetting = { findUnique: findSetting };
+
+    await expect(f.service.drain()).rejects.toThrow("transient db timeout");
+    expect(f.updateMany).not.toHaveBeenCalled();
+    expect(f.email.send).not.toHaveBeenCalled();
+
+    const recovered = await f.service.drain();
+    expect(recovered).toEqual({ processed: 1, delivered: 1, failed: 0 });
+    expect(f.email.send).toHaveBeenCalledTimes(1);
+    expect(f.updateMany.mock.calls.some((c) => c[0].data?.status === "SKIPPED")).toBe(false);
+  });
 });

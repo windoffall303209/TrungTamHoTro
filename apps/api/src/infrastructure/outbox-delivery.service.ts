@@ -104,10 +104,15 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
       ? Math.max(1, Math.min(Math.trunc(concurrency), 20))
       : this.defaultConcurrency;
     try {
-      const platformRow = await this.prisma.systemSetting?.findUnique?.({ where: { key: "platform" } }).catch((error: unknown) => {
-        this.logger.warn(`Không thể đọc cấu hình thông báo email: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      });
+      const platformRow =
+        typeof this.prisma.systemSetting?.findUnique === "function"
+          ? await this.prisma.systemSetting.findUnique({ where: { key: "platform" } }).catch((error: unknown) => {
+              this.logger.warn(
+                `Không thể đọc cấu hình thông báo email; tạm hoãn xả outbox để không bỏ sót email học viên: ${error instanceof Error ? error.message : String(error)}`,
+              );
+              throw error;
+            })
+          : null;
       const platformSettings = (platformRow?.value as Record<string, unknown>) ?? {};
       const learnerEmailEnabled = Boolean(platformSettings.learnerEmailNotificationsEnabled ?? false);
 
