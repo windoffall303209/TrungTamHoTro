@@ -1265,6 +1265,35 @@ export function InstructorClassWorkspace({
         if (!uploaded?.id) throw new Error("Máy chủ không trả về ID tệp đề đã tải lên.");
         sourceMaterialId = uploaded.id;
       }
+      const mcPointsRaw = data.scoreBreakdown?.multipleChoicePoints ?? 0;
+      const essayPointsRaw = data.scoreBreakdown?.essayPoints ?? 10;
+      const mcPoints = Number.isFinite(mcPointsRaw) && mcPointsRaw > 0 ? Math.round(mcPointsRaw * 100) / 100 : 0;
+      const essayPoints = Number.isFinite(essayPointsRaw) && essayPointsRaw > 0 ? Math.round(essayPointsRaw * 100) / 100 : 0;
+      const rubricCriteria: Array<{ title: string; description: string; maxPoints: number }> = [];
+      if (mcPoints > 0) {
+        rubricCriteria.push({
+          title: "Phần trắc nghiệm",
+          description: "Điểm phần trắc nghiệm.",
+          maxPoints: mcPoints,
+        });
+      }
+      if (essayPoints > 0) {
+        rubricCriteria.push({
+          title: "Phần tự luận",
+          description: "Điểm phần tự luận.",
+          maxPoints: essayPoints,
+        });
+      }
+      if (!rubricCriteria.length) {
+        rubricCriteria.push({
+          title: "Phần tự luận",
+          description: "Điểm phần tự luận.",
+          maxPoints: 10,
+        });
+      }
+      const computedMaxScore =
+        Math.round(rubricCriteria.reduce((sum, entry) => sum + entry.maxPoints, 0) * 100) / 100;
+
       let created: Assignment;
       try {
         created = await apiRequest<Assignment>(`/instructor/classes/${encodeURIComponent(item.id)}/assignments`, {
@@ -1277,12 +1306,8 @@ export function InstructorClassWorkspace({
             hidden: data.hidden,
             ...(sourceMaterialId ? { sourceMaterialId } : {}),
             dueAt: new Date(dueAt).toISOString(),
-            maxScore: 10,
-            rubric: [{
-              title: "Mức độ hoàn thành",
-              description: "Đánh giá chất lượng và mức độ hoàn thành bài làm.",
-              maxPoints: 10,
-            }],
+            maxScore: computedMaxScore,
+            rubric: rubricCriteria,
           }),
         });
       } catch (error) {

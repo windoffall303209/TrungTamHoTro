@@ -1473,6 +1473,9 @@ export function ClassAssignmentEditModal({
   const [instructions, setInstructions] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [maxScore, setMaxScore] = useState(10);
+  const [mcScoreInput, setMcScoreInput] = useState("0");
+  const [essayScoreInput, setEssayScoreInput] = useState("10");
+  const [usesStandardSections, setUsesStandardSections] = useState(true);
   const [hidden, setHidden] = useState(false);
   const [rubric, setRubric] = useState<Assignment["rubric"]>([]);
   const [replacementFile, setReplacementFile] = useState<File | null>(null);
@@ -1487,6 +1490,32 @@ export function ClassAssignmentEditModal({
     setMaxScore(assignment.maxScore);
     setHidden(Boolean(assignment.hidden));
     setRubric(assignment.rubric.map((entry) => ({ ...entry })));
+    const isLegacySingle =
+      assignment.rubric.length === 1 &&
+      (assignment.rubric[0]!.title === "Mức độ hoàn thành" ||
+        assignment.rubric[0]!.title === "Nội dung");
+    const isStandard =
+      assignment.rubric.length === 0 ||
+      isLegacySingle ||
+      assignment.rubric.every(
+        (entry) =>
+          entry.title === "Phần trắc nghiệm" || entry.title === "Phần tự luận",
+      );
+    setUsesStandardSections(isStandard);
+    if (isStandard) {
+      if (isLegacySingle) {
+        setMcScoreInput("0");
+        setEssayScoreInput(String(assignment.rubric[0]!.maxPoints));
+      } else if (assignment.rubric.length === 0) {
+        setMcScoreInput("0");
+        setEssayScoreInput(String(assignment.maxScore || 10));
+      } else {
+        const mc = assignment.rubric.find((entry) => entry.title === "Phần trắc nghiệm");
+        const essay = assignment.rubric.find((entry) => entry.title === "Phần tự luận");
+        setMcScoreInput(String(mc?.maxPoints ?? 0));
+        setEssayScoreInput(String(essay?.maxPoints ?? 0));
+      }
+    }
     setReplacementFile(null);
     setRemoveSourceMaterial(false);
   }, [assignment]);
@@ -1527,37 +1556,78 @@ export function ClassAssignmentEditModal({
       notify("Hạn nộp không được vượt quá ngày kết thúc lớp.", "error");
       return;
     }
-    if (
-      !Number.isFinite(maxScore) ||
-      maxScore < 0.25 ||
-      maxScore > 1000 ||
-      Math.abs(Math.round(maxScore * 100) - maxScore * 100) > 1e-8
-    ) {
-      notify("Điểm tối đa phải nằm trong khoảng 0,25–1000.", "error");
-      return;
-    }
 
-    const nextRubric = rubric.map((criterion) => ({
-      title: criterion.title.trim() || "Mức độ hoàn thành",
-      description: criterion.description?.trim() || "Đánh giá chất lượng bài làm.",
-      maxPoints: criterion.maxPoints,
-    }));
-    if (!nextRubric.length) {
-      nextRubric.push({
-        title: "Mức độ hoàn thành",
-        description: "Đánh giá chất lượng và mức độ hoàn thành bài làm.",
-        maxPoints: maxScore,
-      });
-    } else if (nextRubric.length === 1) {
-      nextRubric[0]!.maxPoints = maxScore;
-    }
-    const rubricSum = nextRubric.reduce((sum, entry) => sum + entry.maxPoints, 0);
-    if (
-      nextRubric.some((entry) => !Number.isFinite(entry.maxPoints) || entry.maxPoints < 0.25 || entry.maxPoints > 1000) ||
-      Math.abs(rubricSum - maxScore) > 0.001
-    ) {
-      notify("Mỗi tiêu chí cần ít nhất 0,25 điểm và tổng điểm các tiêu chí phải bằng điểm tối đa.", "error");
-      return;
+    let resolvedMaxScore = maxScore;
+    let nextRubric: Array<{ title: string; description: string; maxPoints: number }> = [];
+    if (usesStandardSections) {
+      const parsedMc = Number((mcScoreInput || "0").trim().replace(",", "."));
+      const parsedEssay = Number((essayScoreInput || "0").trim().replace(",", "."));
+      if (
+        !Number.isFinite(parsedMc) ||
+        !Number.isFinite(parsedEssay) ||
+        parsedMc < 0 ||
+        parsedEssay < 0 ||
+        Math.abs(Math.round(parsedMc * 100) - parsedMc * 100) > 1e-6 ||
+        Math.abs(Math.round(parsedEssay * 100) - parsedEssay * 100) > 1e-6
+      ) {
+        notify("Điểm các phần phải không âm và có tối đa 2 chữ số thập phân.", "error");
+        return;
+      }
+      if ((parsedMc > 0 && parsedMc < 0.25) || (parsedEssay > 0 && parsedEssay < 0.25)) {
+        notify("Mỗi phần có tính điểm cần đạt từ 0,25 điểm trở lên (hoặc để 0 nếu không có).", "error");
+        return;
+      }
+      resolvedMaxScore = Math.round((parsedMc + parsedEssay) * 100) / 100;
+      if (resolvedMaxScore < 0.25 || resolvedMaxScore > 1000) {
+        notify("Điểm tối đa phải nằm trong khoảng 0,25–1000.", "error");
+        return;
+      }
+      if (parsedMc > 0) {
+        nextRubric.push({
+          title: "Phần trắc nghiệm",
+          description: "Điểm phần trắc nghiệm.",
+          maxPoints: Math.round(parsedMc * 100) / 100,
+        });
+      }
+      if (parsedEssay > 0) {
+        nextRubric.push({
+          title: "Phần tự luận",
+          description: "Điểm phần tự luận.",
+          maxPoints: Math.round(parsedEssay * 100) / 100,
+        });
+      }
+    } else {
+      if (
+        !Number.isFinite(maxScore) ||
+        maxScore < 0.25 ||
+        maxScore > 1000 ||
+        Math.abs(Math.round(maxScore * 100) - maxScore * 100) > 1e-8
+      ) {
+        notify("Điểm tối đa phải nằm trong khoảng 0,25–1000.", "error");
+        return;
+      }
+      nextRubric = rubric.map((criterion) => ({
+        title: criterion.title.trim() || "Phần tự luận",
+        description: criterion.description?.trim() || "Đánh giá chất lượng bài làm.",
+        maxPoints: criterion.maxPoints,
+      }));
+      if (!nextRubric.length) {
+        nextRubric.push({
+          title: "Phần tự luận",
+          description: "Điểm phần tự luận.",
+          maxPoints: maxScore,
+        });
+      } else if (nextRubric.length === 1) {
+        nextRubric[0]!.maxPoints = maxScore;
+      }
+      const rubricSum = nextRubric.reduce((sum, entry) => sum + entry.maxPoints, 0);
+      if (
+        nextRubric.some((entry) => !Number.isFinite(entry.maxPoints) || entry.maxPoints < 0.25 || entry.maxPoints > 1000) ||
+        Math.abs(rubricSum - maxScore) > 0.001
+      ) {
+        notify("Mỗi tiêu chí cần ít nhất 0,25 điểm và tổng điểm các tiêu chí phải bằng điểm tối đa.", "error");
+        return;
+      }
     }
 
     setSaving(true);
@@ -1592,7 +1662,7 @@ export function ClassAssignmentEditModal({
           description: fallbackDesc,
           instructions: trimmedInstructions,
           dueAt: parsedDue.toISOString(),
-          maxScore,
+          maxScore: resolvedMaxScore,
           rubric: nextRubric,
           hidden,
           ...(sourceMaterialIdPatch !== undefined ? { sourceMaterialId: sourceMaterialIdPatch } : {}),
@@ -1669,24 +1739,26 @@ export function ClassAssignmentEditModal({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="edit-assignment-score" className="mb-1 block font-bold text-slate-700 dark:text-slate-300">
-                Điểm tối đa
-              </label>
-              <input
-                id="edit-assignment-score"
-                type="number"
-                min={0.25}
-                max={1000}
-                step={0.01}
-                disabled={isClosed}
-                value={maxScore}
-                onChange={(event) => setMaxScore(Number(event.target.value))}
-                className={fieldClass}
-              />
-            </div>
+            {!usesStandardSections && (
+              <div>
+                <label htmlFor="edit-assignment-score" className="mb-1 block font-bold text-slate-700 dark:text-slate-300">
+                  Điểm tối đa
+                </label>
+                <input
+                  id="edit-assignment-score"
+                  type="number"
+                  min={0.25}
+                  max={1000}
+                  step={0.25}
+                  disabled={isClosed}
+                  value={maxScore}
+                  onChange={(event) => setMaxScore(Number(event.target.value))}
+                  className={fieldClass}
+                />
+              </div>
+            )}
 
-            <div>
+            <div className={usesStandardSections ? "sm:col-span-2" : ""}>
               <label htmlFor="edit-assignment-due" className="mb-1 block font-bold text-slate-700 dark:text-slate-300">
                 Hạn nộp bài (Deadline)
               </label>
@@ -1701,43 +1773,85 @@ export function ClassAssignmentEditModal({
             </div>
           </div>
 
-          {rubric.length > 1 && (
-            <fieldset className="rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-2">
+          {usesStandardSections ? (
+            <fieldset className="rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-2.5">
               <legend className="px-1 font-bold text-slate-700 dark:text-slate-300">
-                Điểm theo tiêu chí (tổng phải bằng {maxScore})
+                Thang điểm ban đầu
               </legend>
-              {rubric.map((criterion, index) => (
-                <div key={criterion.id} className="flex items-center justify-between gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="edit-assignment-mc-score" className="mb-1 block font-semibold text-slate-700 dark:text-slate-300">
+                    Phần trắc nghiệm
+                  </label>
                   <input
-                    type="text"
-                    disabled={isClosed}
-                    value={criterion.title}
-                    onChange={(event) =>
-                      setRubric((rows) =>
-                        rows.map((row, idx) => (idx === index ? { ...row, title: event.target.value } : row)),
-                      )
-                    }
-                    className={`${fieldClass} flex-1`}
-                  />
-                  <input
+                    id="edit-assignment-mc-score"
                     type="number"
-                    min={0.25}
+                    min={0}
                     max={1000}
-                    step={0.01}
+                    step={0.25}
                     disabled={isClosed}
-                    value={criterion.maxPoints}
-                    onChange={(event) =>
-                      setRubric((rows) =>
-                        rows.map((row, idx) =>
-                          idx === index ? { ...row, maxPoints: Number(event.target.value) } : row,
-                        ),
-                      )
-                    }
-                    className="w-24 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-center font-bold"
+                    value={mcScoreInput}
+                    onChange={(event) => setMcScoreInput(event.target.value)}
+                    className={fieldClass}
                   />
                 </div>
-              ))}
+                <div>
+                  <label htmlFor="edit-assignment-essay-score" className="mb-1 block font-semibold text-slate-700 dark:text-slate-300">
+                    Phần tự luận
+                  </label>
+                  <input
+                    id="edit-assignment-essay-score"
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step={0.25}
+                    disabled={isClosed}
+                    value={essayScoreInput}
+                    onChange={(event) => setEssayScoreInput(event.target.value)}
+                    className={fieldClass}
+                  />
+                </div>
+              </div>
             </fieldset>
+          ) : (
+            rubric.length > 1 && (
+              <fieldset className="rounded-xl border border-slate-200 dark:border-slate-800 p-3.5 space-y-2">
+                <legend className="px-1 font-bold text-slate-700 dark:text-slate-300">
+                  Điểm theo tiêu chí (tổng phải bằng {maxScore})
+                </legend>
+                {rubric.map((criterion, index) => (
+                  <div key={criterion.id} className="flex items-center justify-between gap-3">
+                    <input
+                      type="text"
+                      disabled={isClosed}
+                      value={criterion.title}
+                      onChange={(event) =>
+                        setRubric((rows) =>
+                          rows.map((row, idx) => (idx === index ? { ...row, title: event.target.value } : row)),
+                        )
+                      }
+                      className={`${fieldClass} flex-1`}
+                    />
+                    <input
+                      type="number"
+                      min={0.25}
+                      max={1000}
+                      step={0.25}
+                      disabled={isClosed}
+                      value={criterion.maxPoints}
+                      onChange={(event) =>
+                        setRubric((rows) =>
+                          rows.map((row, idx) =>
+                            idx === index ? { ...row, maxPoints: Number(event.target.value) } : row,
+                          ),
+                        )
+                      }
+                      className="w-24 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-center font-bold"
+                    />
+                  </div>
+                ))}
+              </fieldset>
+            )
           )}
 
           <div>

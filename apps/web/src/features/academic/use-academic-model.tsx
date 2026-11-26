@@ -604,7 +604,7 @@ export function useAcademicModel() {
       setFeedback("");
       await openSubmissions(reviewing);
       await Promise.all([load(), loadAssignments()]);
-      notify("Đã lưu điểm rubric và phản hồi.");
+      notify("Đã lưu điểm.");
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không lưu được điểm.",

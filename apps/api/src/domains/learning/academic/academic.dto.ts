@@ -117,7 +117,7 @@ export class GradeAssignmentDto {
   @ValidateNested({ each: true })
   @Type(() => RubricScoreDto)
   rubricScores!: RubricScoreDto[];
-  @IsString() @MinLength(3) @MaxLength(5000) feedback!: string;
+  @IsOptional() @IsString() @MaxLength(5000) feedback?: string;
   @IsInt() @Min(1) expectedSubmissionRevision!: number;
   @IsOptional()
   @IsString()

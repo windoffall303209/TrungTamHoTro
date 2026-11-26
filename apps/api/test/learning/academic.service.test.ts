@@ -200,12 +200,13 @@ describe("AcademicService", () => {
         criterionId: criterion.id,
         score: index === 0 ? 5 : 3.5,
       })),
-      "Đúng hướng, cần bổ sung ngoại lệ.",
+      "",
       submission.revision,
       undefined,
       instructor,
     );
     expect(graded.score).toBe(8.5);
+    expect(graded.feedback).toBe("");
     expect(
       (await service.gradingQueue(instructor)).some(
         (group) =>

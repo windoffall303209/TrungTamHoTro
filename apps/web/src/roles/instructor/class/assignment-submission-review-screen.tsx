@@ -197,6 +197,62 @@ const SubmissionContentColumn = memo(function SubmissionContentColumn({
 });
 
 /** Biểu mẫu chấm điểm rubric & nhận xét được cô lập hoàn toàn state nhập liệu khỏi cột tài liệu và khung ngoài. */
+type GradingScoreRow = {
+  key: string;
+  criterionId: string | null;
+  label: string;
+  maxPoints: number;
+};
+
+// Chuẩn hóa tên tiêu chí mặc định cũ sang nhãn phần tự luận thống nhất.
+function normalizeCriterionLabel(title: string): string {
+  return title === "Mức độ hoàn thành" || title === "Nội dung" ? "Phần tự luận" : title;
+}
+
+// Dựng danh sách dòng cho điểm gọn gàng (Phần trắc nghiệm / Phần tự luận hoặc tiêu chí riêng).
+function resolveGradingRows(rubric: Assignment["rubric"]): GradingScoreRow[] {
+  const isLegacyDefault =
+    rubric.length === 1 &&
+    (rubric[0]!.title === "Mức độ hoàn thành" || rubric[0]!.title === "Nội dung");
+  if (isLegacyDefault) {
+    return [
+      { key: "__virtual_mc__", criterionId: null, label: "Phần trắc nghiệm", maxPoints: 0 },
+      {
+        key: rubric[0]!.id,
+        criterionId: rubric[0]!.id,
+        label: "Phần tự luận",
+        maxPoints: rubric[0]!.maxPoints,
+      },
+    ];
+  }
+
+  const isStandardSectionRubric =
+    rubric.length > 0 &&
+    rubric.every(
+      (criterion) =>
+        criterion.title === "Phần trắc nghiệm" || criterion.title === "Phần tự luận",
+    );
+  if (isStandardSectionRubric) {
+    const mc = rubric.find((criterion) => criterion.title === "Phần trắc nghiệm") ?? null;
+    const essay = rubric.find((criterion) => criterion.title === "Phần tự luận") ?? null;
+    return [
+      mc
+        ? { key: mc.id, criterionId: mc.id, label: "Phần trắc nghiệm", maxPoints: mc.maxPoints }
+        : { key: "__virtual_mc__", criterionId: null, label: "Phần trắc nghiệm", maxPoints: 0 },
+      essay
+        ? { key: essay.id, criterionId: essay.id, label: "Phần tự luận", maxPoints: essay.maxPoints }
+        : { key: "__virtual_essay__", criterionId: null, label: "Phần tự luận", maxPoints: 0 },
+    ];
+  }
+
+  return rubric.map((criterion) => ({
+    key: criterion.id,
+    criterionId: criterion.id,
+    label: criterion.title,
+    maxPoints: criterion.maxPoints,
+  }));
+}
+
 const SubmissionGradingForm = memo(function SubmissionGradingForm({
   assignment,
   submission,
@@ -211,36 +267,74 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
   onSaved: (updated: AssignmentSubmission, advanceNext: boolean) => void;
 }) {
   const { session, notify } = useApp();
-  const [rubricScores, setRubricScores] = useState<Record<string, number>>(() =>
+  const [rubricScores, setRubricScores] = useState<Record<string, string>>(() =>
     Object.fromEntries(
-      assignment.rubric.map((criterion) => [
-        criterion.id,
-        submission.rubricScores.find((entry) => entry.criterionId === criterion.id)?.score ?? 0,
-      ]),
+      assignment.rubric.map((criterion) => {
+        const existing = submission.rubricScores.find(
+          (entry) => entry.criterionId === criterion.id,
+        );
+        return [
+          criterion.id,
+          existing !== undefined ? String(existing.score) : "",
+        ];
+      }),
     ),
   );
   const [feedback, setFeedback] = useState(() => submission.feedback ?? "");
   const [saving, setSaving] = useState(false);
 
+  const gradingRows = useMemo(
+    () => resolveGradingRows(assignment.rubric),
+    [assignment.rubric],
+  );
+
   const computedTotal = useMemo(
     () =>
       Math.round(
-        assignment.rubric.reduce(
-          (sum, criterion) => sum + (Number(rubricScores[criterion.id]) || 0),
-          0,
-        ) * 100,
+        assignment.rubric.reduce((sum, criterion) => {
+          const raw = (rubricScores[criterion.id] ?? "").trim().replace(",", ".");
+          const parsed = raw === "" ? 0 : Number(raw);
+          return sum + (Number.isFinite(parsed) ? parsed : 0);
+        }, 0) * 100,
       ) / 100,
     [assignment.rubric, rubricScores],
   );
 
-  // Gửi điểm từng tiêu chí rubric và nhận xét giảng viên lên API chấm bài.
+  // Kiểm tra điểm hợp lệ, cho phép nhận xét rỗng và gửi lên API chấm bài.
   const submitGrade = async (advanceNext: boolean) => {
     if (saving || !canGrade) return;
     const trimmedFeedback = feedback.trim();
-    if (trimmedFeedback.length < 3) {
-      notify("Vui lòng nhập nhận xét tối thiểu 3 ký tự.", "error");
+    if (trimmedFeedback.length > 5000) {
+      notify("Nhận xét không được vượt quá 5.000 ký tự.", "error");
       return;
     }
+
+    const parsedRubricScores: Array<{ criterionId: string; score: number }> = [];
+    for (const criterion of assignment.rubric) {
+      const displayLabel = normalizeCriterionLabel(criterion.title);
+      const raw = (rubricScores[criterion.id] ?? "").trim().replace(",", ".");
+      if (raw === "") {
+        notify(`Vui lòng nhập điểm cho ${displayLabel}.`, "error");
+        return;
+      }
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > criterion.maxPoints) {
+        notify(
+          `Điểm ${displayLabel} phải nằm trong khoảng từ 0 đến ${criterion.maxPoints}.`,
+          "error",
+        );
+        return;
+      }
+      if (Math.abs(Math.round(parsed * 100) - parsed * 100) > 1e-6) {
+        notify(`Điểm ${displayLabel} hỗ trợ tối đa 2 chữ số thập phân.`, "error");
+        return;
+      }
+      parsedRubricScores.push({
+        criterionId: criterion.id,
+        score: Math.round(parsed * 100) / 100,
+      });
+    }
+
     setSaving(true);
     try {
       const updated = await apiRequest<AssignmentSubmission>(
@@ -249,16 +343,18 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
           method: "PATCH",
           roleCode: session.roleCode,
           body: JSON.stringify({
-            rubricScores: assignment.rubric.map((criterion) => ({
-              criterionId: criterion.id,
-              score: Number(rubricScores[criterion.id] ?? 0),
-            })),
+            rubricScores: parsedRubricScores,
             feedback: trimmedFeedback,
             expectedSubmissionRevision: submission.revision,
           }),
         },
       );
-      notify(advanceNext ? "Đã lưu điểm và chuyển sang học sinh tiếp theo." : "Đã lưu điểm rubric và phản hồi.", "success");
+      notify(
+        advanceNext
+          ? "Đã lưu điểm và chuyển sang học sinh tiếp theo."
+          : "Đã lưu điểm.",
+        "success",
+      );
       onSaved(updated, advanceNext);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không lưu được điểm bài làm.", "error");
@@ -284,82 +380,66 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
           assignment={assignment}
           submission={submission}
           onUse={(scores, nextFeedback) => {
-            setRubricScores(scores);
+            setRubricScores(
+              Object.fromEntries(
+                assignment.rubric.map((criterion) => [
+                  criterion.id,
+                  scores[criterion.id] !== undefined ? String(scores[criterion.id]) : "",
+                ]),
+              ),
+            );
             setFeedback(nextFeedback);
           }}
         />
       )}
 
       <form
+        noValidate
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
           void submitGrade(false);
         }}
       >
-        <div className="space-y-3">
-          {assignment.rubric.map((criterion) => {
-            const value = rubricScores[criterion.id] ?? 0;
+        <div className="space-y-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3.5">
+          {gradingRows.map((row) => {
+            const isVirtualZero = !row.criterionId || row.maxPoints <= 0;
+            const rawValue = row.criterionId ? (rubricScores[row.criterionId] ?? "") : "0";
             return (
               <div
-                key={criterion.id}
-                className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-3 space-y-2"
+                key={row.key}
+                className="flex items-center justify-between gap-3"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                      {criterion.title}
-                    </p>
-                    {criterion.description && (
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {criterion.description}
-                      </p>
-                    )}
-                  </div>
-                  <span className="shrink-0 text-[11px] font-bold text-slate-500">
-                    Tối đa {criterion.maxPoints}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
+                <label
+                  htmlFor={`rubric-score-${row.key}`}
+                  className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100"
+                >
+                  {row.label} :
+                </label>
+                <div className="flex items-center gap-2 shrink-0">
                   <input
-                    aria-label={`Điểm ${criterion.title}`}
-                    className={`${inputClass} py-1.5 text-xs font-bold tabular-nums w-28`}
-                    max={criterion.maxPoints}
+                    id={`rubric-score-${row.key}`}
+                    aria-label={`Điểm ${row.label}`}
+                    className={`${inputClass} py-1.5 px-2.5 text-center text-xs sm:text-sm font-bold tabular-nums w-24`}
+                    max={row.maxPoints}
                     min={0}
-                    required
-                    step="0.01"
+                    placeholder="?"
+                    step={0.25}
                     type="number"
-                    disabled={!canGrade || saving}
-                    value={value}
-                    onChange={(event) =>
+                    disabled={!canGrade || saving || isVirtualZero}
+                    value={rawValue}
+                    onChange={(event) => {
+                      if (!row.criterionId) return;
+                      const nextVal = event.target.value;
                       setRubricScores((prev) => ({
                         ...prev,
-                        [criterion.id]: Number(event.target.value),
-                      }))
-                    }
+                        [row.criterionId!]: nextVal,
+                      }));
+                    }}
                   />
-                  {canGrade && (
-                    <div className="flex flex-wrap gap-1">
-                      {[0, 0.5, 0.75, 1].map((ratio) => {
-                        const preset = Math.round(criterion.maxPoints * ratio * 100) / 100;
-                        return (
-                          <button
-                            key={ratio}
-                            type="button"
-                            onClick={() =>
-                              setRubricScores((prev) => ({
-                                ...prev,
-                                [criterion.id]: preset,
-                              }))
-                            }
-                            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:border-sky-400 hover:text-sky-600 cursor-pointer"
-                          >
-                            {Math.round(ratio * 100)}%
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <span className="text-xs sm:text-sm font-extrabold text-slate-600 dark:text-slate-300 tabular-nums min-w-[2.75rem]">
+                    / {row.maxPoints}
+                  </span>
                 </div>
               </div>
             );
@@ -370,9 +450,8 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
           <textarea
             aria-label="Nhận xét chi tiết"
             className={inputClass}
-            minLength={3}
+            maxLength={5000}
             placeholder="Ghi nhận ưu điểm, lỗi cần khắc phục hoặc gợi ý sửa bài..."
-            required
             rows={4}
             disabled={!canGrade || saving}
             value={feedback}
@@ -384,7 +463,7 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
           <div className="flex flex-col gap-2 pt-1">
             <Button type="submit" disabled={saving}>
               <Send size={14} />
-              <span>{saving ? "Đang lưu điểm..." : "Lưu điểm rubric"}</span>
+              <span>{saving ? "Đang lưu điểm..." : "Lưu điểm"}</span>
             </Button>
             {hasNextStudent && (
               <Button
@@ -436,7 +515,7 @@ const SubmissionWorkAndGradingPane = memo(function SubmissionWorkAndGradingPane(
     <div
       className={
         showGradingPanel
-          ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px] items-start"
+          ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_416px] items-start"
           : "space-y-5"
       }
     >
@@ -753,13 +832,13 @@ export function AssignmentSubmissionReviewScreen({
           className={
             layoutMode === "DOCUMENT_FOCUS"
               ? "space-y-5"
-              : "grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)] items-start"
+              : "grid gap-5 lg:grid-cols-[288px_minmax(0,1fr)] items-start"
           }
         >
           {/* Cột Trái (hoặc hàng trên khi tập trung tài liệu): Note rõ TOÀN BỘ CÂU HỎI & Tệp đề */}
           <section
             aria-label="Đề bài và toàn bộ câu hỏi"
-            className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-4 sm:p-5 shadow-xs space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto"
+            className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-3.5 sm:p-4 shadow-xs space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto"
           >
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -784,7 +863,7 @@ export function AssignmentSubmissionReviewScreen({
               {parsedQuestions.map((question, idx) => (
                 <li
                   key={`${question.label}-${idx}`}
-                  className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 p-3.5 space-y-2"
+                  className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 p-3 space-y-2"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="inline-flex items-center rounded-lg bg-sky-600 px-2 py-0.5 text-[11px] font-extrabold text-white">
@@ -830,7 +909,7 @@ export function AssignmentSubmissionReviewScreen({
 
             <div className="border-t border-slate-100 dark:border-slate-800 pt-3 space-y-2">
               <p className="text-[11px] font-extrabold uppercase text-slate-500">
-                Thang điểm tiêu chí ({assignment.rubric.length})
+                Thang điểm ({assignment.maxScore}đ)
               </p>
               <ul className="space-y-1.5 text-xs">
                 {assignment.rubric.map((criterion) => (
@@ -839,7 +918,7 @@ export function AssignmentSubmissionReviewScreen({
                     className="flex items-start justify-between gap-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1.5"
                   >
                     <span className="font-semibold text-slate-700 dark:text-slate-200">
-                      {criterion.title}
+                      {normalizeCriterionLabel(criterion.title)}
                     </span>
                     <span className="font-extrabold text-sky-700 dark:text-sky-300 shrink-0">
                       {criterion.maxPoints}đ

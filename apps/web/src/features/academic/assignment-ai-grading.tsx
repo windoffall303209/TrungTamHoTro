@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import { Button, Field, inputClass } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { apiRequest } from "@/lib/api-client";
@@ -17,6 +18,12 @@ type Status = { state: "NOT_REQUESTED" | "GENERATING" | "READY" | "UNCERTAIN"; r
 type Props = { assignment: Assignment; submission: AssignmentSubmission; onUse: (scores: Record<string, number>, feedback: string) => void };
 const OCR_TYPES: Record<string, RegExp> = { "application/pdf": /\.pdf$/i, "image/png": /\.png$/i, "image/jpeg": /\.jpe?g$/i, "image/webp": /\.webp$/i };
 const DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+// Chuẩn hóa tên tiêu chí mặc định cũ sang nhãn phần tự luận thống nhất.
+function formatCriterionTitle(title: string | undefined): string {
+  if (!title) return "";
+  return title === "Mức độ hoàn thành" || title === "Nội dung" ? "Phần tự luận" : title;
+}
 
 /** Hiển thị sớm giới hạn tệp đính kèm tương ứng với server; server vẫn quyết định tính hợp lệ. */
 function supportedAttachment(file: AssignmentSubmission["attachments"][number]): boolean {
@@ -64,6 +71,7 @@ function verifiedSourceTexts(value: Suggestion, submission: AssignmentSubmission
 /** Mở kết quả riêng theo yêu cầu; chỉ POST khi chưa có claim và không bao giờ tự ghi điểm. */
 function GradingPanel({ assignment, submission, onUse }: Props) {
   const { session } = useApp();
+  const [open, setOpen] = useState(false);
   const [language, setLanguage] = useState<"VI" | "EN" | "BILINGUAL">(activeLocale() === "en-US" ? "EN" : "VI");
   const [status, setStatus] = useState<Status | null>(null);
   const [busy, setBusy] = useState(false);
@@ -108,58 +116,200 @@ function GradingPanel({ assignment, submission, onUse }: Props) {
     setReviewed(false); setUsed(true);
   }
 
+  // Bấm lần đầu hiển thị gợi ý đã lưu; bấm lần nữa khi đang mở sẽ ẩn phần gợi ý đi.
+  function toggleSavedSuggestion(): void {
+    if (busy) return;
+    if (status !== null) {
+      setStatus(null);
+      setError("");
+      setReviewed(false);
+      setUsed(false);
+      return;
+    }
+    void load(false);
+  }
+
   const result = status?.state === "READY" ? status.result : null;
-  return <section aria-label="Gợi ý chấm AI" className="space-y-4 border-y border-[var(--rule)] py-5">
-    <h3 className="font-bold">Gợi ý chấm AI</h3>
-    <p className="text-sm leading-6 text-[var(--ink-soft)]">Gợi ý riêng cho giảng viên, không phải điểm chính thức. AI có thể sai; hãy đối chiếu từng tiêu chí và bài làm.</p>
-    {unavailable ? <p className="text-sm text-[var(--ink-soft)]">AI hỗ trợ tối đa 5 tệp TXT, DOCX, PDF, PNG, JPEG hoặc WebP; tối đa 12 MB mỗi DOCX/PDF/ảnh và 24 MB toàn bộ tệp. Word DOC cũ và bài vượt giới hạn cần chấm thủ công để không bỏ sót nội dung.</p> : <>
-      {submission.attachments.length ? <p className="text-sm leading-6 text-[var(--ink-soft)]">AI đọc toàn bộ phần nhập trực tiếp và mọi tệp hỗ trợ. Tổng văn bản sau đọc tối đa 20.000 ký tự; hệ thống sẽ từ chối thay vì cắt bớt bài làm.</p> : null}
-      {hasOcrSource ? <p className="text-sm leading-6 text-[var(--ink-soft)]">PDF và ảnh được AI trích xuất thành văn bản, có thể nhận sai chữ, công thức hoặc bố cục. Tạo gợi ý có thể phát sinh cả phí OCR và phí chấm; hãy mở nguồn bên dưới để đối chiếu trước khi dùng.</p> : null}
-      {hasDocxSource ? <p className="text-sm leading-6 text-[var(--ink-soft)]">DOCX được đọc thành văn bản tại máy chủ và không dùng lượt OCR. Bảng, công thức, hình hoặc bố cục phức tạp có thể mất định dạng; hãy mở nguồn bên dưới để đối chiếu trước khi dùng.</p> : null}
-      <Field label="Ngôn ngữ gợi ý"><select className={inputClass} disabled={busy} value={language} onChange={(event) => { setLanguage(event.target.value as typeof language); setStatus(null); setError(""); setReviewed(false); setUsed(false); }}><option value="VI">Tiếng Việt</option><option value="EN">English</option><option value="BILINGUAL">Song ngữ Việt–Anh</option></select></Field>
-      <div className="flex flex-wrap gap-3">
-        <Button type="button" variant="secondary" disabled={busy} onClick={() => void load(false)}>{busy ? "Đang xử lý gợi ý…" : "Kiểm tra gợi ý đã lưu"}</Button>
-        {status?.state === "NOT_REQUESTED" ? <Button type="button" disabled={busy} onClick={() => void load(true)}>Tạo gợi ý chấm AI</Button> : null}
-      </div>
-      {status?.state === "NOT_REQUESTED" ? <p className="text-sm text-[var(--ink-soft)]">Chưa có gợi ý cho bài làm và ngôn ngữ này. Tạo gợi ý sẽ gửi bài làm cùng rubric tới model do admin cấu hình và có thể phát sinh phí.</p> : null}
-      {busy ? <p role="status" className="text-sm text-[var(--ink-soft)]">Đang kiểm tra hoặc tạo gợi ý. Đóng cửa sổ không hủy tác vụ trên máy chủ.</p> : null}
-      {status?.state === "GENERATING" || status?.state === "UNCERTAIN" ? <p role="status" className="text-sm text-[var(--ink-soft)]">Yêu cầu đang xử lý hoặc chưa rõ kết quả. Hệ thống không tự gọi lại AI; hãy kiểm tra trạng thái sau hoặc liên hệ quản trị viên.</p> : null}
-      {error ? <p role="alert" className="text-sm text-[var(--danger)]">{error}</p> : null}
-      {result ? <div className="space-y-4" aria-live="polite">
-        <p className="break-words text-sm text-[var(--ink-soft)]"><span>Model</span>: <span translate="no">{result.model}</span></p>
-        {result.sources?.length ? <div className="space-y-2">
-          <h4 className="font-semibold">Nguồn dùng để chấm</h4>
-          <p className="text-sm text-[var(--ink-soft)]">{hasOcrSource
-            ? "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản PDF/ảnh vẫn là kết quả OCR chưa được xác minh độc lập; mở từng nguồn để kiểm tra trước khi dùng gợi ý."
-            : hasDocxSource
-              ? "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản DOCX là bản trích xuất cục bộ chưa giữ nguyên mọi định dạng; mở từng nguồn để kiểm tra trước khi dùng gợi ý."
-            : "Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý."}</p>
-          {result.sources.map((source) => <details key={source.attachmentId ?? "inline"} className="border-b border-[var(--rule)] py-2">
-            <summary className="cursor-pointer break-words py-2 text-sm font-semibold">{source.attachmentId ? <span translate="no">{source.name}</span> : <span>Nội dung nhập trực tiếp</span>}</summary>
-            <p translate="no" className="max-h-64 overflow-auto whitespace-pre-wrap break-words py-3 text-sm leading-6" tabIndex={0}>{source.text}</p>
-          </details>)}
-        </div> : null}
-        {result.insufficientEvidence ? <p className="font-semibold">Chưa đủ bằng chứng để gợi ý điểm</p> : <>
-          <p className="font-semibold"><span>Tổng điểm đề xuất</span>: {result.suggestedTotal} / {assignment.maxScore}</p>
-          <p className="text-sm leading-6 text-[var(--ink-soft)]">Tổng điểm bằng tổng điểm đạt ở từng tiêu chí bên dưới. Mỗi tiêu chí ghi rõ phần được cộng, phần chưa đạt và dẫn chứng từ bài làm.</p>
-          <ol className="divide-y divide-[var(--rule)]">{result.criteria.map((item) => <li key={item.criterionId} className="space-y-2 py-4">
-            <p className="flex flex-wrap justify-between gap-2 font-semibold"><span translate="no">{assignment.rubric.find((entry) => entry.id === item.criterionId)?.title}</span><span>{item.suggestedPoints} / {assignment.rubric.find((entry) => entry.id === item.criterionId)?.maxPoints}</span></p>
-            <p className="text-sm text-[var(--ink-soft)]">Điểm chưa đạt: {Math.max(0, Math.round(((assignment.rubric.find((entry) => entry.id === item.criterionId)?.maxPoints ?? 0) - item.suggestedPoints) * 100) / 100)}</p>
-            <p translate="no" className="whitespace-pre-wrap break-words text-sm leading-6">{item.reasoning}</p>
-            <details><summary className="cursor-pointer py-2 text-sm font-semibold">Đối chiếu trích dẫn bài làm</summary>{item.evidence.map((quote, index) => <div key={index} className="mt-3">
-              {result.sources ? <p className="break-words text-sm font-semibold"><span>Nguồn trích dẫn</span>: {result.sources.find((source) => source.text.includes(quote))?.attachmentId ? <span translate="no">{result.sources.find((source) => source.text.includes(quote))?.name}</span> : <span>Nội dung nhập trực tiếp</span>}</p> : null}
-              <blockquote translate="no" className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-[var(--ink-soft)]">{quote}</blockquote>
-            </div>)}</details>
-          </li>)}</ol>
-        </>}
-        <h4 className="font-semibold">Phản hồi đề xuất</h4>
-        <p translate="no" className="whitespace-pre-wrap break-words text-sm leading-6">{result.feedback}</p>
-        {!result.insufficientEvidence && result.feedback.trim().length >= 3 ? <>
-          <label className="flex items-start gap-3 text-sm leading-6"><input type="checkbox" className="mt-1 size-5 shrink-0" checked={reviewed} onChange={(event) => setReviewed(event.target.checked)} />Tôi đã kiểm tra và đồng ý thay điểm, phản hồi đang nhập bằng gợi ý này.</label>
-          <Button type="button" variant="secondary" disabled={!reviewed || busy} onClick={useSuggestion}>Đưa gợi ý vào biểu mẫu</Button>
-        </> : null}
-        {used ? <p role="status" className="text-sm text-[var(--ink-soft)]">Đã điền biểu mẫu, chưa lưu điểm. Bạn có thể sửa trước khi bấm Lưu điểm rubric.</p> : null}
-      </div> : null}
-    </>}
-  </section>;
+  return (
+    <section aria-label="Gợi ý chấm AI" className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex w-full items-center justify-between gap-2 px-3.5 py-2.5 text-left text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/70 rounded-xl transition cursor-pointer"
+      >
+        <span className="inline-flex items-center gap-2">
+          <Sparkles size={15} className="text-sky-600 dark:text-sky-400 shrink-0" />
+          <span>Gợi ý chấm AI</span>
+        </span>
+        <ChevronDown
+          size={15}
+          className={`text-slate-400 transition-transform duration-150 shrink-0 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open ? (
+        <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 px-3.5 py-3">
+          {unavailable ? (
+            <p className="text-xs leading-5 text-[var(--ink-soft)]">
+              AI hỗ trợ tối đa 5 tệp TXT, DOCX, PDF, PNG, JPEG hoặc WebP; tối đa 12 MB mỗi DOCX/PDF/ảnh và 24 MB toàn bộ tệp. Word DOC cũ và bài vượt giới hạn cần chấm thủ công để không bỏ sót nội dung.
+            </p>
+          ) : (
+            <>
+              <Field label="Ngôn ngữ gợi ý">
+                <select
+                  className={inputClass}
+                  disabled={busy}
+                  value={language}
+                  onChange={(event) => {
+                    setLanguage(event.target.value as typeof language);
+                    setStatus(null);
+                    setError("");
+                    setReviewed(false);
+                    setUsed(false);
+                  }}
+                >
+                  <option value="VI">Tiếng Việt</option>
+                  <option value="EN">English</option>
+                  <option value="BILINGUAL">Song ngữ Việt–Anh</option>
+                </select>
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  aria-expanded={status !== null}
+                  disabled={busy}
+                  onClick={toggleSavedSuggestion}
+                >
+                  {busy ? "Đang xử lý gợi ý…" : "Kiểm tra gợi ý đã lưu"}
+                </Button>
+                {status?.state === "NOT_REQUESTED" ? (
+                  <Button type="button" disabled={busy} onClick={() => void load(true)}>
+                    Tạo gợi ý chấm AI
+                  </Button>
+                ) : null}
+              </div>
+              {status?.state === "NOT_REQUESTED" ? (
+                <p className="text-xs leading-5 text-[var(--ink-soft)]">
+                  Chưa có gợi ý đã lưu cho bài làm và ngôn ngữ này.
+                </p>
+              ) : null}
+              {busy ? (
+                <p role="status" className="text-xs leading-5 text-[var(--ink-soft)]">
+                  Đang kiểm tra hoặc tạo gợi ý. Đóng cửa sổ không hủy tác vụ trên máy chủ.
+                </p>
+              ) : null}
+              {status?.state === "GENERATING" || status?.state === "UNCERTAIN" ? (
+                <p role="status" className="text-xs leading-5 text-[var(--ink-soft)]">
+                  Yêu cầu đang xử lý hoặc chưa rõ kết quả. Hệ thống không tự gọi lại AI; hãy kiểm tra trạng thái sau hoặc liên hệ quản trị viên.
+                </p>
+              ) : null}
+              {error ? (
+                <p role="alert" className="text-xs leading-5 text-[var(--danger)]">
+                  {error}
+                </p>
+              ) : null}
+              {result ? (
+                <div className="space-y-3 pt-1" aria-live="polite">
+                  {result.sources?.length ? (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold">Nguồn dùng để chấm</h4>
+                      <p className="text-xs leading-5 text-[var(--ink-soft)]">
+                        {hasOcrSource
+                          ? "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản PDF/ảnh vẫn là kết quả OCR chưa được xác minh độc lập; mở từng nguồn để kiểm tra trước khi dùng gợi ý."
+                          : hasDocxSource
+                            ? "Bytes và checksum đã được máy chủ đối chiếu với tệp lưu trữ. Văn bản DOCX là bản trích xuất cục bộ chưa giữ nguyên mọi định dạng; mở từng nguồn để kiểm tra trước khi dùng gợi ý."
+                            : "Bản văn bản đã được máy chủ đối chiếu với tệp lưu trữ. Mở từng nguồn để kiểm tra nội dung trước khi dùng gợi ý."}
+                      </p>
+                      {result.sources.map((source) => (
+                        <details key={source.attachmentId ?? "inline"} className="border-b border-[var(--rule)] py-1.5">
+                          <summary className="cursor-pointer break-words py-1.5 text-xs font-semibold">
+                            {source.attachmentId ? <span translate="no">{source.name}</span> : <span>Nội dung nhập trực tiếp</span>}
+                          </summary>
+                          <p translate="no" className="max-h-56 overflow-auto whitespace-pre-wrap break-words py-2 text-xs leading-5" tabIndex={0}>
+                            {source.text}
+                          </p>
+                        </details>
+                      ))}
+                    </div>
+                  ) : null}
+                  {result.insufficientEvidence ? (
+                    <p className="text-xs font-semibold">Chưa đủ bằng chứng để gợi ý điểm</p>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold">
+                        <span>Tổng điểm đề xuất</span>: {result.suggestedTotal} / {assignment.maxScore}
+                      </p>
+                      <ol className="divide-y divide-[var(--rule)]">
+                        {result.criteria.map((item) => {
+                          const matched = assignment.rubric.find((entry) => entry.id === item.criterionId);
+                          return (
+                            <li key={item.criterionId} className="space-y-1.5 py-3">
+                              <p className="flex flex-wrap justify-between gap-2 text-xs font-semibold">
+                                <span translate="no">{formatCriterionTitle(matched?.title)}</span>
+                                <span>{item.suggestedPoints} / {matched?.maxPoints}</span>
+                              </p>
+                              <p translate="no" className="whitespace-pre-wrap break-words text-xs leading-5">
+                                {item.reasoning}
+                              </p>
+                              <details>
+                                <summary className="cursor-pointer py-1 text-xs font-semibold">Đối chiếu trích dẫn bài làm</summary>
+                                {item.evidence.map((quote, index) => (
+                                  <div key={index} className="mt-2">
+                                    {result.sources ? (
+                                      <p className="break-words text-xs font-semibold">
+                                        <span>Nguồn trích dẫn</span>:{" "}
+                                        {result.sources.find((source) => source.text.includes(quote))?.attachmentId ? (
+                                          <span translate="no">{result.sources.find((source) => source.text.includes(quote))?.name}</span>
+                                        ) : (
+                                          <span>Nội dung nhập trực tiếp</span>
+                                        )}
+                                      </p>
+                                    ) : null}
+                                    <blockquote translate="no" className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-[var(--ink-soft)]">
+                                      {quote}
+                                    </blockquote>
+                                  </div>
+                                ))}
+                              </details>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </>
+                  )}
+                  <h4 className="text-xs font-semibold">Phản hồi đề xuất</h4>
+                  <p translate="no" className="whitespace-pre-wrap break-words text-xs leading-5">
+                    {result.feedback}
+                  </p>
+                  {!result.insufficientEvidence && result.feedback.trim().length >= 3 ? (
+                    <>
+                      <label className="flex items-start gap-2.5 text-xs leading-5">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 size-4 shrink-0"
+                          checked={reviewed}
+                          onChange={(event) => setReviewed(event.target.checked)}
+                        />
+                        <span>Tôi đã kiểm tra và đồng ý thay điểm, phản hồi đang nhập bằng gợi ý này.</span>
+                      </label>
+                      <Button type="button" variant="secondary" disabled={!reviewed || busy} onClick={useSuggestion}>
+                        Đưa gợi ý vào biểu mẫu
+                      </Button>
+                    </>
+                  ) : null}
+                  {used ? (
+                    <p role="status" className="text-xs leading-5 text-[var(--ink-soft)]">
+                      Đã điền biểu mẫu, chưa lưu điểm. Bạn có thể sửa trước khi bấm Lưu điểm.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
 }

@@ -362,24 +362,100 @@ describe("Gradebook UI, question parser, document viewer, and essay review page"
     expect(screen.getByText(/1 học viên chưa nộp/)).toBeInTheDocument();
     expect(await screen.findByText("Nội dung Word của Nguyễn Văn A")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Điểm Lập luận Câu 1"), { target: { value: "5" } });
+    const firstScoreInput = screen.getByLabelText("Điểm Lập luận Câu 1");
+    expect(firstScoreInput).toHaveAttribute("step", "0.25");
+    fireEvent.change(firstScoreInput, { target: { value: "5" } });
     fireEvent.change(screen.getByLabelText("Điểm Chứng minh Câu 2"), { target: { value: "4" } });
+    // Cho phép lưu điểm ngay cả khi không nhập nhận xét (feedback rỗng).
     fireEvent.change(screen.getByLabelText("Nhận xét chi tiết"), {
-      target: { value: "Bài giải rõ ràng và đủ ý." },
+      target: { value: "" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Lưu điểm rubric" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lưu điểm" }));
 
     await waitFor(() => {
       expect(mocks.apiRequest).toHaveBeenCalledWith(
         "/instructor/assignment-submissions/sub-a/grade",
         expect.objectContaining({
           method: "PATCH",
+          body: JSON.stringify({
+            rubricScores: [
+              { criterionId: "crit-1", score: 5 },
+              { criterionId: "crit-2", score: 4 },
+            ],
+            feedback: "",
+            expectedSubmissionRevision: 1,
+          }),
         }),
       );
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Học sinh tiếp theo" }));
     expect(await screen.findByRole("img", { name: "hinh-ve-b.png" })).toBeInTheDocument();
+  });
+
+  it("hiển thị đúng dòng Phần trắc nghiệm : ? / 7 và Phần tự luận : ? / 3, bước tăng 0.25 và cho phép gõ số lẻ từ bàn phím", async () => {
+    const mixedAssignment = {
+      ...sampleAssignment,
+      maxScore: 10,
+      rubric: [
+        { id: "mc-1", title: "Phần trắc nghiệm", description: "Điểm phần trắc nghiệm.", maxPoints: 7 },
+        { id: "es-1", title: "Phần tự luận", description: "Điểm phần tự luận.", maxPoints: 3 },
+      ],
+    };
+
+    mocks.apiRequest.mockImplementation(async (path: string, options?: RequestInit) => {
+      if (path === "/classes") return [sampleClass];
+      if (path.startsWith("/academic/assignments?classId=")) return [mixedAssignment];
+      if (path === "/instructor/assignments/asg-1/submissions") {
+        return [{ ...sampleSubmissions[0]!, attachments: [], content: "Bài giải học sinh" }];
+      }
+      if (path === "/instructor/classes/cls-1/learners") return [];
+      if (path === "/instructor/assignment-submissions/sub-a/grade" && options?.method === "PATCH") {
+        return {
+          ...sampleSubmissions[0]!,
+          status: "GRADED",
+          score: 9.35,
+          feedback: "",
+          rubricScores: [
+            { criterionId: "mc-1", score: 6.75 },
+            { criterionId: "es-1", score: 2.6 },
+          ],
+        };
+      }
+      return [];
+    });
+
+    render(<AssignmentSubmissionReviewScreen classId="cls-1" assignmentId="asg-1" initialSubmissionId="sub-a" />);
+
+    const mcInput = await screen.findByLabelText("Điểm Phần trắc nghiệm");
+    const essayInput = screen.getByLabelText("Điểm Phần tự luận");
+    expect(mcInput).toHaveAttribute("placeholder", "?");
+    expect(mcInput).toHaveAttribute("step", "0.25");
+    expect(essayInput).toHaveAttribute("placeholder", "?");
+    expect(essayInput).toHaveAttribute("step", "0.25");
+    expect(screen.getByText("/ 7")).toBeInTheDocument();
+    expect(screen.getByText("/ 3")).toBeInTheDocument();
+
+    fireEvent.change(mcInput, { target: { value: "6.75" } });
+    fireEvent.change(essayInput, { target: { value: "2.6" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu điểm" }));
+
+    await waitFor(() => {
+      expect(mocks.apiRequest).toHaveBeenCalledWith(
+        "/instructor/assignment-submissions/sub-a/grade",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            rubricScores: [
+              { criterionId: "mc-1", score: 6.75 },
+              { criterionId: "es-1", score: 2.6 },
+            ],
+            feedback: "",
+            expectedSubmissionRevision: 1,
+          }),
+        }),
+      );
+    });
   });
 });

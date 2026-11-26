@@ -19,9 +19,43 @@ describe("instructor AI grading review", () => {
   beforeEach(() => { vi.resetAllMocks(); });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
+  // Mở khung gợi ý chấm AI đang thu gọn mặc định trước khi kiểm tra thao tác bên trong.
+  function expandAiPanel() {
+    fireEvent.click(screen.getByRole("button", { name: "Gợi ý chấm AI" }));
+  }
+
+  it("chỉ hiển thị một dòng Gợi ý chấm AI thu gọn mặc định, bấm Kiểm tra gợi ý đã lưu lần 1 mở nhận xét đã lưu, lần 2 ẩn đi và không lộ tên model", async () => {
+    api.mockResolvedValueOnce({ state: "READY", result });
+    render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    const toggle = screen.getByRole("button", { name: "Gợi ý chấm AI" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/Gợi ý riêng cho giảng viên/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Kiểm tra gợi ý đã lưu" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    const checkBtn = screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" });
+    fireEvent.click(checkBtn);
+    expect(await screen.findByText(result.feedback)).toBeInTheDocument();
+    expect(screen.queryByText(result.model)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Model$/i)).not.toBeInTheDocument();
+
+    // Bấm Kiểm tra gợi ý đã lưu lần nữa sẽ ẩn phần nhận xét đã lưu đi.
+    fireEvent.click(checkBtn);
+    expect(screen.queryByText(result.feedback)).not.toBeInTheDocument();
+    expect(api).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Kiểm tra gợi ý đã lưu" })).not.toBeInTheDocument();
+  });
+
   it("reviews attachment-only TXT sources and copies scores only after confirmation", async () => {
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [source] } });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [txt] }} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     await screen.findByText("Nguồn dùng để chấm");
     expect(screen.getByText(source.text, { selector: "p" })).toHaveAttribute("translate", "no");
@@ -42,6 +76,7 @@ describe("instructor AI grading review", () => {
   ])("rejects missing, mismatched or duplicate TXT sources %#", async (sources) => {
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources } });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [txt] }} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -51,6 +86,7 @@ describe("instructor AI grading review", () => {
   it("requires both inline content and TXT sources, including for insufficient-evidence results", async () => {
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, insufficientEvidence: true, sources: [source] } });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [txt] }} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
   });
@@ -58,6 +94,7 @@ describe("instructor AI grading review", () => {
   it("creates a TXT suggestion without uploading source text or choosing a model in the request", async () => {
     api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce({ ...result, sources: [source] });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [{ ...txt, sizeBytes: 80000 }] }} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     fireEvent.click(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" }));
     await screen.findByText("Nguồn dùng để chấm");
@@ -70,7 +107,7 @@ describe("instructor AI grading review", () => {
     const pdfSource = { ...source, name: pdf.originalName, text: "Text transcribed from the submitted PDF." };
     api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce({ ...result, criteria: [{ ...result.criteria[0], evidence: [pdfSource.text] }], sources: [pdfSource] });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [pdf] }} onUse={onUse} />);
-    expect(screen.getByText(/cả phí OCR và phí chấm/)).toBeInTheDocument();
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" })).toBeEnabled();
     expect(api).toHaveBeenCalledTimes(1);
@@ -85,8 +122,7 @@ describe("instructor AI grading review", () => {
     const docxSource = { ...source, name: docx.originalName, text: "Text extracted locally from the submitted DOCX." };
     api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce({ ...result, criteria: [{ ...result.criteria[0], evidence: [docxSource.text] }], sources: [docxSource] });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: "", attachments: [docx] }} onUse={onUse} />);
-    expect(screen.getByText(/DOCX được đọc thành văn bản tại máy chủ/)).toBeInTheDocument();
-    expect(screen.queryByText(/cả phí OCR và phí chấm/)).not.toBeInTheDocument();
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     fireEvent.click(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" }));
     expect((await screen.findAllByText(docxSource.text))[0]).toHaveAttribute("translate", "no");
@@ -96,7 +132,8 @@ describe("instructor AI grading review", () => {
 
   it.each([{ ...pdf, sizeBytes: 12 * 1024 * 1024 + 1 }, { ...docx, sizeBytes: 12 * 1024 * 1024 + 1 }, { ...pdf, mimeType: "application/msword", originalName: "answer.doc" }])("blocks unsupported or oversized extracted sources %#", (file) => {
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [file] }} onUse={onUse} />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expandAiPanel();
+    expect(screen.queryByRole("button", { name: "Kiểm tra gợi ý đã lưu" })).not.toBeInTheDocument();
     expect(screen.getByText(/Word DOC cũ và bài vượt giới hạn/)).toBeInTheDocument();
     expect(api).not.toHaveBeenCalled();
   });
@@ -105,11 +142,15 @@ describe("instructor AI grading review", () => {
     const inline = { attachmentId: null, name: "Inline", checksum: null, text: "Inline answer." };
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [inline, source] } });
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, content: inline.text, attachments: [txt] }} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     await screen.findByText("Nguồn dùng để chấm");
     expect(screen.getByText("Nội dung nhập trực tiếp")).toBeInTheDocument();
     expect(screen.getByText(inline.text)).toHaveAttribute("translate", "no");
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, sources: [inline, source], criteria: [{ ...result.criteria[0], evidence: [`${inline.text}\n\n${source.text}`] }] } });
+    // Lần bấm thứ hai ẩn phần nhận xét đã lưu đang mở; bấm lại để kiểm tra dữ liệu mới.
+    fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
+    expect(screen.queryByText("Nguồn dùng để chấm")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -118,7 +159,8 @@ describe("instructor AI grading review", () => {
 
   it.each([{ ...txt, mimeType: "application/pdf" }, { ...txt, originalName: "answer.pdf" }, { ...txt, sizeBytes: 80001 }, { ...txt, sizeBytes: 0 }])("blocks unsupported or oversized attachments before requesting AI %#", (file) => {
     render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [txt, file] }} onUse={onUse} />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expandAiPanel();
+    expect(screen.queryByRole("button", { name: "Kiểm tra gợi ý đã lưu" })).not.toBeInTheDocument();
     expect(screen.getByText(/Word DOC cũ và bài vượt giới hạn cần chấm thủ công/)).toBeInTheDocument();
     expect(api).not.toHaveBeenCalled();
   });
@@ -127,6 +169,7 @@ describe("instructor AI grading review", () => {
     api.mockResolvedValueOnce({ state: "READY", result });
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
     expect(api).not.toHaveBeenCalled();
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByText(result.feedback)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Đưa gợi ý vào biểu mẫu" })).toBeDisabled();
@@ -142,6 +185,7 @@ describe("instructor AI grading review", () => {
   it("creates only after a missing-result check and sends no caller-selected model or content", async () => {
     api.mockResolvedValueOnce({ state: "NOT_REQUESTED" }).mockResolvedValueOnce(result);
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     fireEvent.click(await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" }));
     await screen.findByText(result.feedback);
@@ -152,6 +196,7 @@ describe("instructor AI grading review", () => {
   it.each(["GENERATING", "UNCERTAIN"])("never exposes regeneration for %s", async (state) => {
     api.mockResolvedValue({ state });
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     await screen.findByText(/Yêu cầu đang xử lý hoặc chưa rõ kết quả/);
     expect(screen.queryByRole("button", { name: "Tạo gợi ý chấm AI" })).not.toBeInTheDocument();
@@ -161,6 +206,7 @@ describe("instructor AI grading review", () => {
   it.each([{ ...result, submissionRevision: 3 }, { ...result, assignmentVersion: 4 }, { ...result, criteria: [{ ...result.criteria[0], evidence: ["invented quote"] }] }])("rejects stale or mismatched results", async (value) => {
     api.mockResolvedValue({ state: "READY", result: value });
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("không khớp");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -169,10 +215,12 @@ describe("instructor AI grading review", () => {
 
   it("does not create for unsupported attachments or apply insufficient evidence", async () => {
     const view = render(<AssignmentAiGrading assignment={assignment} submission={{ ...submission, attachments: [{ id: "file" }] as AssignmentSubmission["attachments"] }} onUse={onUse} />);
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expandAiPanel();
+    expect(screen.queryByRole("button", { name: "Kiểm tra gợi ý đã lưu" })).not.toBeInTheDocument();
     view.unmount();
     api.mockResolvedValueOnce({ state: "READY", result: { ...result, insufficientEvidence: true, criteria: [], suggestedTotal: null } });
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     await screen.findByText("Chưa đủ bằng chứng để gợi ý điểm");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -181,6 +229,7 @@ describe("instructor AI grading review", () => {
   it("clears results on language changes and ignores a response after changing submissions", async () => {
     api.mockResolvedValueOnce({ state: "READY", result });
     const view = render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     await screen.findByText(result.feedback);
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "EN" } });
@@ -199,6 +248,7 @@ describe("instructor AI grading review", () => {
     vi.useFakeTimers();
     api.mockImplementation((_path: string, options: { signal: AbortSignal }) => new Promise((_resolve, reject) => { options.signal.addEventListener("abort", () => reject(new Error("aborted"))); }));
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     const button = screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" });
     fireEvent.click(button); fireEvent.click(button);
     expect(api).toHaveBeenCalledTimes(1);
@@ -210,6 +260,7 @@ describe("instructor AI grading review", () => {
   it("requires a status read after a paid generation times out", async () => {
     api.mockResolvedValueOnce({ state: "NOT_REQUESTED" });
     render(<AssignmentAiGrading assignment={assignment} submission={submission} onUse={onUse} />);
+    expandAiPanel();
     fireEvent.click(screen.getByRole("button", { name: "Kiểm tra gợi ý đã lưu" }));
     const create = await screen.findByRole("button", { name: "Tạo gợi ý chấm AI" });
     vi.useFakeTimers();

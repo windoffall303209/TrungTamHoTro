@@ -325,7 +325,7 @@ export class AcademicController {
     return this.academic.gradeSubmission(
       submissionId,
       input.rubricScores,
-      input.feedback,
+      input.feedback ?? "",
       input.expectedSubmissionRevision,
       input.correctionReason,
       session,

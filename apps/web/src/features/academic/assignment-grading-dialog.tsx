@@ -38,7 +38,7 @@ export function AssignmentGradingDialog({
       onClose={() => setGrading(null)}
       title={`Chấm bài · ${grading?.learnerName ?? ""}`}
     >
-      <form className="space-y-4" onSubmit={(event) => void grade(event)}>
+      <form noValidate className="space-y-4" onSubmit={(event) => void grade(event)}>
         <div className="max-h-40 overflow-auto border-y border-[var(--rule)] p-3 text-sm leading-6 whitespace-pre-wrap">
           {grading?.content || "Bài nộp chỉ có tệp đính kèm."}
         </div>
@@ -72,7 +72,7 @@ export function AssignmentGradingDialog({
               max={criterion.maxPoints}
               min={0}
               required
-              step="0.01"
+              step={0.25}
               type="number"
               value={rubricScores[criterion.id] ?? 0}
               onChange={(event) =>
@@ -82,22 +82,19 @@ export function AssignmentGradingDialog({
                 })
               }
             />
-            <span className="mt-1 block text-xs font-normal text-[var(--ink-muted)]">
-              {criterion.description}
-            </span>
           </Field>
         ))}
-        <Field label="Phản hồi">
+        <Field label="Nhận xét chi tiết cho học sinh">
           <textarea
             className={inputClass}
-            minLength={3}
-            required
+            maxLength={5000}
+            placeholder="Ghi nhận ưu điểm, lỗi cần khắc phục hoặc gợi ý sửa bài..."
             rows={4}
             value={feedback}
             onChange={(event) => setFeedback(event.target.value)}
           />
         </Field>
-        <Button type="submit">Lưu điểm rubric</Button>
+        <Button type="submit">Lưu điểm</Button>
       </form>
     </Modal>
   );
