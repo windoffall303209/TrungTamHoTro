@@ -1,5 +1,5 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
-import { LearningService } from "../core/learning.service.js";
+import { ExamAssessmentService } from "./exam-assessment.service.js";
 
 @Injectable()
 /** Định kỳ nộp các lượt thi đã quá hạn để trạng thái không phụ thuộc trình duyệt học viên. */
@@ -8,7 +8,7 @@ export class ExamAttemptReconciliationService implements OnModuleInit, OnModuleD
   private timer?: NodeJS.Timeout;
   private running = false;
 
-  constructor(private readonly learning: LearningService) {}
+  constructor(private readonly exams: ExamAssessmentService) {}
 
   /** Chạy một lượt ngay khi khởi động và đăng ký sweep mỗi phút. */
   onModuleInit(): void {
@@ -22,12 +22,12 @@ export class ExamAttemptReconciliationService implements OnModuleInit, OnModuleD
     if (this.timer) clearInterval(this.timer);
   }
 
-  /** Gọi LearningService hòa giải; khóa running ngăn hai lượt sweep chồng nhau. */
+  /** Gọi ExamAssessmentService hòa giải; khóa running ngăn hai lượt sweep chồng nhau. */
   private async sweep(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
-      const count = await this.learning.reconcileExpiredAttempts();
+      const count = await this.exams.reconcileExpiredAttempts();
       if (count) this.logger.log(`Đã tự động nộp ${count} lượt làm bài hết thời gian.`);
     } catch (error) {
       this.logger.error("Không thể đối soát lượt làm bài hết thời gian.", error instanceof Error ? error.stack : String(error));

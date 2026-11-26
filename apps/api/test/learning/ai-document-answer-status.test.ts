@@ -4,8 +4,9 @@ import { APP_GUARD } from "@nestjs/core";
 import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { AuthService } from "../../src/auth/auth.service.js";
 import { PermissionGuard } from "../../src/auth/permission.guard.js";
+import { ContentMaterialService } from "../../src/domains/learning/content/content-material.service.js";
 import { ContentController } from "../../src/domains/learning/content/content.controller.js";
-import { LearningService } from "../../src/domains/learning/core/learning.service.js";
+import { ExamAssessmentService } from "../../src/domains/learning/exams/exam-assessment.service.js";
 import { AiProviderService } from "../../src/domains/system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../../src/domains/learning/ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../../src/domains/learning/ai/ai-material-context.service.js";
@@ -17,7 +18,7 @@ const history = vi.fn();
 // Kiểm tra tuyến HTTP, DTO và quyền thật; chỉ mô phỏng ranh giới ngữ cảnh.
 beforeAll(async () => {
   const module = await Test.createTestingModule({ controllers: [ContentController], providers: [
-    { provide: LearningService, useValue: {} }, { provide: AiProviderService, useValue: {} }, { provide: AiGenerationRequestService, useValue: {} },
+    { provide: ContentMaterialService, useValue: {} }, { provide: ExamAssessmentService, useValue: {} }, { provide: AiProviderService, useValue: {} }, { provide: AiGenerationRequestService, useValue: {} },
     { provide: AiMaterialContextService, useValue: { questionStatus: status, questionHistory: history } },
     { provide: AuthService, useValue: { readToken: (cookie?: string): string | undefined => cookie, resolve: (token?: string): { user: { id: string }; roleCode: string; permissions: string[] } => {
       if (!token) throw new UnauthorizedException();

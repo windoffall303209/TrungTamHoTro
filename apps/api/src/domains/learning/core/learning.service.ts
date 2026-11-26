@@ -1,8 +1,9 @@
 import { LearningRuntimeService } from "./learning-runtime.service.js";
 import { CourseClassService } from "../courses/course-class.service.js";
-import * as folderOps from "../operations/materials/class-folders.js";
-import { BadRequestException, Injectable, Optional } from "@nestjs/common";
-import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/exams/learning-exam-page.js";
+import { ContentMaterialService } from "../content/content-material.service.js";
+import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
+import { Injectable, Optional } from "@nestjs/common";
+import type { ExamPage, ExamPageQuery } from "../operations/exams/learning-exam-page.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,6 @@ import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import type { Environment } from "../../../config/environment.js";
 import { PrismaService } from "../../../database/prisma.service.js";
-import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../infrastructure/file-transfer.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { ScannedQuestionDraft } from "../../system/ai/ai-provider.service.js";
@@ -20,24 +20,14 @@ import type { LearningServiceContext } from "./learning.context.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
 import { type ExamGenerationContext, type MaterialAccessAction, type MaterialDownload, type MaterialSearchResult, type MaterialSummaryBucket, type QuestionSummary, type UploadedMaterialFile } from "./learning.shared.js";
 import type { ClassCapabilities, ClassClosureReadiness, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
-import * as analytics_ops from "../operations/analytics/learning-analytics.js";
-import * as attempts_ops from "../operations/exams/learning-attempts.js";
 import type * as classes_ops from "../operations/classes/learning-classes.js";
 import type * as courses_ops from "../operations/courses/learning-courses.js";
-import * as exam_approval_ops from "../operations/exams/learning-exam-approval.js";
-import * as exam_editing_ops from "../operations/exams/learning-exam-editing.js";
-import * as exam_generation_ops from "../operations/exams/learning-exam-generation.js";
-import * as exams_ops from "../operations/exams/learning-exams.js";
 import * as forum_ops from "../operations/forum/learning-forum.js";
-import * as grading_ops from "../operations/grading/learning-grading.js";
 import * as live_sessions_ops from "../operations/live/learning-live-sessions.js";
-import * as material_downloads_ops from "../operations/materials/learning-material-downloads.js";
-import * as materials_ops from "../operations/materials/learning-materials.js";
 import * as moderation_ops from "../operations/moderation/learning-moderation.js";
 import * as progress_ops from "../operations/progress/learning-progress.js";
-import * as questions_ops from "../operations/questions/learning-questions.js";
+import type * as questions_ops from "../operations/questions/learning-questions.js";
 import * as recordings_ops from "../operations/live/learning-recordings.js";
-import * as regrades_ops from "../operations/grading/learning-regrades.js";
 import * as support_ops from "../operations/support/learning-support.js";
 export * from "./learning.shared.js";
 export type { ForumPostPageResult } from "../operations/forum/learning-forum.js";
@@ -47,22 +37,28 @@ export type { ForumPostPageResult } from "../operations/forum/learning-forum.js"
 export class LearningService {
   private readonly runtime: LearningRuntimeService;
   private readonly courseClass: CourseClassService;
+  private readonly contentMaterial: ContentMaterialService;
+  private readonly examAssessment: ExamAssessmentService;
   private readonly operationContext: LearningServiceContext;
 
   constructor(
-    @Optional() private readonly prisma?: PrismaService,
+    @Optional() prisma?: PrismaService,
     @Optional() config?: ConfigService<Environment, true>,
     @Optional() objectStorage?: ObjectStorageService,
     @Optional() antivirus?: AntivirusService,
     @Optional() system?: SystemService,
     @Optional() runtime?: LearningRuntimeService,
     @Optional() courseClass?: CourseClassService,
+    @Optional() contentMaterial?: ContentMaterialService,
+    @Optional() examAssessment?: ExamAssessmentService,
   ) {
     this.runtime =
       runtime ??
       new LearningRuntimeService(prisma, config, objectStorage, antivirus, system);
     this.operationContext = this.runtime.context;
     this.courseClass = courseClass ?? new CourseClassService(this.runtime);
+    this.contentMaterial = contentMaterial ?? new ContentMaterialService(this.runtime);
+    this.examAssessment = examAssessment ?? new ExamAssessmentService(this.runtime);
   }
 
   /** Liệt kê khóa học từ DB hoặc bộ nhớ kiểm thử. */
@@ -303,7 +299,7 @@ export class LearningService {
     input: { kind: string; name: string } | undefined,
     actorRole: string,
   ): Promise<{ materials: string[]; lectures: string[]; assignments: string[] }> {
-    return folderOps.classFolders(this.operationContext, classId, actorId, input, actorRole);
+    return this.contentMaterial.classFolders(classId, actorId, input, actorRole);
   }
 
   /** Liệt kê danh sách học liệu hiển thị theo phạm vi quyền của vai trò hiện tại. */
@@ -314,14 +310,7 @@ export class LearningService {
     page = 1,
     materialId?: string,
   ): Promise<LearningMaterial[]> {
-    return await materials_ops.listMaterials(
-      this.operationContext,
-      role,
-      query,
-      actorId,
-      page,
-      materialId,
-    );
+    return await this.contentMaterial.listMaterials(role, query, actorId, page, materialId);
   }
 
   /** Tổng hợp nhanh số lượng học liệu theo lớp, thư mục và loại nội dung. */
@@ -330,12 +319,7 @@ export class LearningService {
     role: string,
     classId?: string,
   ): Promise<MaterialSummaryBucket[]> {
-    return await materials_ops.getMaterialSummary(
-      this.operationContext,
-      actorId,
-      role,
-      classId,
-    );
+    return await this.contentMaterial.getMaterialSummary(actorId, role, classId);
   }
 
   /** Tìm học liệu đã công bố của học viên bằng bộ lọc và phân trang có giới hạn. */
@@ -359,12 +343,7 @@ export class LearningService {
     learnerId: string,
     role: string,
   ): Promise<MaterialSearchResult> {
-    return await materials_ops.searchAccessibleMaterials(
-      this.operationContext,
-      input,
-      learnerId,
-      role,
-    );
+    return await this.contentMaterial.searchAccessibleMaterials(input, learnerId, role);
   }
 
   /** Kiểm tra quyền lớp/chính sách tệp, quét virus, lưu object và tạo version đầu tiên. */
@@ -378,14 +357,7 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<LearningMaterial> {
-    return await materials_ops.createMaterial(
-      this.operationContext,
-      classId,
-      input,
-      upload,
-      actorId,
-      actorRole,
-    );
+    return await this.contentMaterial.createMaterial(classId, input, upload, actorId, actorRole);
   }
 
   /** Phát URL truy cập học liệu ký HMAC có thời hạn sau khi kiểm tra quyền. */
@@ -395,13 +367,7 @@ export class LearningService {
     action: MaterialAccessAction = "DOWNLOAD",
     actorId: string,
   ): Promise<{ url: string; expiresAt: string }> {
-    return await material_downloads_ops.createMaterialAccess(
-      this.operationContext,
-      materialId,
-      role,
-      action,
-      actorId,
-    );
+    return await this.contentMaterial.createMaterialAccess(materialId, role, action, actorId);
   }
 
   /** Giữ API đọc bộ đệm cho tác vụ nội bộ và kiểm thử với xác minh checksum. */
@@ -413,8 +379,7 @@ export class LearningService {
     action: MaterialAccessAction = "DOWNLOAD",
     actorId: string,
   ): Promise<MaterialDownload> {
-    return await material_downloads_ops.readMaterialDownload(
-      this.operationContext,
+    return await this.contentMaterial.readMaterialDownload(
       materialId,
       expires,
       signature,
@@ -441,8 +406,7 @@ export class LearningService {
     fileName: string;
     mimeType: string;
   }> {
-    return await material_downloads_ops.readMaterialDownloadStream(
-      this.operationContext,
+    return await this.contentMaterial.readMaterialDownloadStream(
       materialId,
       expires,
       signature,
@@ -459,12 +423,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<AttachmentDocumentPreview> {
-    return await material_downloads_ops.readMaterialPreviewContent(
-      this.operationContext,
-      materialId,
-      role,
-      actorId,
-    );
+    return await this.contentMaterial.readMaterialPreviewContent(materialId, role, actorId);
   }
 
   /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
@@ -477,23 +436,12 @@ export class LearningService {
     actorId: string,
     actorRole: string,
   ): Promise<LearningMaterial> {
-    return await materials_ops.updateMaterial(
-      this.operationContext,
-      materialId,
-      input,
-      actorId,
-      actorRole,
-    );
+    return await this.contentMaterial.updateMaterial(materialId, input, actorId, actorRole);
   }
 
   /** Người tải lên xóa hẳn học liệu cùng mọi phiên bản và tệp. */
   async deleteMaterial(materialId: string, actorId: string, actorRole: string): Promise<void> {
-    return await materials_ops.deleteMaterial(
-      this.operationContext,
-      materialId,
-      actorId,
-      actorRole,
-    );
+    return await this.contentMaterial.deleteMaterial(materialId, actorId, actorRole);
   }
 
   /** Xác minh giảng viên phụ trách rồi trả học viên đang ghi danh trong lớp. */
@@ -501,10 +449,7 @@ export class LearningService {
     classId: string,
     instructorId: string,
   ): Promise<DirectoryUser[]> {
-    return await this.courseClass.listInstructorClassLearners(
-      classId,
-      instructorId,
-    );
+    return await this.courseClass.listInstructorClassLearners(classId, instructorId);
   }
 
   /** Tìm người dùng theo vai trò và tùy chọn loại các thành viên đã thuộc lớp. */
@@ -523,13 +468,7 @@ export class LearningService {
     upload: UploadedMaterialFile,
     actorId: string,
   ): Promise<LearningMaterial> {
-    return await materials_ops.replaceMaterialFile(
-      this.operationContext,
-      materialId,
-      input,
-      upload,
-      actorId,
-    );
+    return await this.contentMaterial.replaceMaterialFile(materialId, input, upload, actorId);
   }
 
   /** Lọc phiên bản câu hỏi mới nhất theo từ khóa, khóa học, loại, độ khó, tag và trạng thái. */
@@ -537,7 +476,7 @@ export class LearningService {
     filters: string | questions_ops.QuestionListFilters,
     scope: questions_ops.QuestionScope,
   ): Promise<LearningQuestion[]> {
-    return await questions_ops.listQuestions(this.operationContext, filters, scope);
+    return await this.examAssessment.listQuestions(filters, scope);
   }
 
   /** Phân trang phiên bản mới nhất mỗi family câu hỏi trực tiếp bằng SQL CTE trong phạm vi của người gọi. */
@@ -545,20 +484,12 @@ export class LearningService {
     filters: questions_ops.QuestionPageFilters,
     scope: questions_ops.QuestionScope,
   ): Promise<PaginatedResult<LearningQuestion>> {
-    return await questions_ops.listQuestionsPage(
-      this.operationContext,
-      filters,
-      scope,
-    );
+    return await this.examAssessment.listQuestionsPage(filters, scope);
   }
 
   /** Thống kê nhanh tổng câu hỏi, trắc nghiệm và tự luận theo từng khóa học trong phạm vi của người gọi. */
   async getQuestionSummary(courseId: string | undefined, scope: questions_ops.QuestionScope): Promise<QuestionSummary> {
-    return await questions_ops.getQuestionSummary(
-      this.operationContext,
-      courseId,
-      scope,
-    );
+    return await this.examAssessment.getQuestionSummary(courseId, scope);
   }
 
   /** Validate nội dung/đáp án, tạo family câu hỏi và chọn trạng thái theo chế độ duyệt cấu hình. */
@@ -566,11 +497,7 @@ export class LearningService {
     input: Omit<LearningQuestion, "id" | "status" | "version">,
     authorId: string,
   ): Promise<LearningQuestion> {
-    return await questions_ops.createQuestion(
-      this.operationContext,
-      input,
-      authorId,
-    );
+    return await this.examAssessment.createQuestion(input, authorId);
   }
 
   /** Tạo version kế tiếp của câu hỏi thay vì sửa bản đã dùng, đồng thời chống nội dung trùng. */
@@ -579,12 +506,7 @@ export class LearningService {
     input: Omit<LearningQuestion, "id" | "status" | "version">,
     authorId: string,
   ): Promise<LearningQuestion> {
-    return await questions_ops.updateQuestion(
-      this.operationContext,
-      questionId,
-      input,
-      authorId,
-    );
+    return await this.examAssessment.updateQuestion(questionId, input, authorId);
   }
 
   /** Kiểm tra ảnh thật, lưu object mới và dọn ảnh cũ khi không còn version nào tham chiếu. */
@@ -593,21 +515,12 @@ export class LearningService {
     upload: UploadedMaterialFile,
     actorId: string,
   ): Promise<LearningQuestion> {
-    return await questions_ops.uploadQuestionImage(
-      this.operationContext,
-      questionId,
-      upload,
-      actorId,
-    );
+    return await this.examAssessment.uploadQuestionImage(questionId, upload, actorId);
   }
 
   /** Xóa liên kết ảnh của câu hỏi rồi dọn object nếu không còn tham chiếu. */
   async removeQuestionImage(questionId: string, actorId: string): Promise<LearningQuestion> {
-    return await questions_ops.removeQuestionImage(
-      this.operationContext,
-      questionId,
-      actorId,
-    );
+    return await this.examAssessment.removeQuestionImage(questionId, actorId);
   }
 
   /** Cho người quản lý hoặc thành viên đề/lớp hợp lệ đọc ảnh câu hỏi mà không lộ object key. */
@@ -616,12 +529,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<MaterialDownload> {
-    return await questions_ops.readQuestionImage(
-      this.operationContext,
-      questionId,
-      role,
-      actorId,
-    );
+    return await this.examAssessment.readQuestionImage(questionId, role, actorId);
   }
 
   /** Nhập từng câu độc lập để lỗi một mục không hủy toàn bộ lô. */
@@ -629,24 +537,17 @@ export class LearningService {
     inputs: Array<Omit<LearningQuestion, "id" | "status" | "version">>,
     authorId: string,
   ): Promise<QuestionImportResult[]> {
-    return await questions_ops.importQuestions(
-      this.operationContext,
-      inputs,
-      authorId,
-    );
+    return await this.examAssessment.importQuestions(inputs, authorId);
   }
 
   /** Liệt kê đề theo vai trò và quan hệ lớp, không trả đề ngoài phạm vi giảng dạy/ghi danh. */
-  async listExams(
-    role: string,
-    actorId: string,
-  ): Promise<LearningExam[]> {
-    return await exams_ops.listExams(this.operationContext, role, actorId);
+  async listExams(role: string, actorId: string): Promise<LearningExam[]> {
+    return await this.examAssessment.listExams(role, actorId);
   }
 
   /** Phân trang đề tại database và giữ nguyên kiểm tra phạm vi lớp của người đang đăng nhập. */
   async listExamPage(role: string, actorId: string, query: ExamPageQuery): Promise<ExamPage> {
-    return listExamPage(this.operationContext, role, actorId, query);
+    return this.examAssessment.listExamPage(role, actorId, query);
   }
 
   /** Ghép đề đã công bố với số lượt và thời gian để tính trạng thái khả dụng cho học viên. */
@@ -654,23 +555,12 @@ export class LearningService {
     classId: string | undefined,
     learnerId: string,
   ): Promise<LearnerExamSummary[]> {
-    return await exams_ops.listLearnerExamSummaries(
-      this.operationContext,
-      classId,
-      learnerId,
-    );
+    return await this.examAssessment.listLearnerExamSummaries(classId, learnerId);
   }
 
   /** Trả câu hỏi cho học viên theo thứ tự seed nếu xáo trộn và loại dữ liệu đáp án đúng. */
-  async getExamQuestions(
-    examId: string,
-    learnerId: string,
-  ): Promise<LearningQuestion[]> {
-    return await exams_ops.getExamQuestions(
-      this.operationContext,
-      examId,
-      learnerId,
-    );
+  async getExamQuestions(examId: string, learnerId: string): Promise<LearningQuestion[]> {
+    return await this.examAssessment.getExamQuestions(examId, learnerId);
   }
 
   /** Xác minh giảng viên phụ trách rồi trả câu hỏi theo đúng thứ tự gốc của đề. */
@@ -678,23 +568,12 @@ export class LearningService {
     examId: string,
     instructorId: string,
   ): Promise<LearningQuestion[]> {
-    return await exams_ops.getInstructorExamPreview(
-      this.operationContext,
-      examId,
-      instructorId,
-    );
+    return await this.examAssessment.getInstructorExamPreview(examId, instructorId);
   }
 
   /** Trả nội dung đề cho quản lý duyệt, chỉ khi đề đang ở hàng chờ phê duyệt. */
-  async getReviewerExamPreview(
-    examId: string,
-    actorId: string,
-  ): Promise<LearningQuestion[]> {
-    return await exams_ops.getReviewerExamPreview(
-      this.operationContext,
-      examId,
-      actorId,
-    );
+  async getReviewerExamPreview(examId: string, actorId: string): Promise<LearningQuestion[]> {
+    return await this.examAssessment.getReviewerExamPreview(examId, actorId);
   }
 
   /** Validate lịch/thang điểm/câu hỏi, giữ thứ tự chọn và tạo đề nháp cho lớp phụ trách. */
@@ -705,11 +584,7 @@ export class LearningService {
     > & { scoreAllocations?: Array<{ questionId: string; score: number }> },
     actorId: string,
   ): Promise<LearningExam> {
-    return await exam_editing_ops.createExam(
-      this.operationContext,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.createExam(input, actorId);
   }
 
   /** Thay nội dung đề DRAFT nguyên tử, tăng version và từ chối bản chỉnh sửa đã cũ. */
@@ -724,12 +599,7 @@ export class LearningService {
     },
     actorId: string,
   ): Promise<LearningExam> {
-    return await exam_editing_ops.updateExam(
-      this.operationContext,
-      examId,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.updateExam(examId, input, actorId);
   }
 
   /** Sửa câu trong đề nháp bằng bản sao riêng; giữ nguyên các đề đang dùng câu gốc. */
@@ -744,13 +614,7 @@ export class LearningService {
     },
     actorId: string,
   ): Promise<LearningQuestion> {
-    return await exam_editing_ops.editExamQuestion(
-      this.operationContext,
-      examId,
-      questionId,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.editExamQuestion(examId, questionId, input, actorId);
   }
 
   /** Kiểm tra đề hoàn chỉnh rồi tự công bố hoặc đưa vào hàng đợi duyệt theo cấu hình. */
@@ -761,8 +625,7 @@ export class LearningService {
     expectedVersion?: number,
     forcePublish = false,
   ): Promise<LearningExam> {
-    return await exam_approval_ops.submitExamForReview(
-      this.operationContext,
+    return await this.examAssessment.submitExamForReview(
       examId,
       actorId,
       confirmQuestions,
@@ -772,15 +635,8 @@ export class LearningService {
   }
 
   /** Kiểm tra ghi danh, cửa sổ thi, giới hạn lượt rồi tạo hoặc tiếp tục lượt đang làm. */
-  async startAttempt(
-    examId: string,
-    learnerId: string,
-  ): Promise<ExamAttempt> {
-    return await attempts_ops.startAttempt(
-      this.operationContext,
-      examId,
-      learnerId,
-    );
+  async startAttempt(examId: string, learnerId: string): Promise<ExamAttempt> {
+    return await this.examAssessment.startAttempt(examId, learnerId);
   }
 
   /** Validate đáp án thuộc đề và upsert câu trả lời khi lượt thi còn trong hạn. */
@@ -790,30 +646,16 @@ export class LearningService {
     answers: string[],
     learnerId: string,
   ): Promise<ExamAttempt> {
-    return await attempts_ops.saveAnswer(
-      this.operationContext,
-      attemptId,
-      questionId,
-      answers,
-      learnerId,
-    );
+    return await this.examAssessment.saveAnswer(attemptId, questionId, answers, learnerId);
   }
 
-  /**
-   * Lưu gộp đáp án cuối cùng rồi nộp bài. Nếu đã quá hạn lưu, các đáp án gửi kèm bị bỏ qua và bài được nộp
-   * với những gì máy chủ đã lưu trước hạn, giống luồng nộp tự động khi hết giờ.
-   */
+  /** Lưu gộp đáp án cuối cùng rồi nộp bài. */
   async submitAttemptWithAnswers(
     attemptId: string,
     learnerId: string,
     answers: Array<{ questionId: string; answers: string[] }> = [],
   ): Promise<ExamAttempt> {
-    try {
-      await attempts_ops.saveAnswers(this.operationContext, attemptId, answers, learnerId);
-    } catch (error) {
-      if (!(error instanceof BadRequestException) || error.message !== "Đã hết thời gian lưu câu trả lời.") throw error;
-    }
-    return this.submitAttempt(attemptId, learnerId);
+    return this.examAssessment.submitAttemptWithAnswers(attemptId, learnerId, answers);
   }
 
   /** Chốt lượt thi nguyên tử, tự chấm câu khách quan và phát receipt chống nhầm lẫn. */
@@ -822,47 +664,27 @@ export class LearningService {
     learnerId: string,
     trigger: "LEARNER" | "SYSTEM" = "LEARNER",
   ): Promise<ExamAttempt> {
-    return await attempts_ops.submitAttempt(
-      this.operationContext,
-      attemptId,
-      learnerId,
-      trigger,
-    );
+    return await this.examAssessment.submitAttempt(attemptId, learnerId, trigger);
   }
 
   /** Tìm lượt IN_PROGRESS quá hạn theo lô và nộp tự động bằng cùng logic submit. */
   async reconcileExpiredAttempts(limit = 100): Promise<number> {
-    return await attempts_ops.reconcileExpiredAttempts(
-      this.operationContext,
-      limit,
-    );
+    return await this.examAssessment.reconcileExpiredAttempts(limit);
   }
 
   /** Đọc một lượt thi và ánh xạ đáp án từ Prisma hoặc kho nhớ. */
   async getAttempt(attemptId: string): Promise<ExamAttempt> {
-    return await attempts_ops.getAttempt(this.operationContext, attemptId);
+    return await this.examAssessment.getAttempt(attemptId);
   }
 
   /** Liệt kê kết quả đã nộp/chấm của học viên cùng trạng thái phúc khảo. */
-  async listLearnerResults(
-    learnerId: string,
-  ): Promise<LearnerResult[]> {
-    return await attempts_ops.listLearnerResults(
-      this.operationContext,
-      learnerId,
-    );
+  async listLearnerResults(learnerId: string): Promise<LearnerResult[]> {
+    return await this.examAssessment.listLearnerResults(learnerId);
   }
 
   /** Trả đúng kết quả thuộc học viên, từ chối truy cập chéo lượt thi. */
-  async getLearnerResult(
-    attemptId: string,
-    learnerId: string,
-  ): Promise<LearnerResult> {
-    return await attempts_ops.getLearnerResult(
-      this.operationContext,
-      attemptId,
-      learnerId,
-    );
+  async getLearnerResult(attemptId: string, learnerId: string): Promise<LearnerResult> {
+    return await this.examAssessment.getLearnerResult(attemptId, learnerId);
   }
 
   /** Mở yêu cầu phúc khảo duy nhất cho lượt đã chấm và thông báo giảng viên. */
@@ -871,12 +693,7 @@ export class LearningService {
     reason: string,
     learnerId: string,
   ): Promise<RegradeRequest> {
-    return await regrades_ops.requestRegrade(
-      this.operationContext,
-      attemptId,
-      reason,
-      learnerId,
-    );
+    return await this.examAssessment.requestRegrade(attemptId, reason, learnerId);
   }
 
   /** Liệt kê hàng đợi phúc khảo trong đúng phạm vi lớp của giảng viên. */
@@ -884,28 +701,17 @@ export class LearningService {
     actorId: string,
     status?: RegradeRequest["status"],
   ): Promise<RegradeRequest[]> {
-    return await regrades_ops.listRegradeRequests(
-      this.operationContext,
-      actorId,
-      status,
-    );
+    return await this.examAssessment.listRegradeRequests(actorId, status);
   }
 
   /** Nhả yêu cầu phúc khảo mình đang xử lý về hàng đợi. */
   async releaseRegrade(requestId: string, actorId: string): Promise<RegradeRequest> {
-    return await regrades_ops.releaseRegrade(this.operationContext, requestId, actorId);
+    return await this.examAssessment.releaseRegrade(requestId, actorId);
   }
 
   /** Nhận xử lý một yêu cầu OPEN bằng cập nhật có điều kiện để chống hai người cùng nhận. */
-  async claimRegrade(
-    requestId: string,
-    actorId: string,
-  ): Promise<RegradeRequest> {
-    return await regrades_ops.claimRegrade(
-      this.operationContext,
-      requestId,
-      actorId,
-    );
+  async claimRegrade(requestId: string, actorId: string): Promise<RegradeRequest> {
+    return await this.examAssessment.claimRegrade(requestId, actorId);
   }
 
   /** Kết thúc yêu cầu đã nhận; nếu chấp thuận thì cập nhật điểm hiện hành. */
@@ -920,24 +726,12 @@ export class LearningService {
     },
     actorId: string,
   ): Promise<RegradeRequest> {
-    return await regrades_ops.resolveRegrade(
-      this.operationContext,
-      requestId,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.resolveRegrade(requestId, input, actorId);
   }
 
   /** Liệt kê lượt thi trong phạm vi lớp giảng viên phụ trách. */
-  async listAttempts(
-    examId: string | undefined,
-    actorId: string,
-  ): Promise<ExamAttempt[]> {
-    return await regrades_ops.listAttempts(
-      this.operationContext,
-      examId,
-      actorId,
-    );
+  async listAttempts(examId: string | undefined, actorId: string): Promise<ExamAttempt[]> {
+    return await this.examAssessment.listAttempts(examId, actorId);
   }
 
   /** Thu thập tối đa sáu tệp đã công khai trong các lớp cùng môn mà giảng viên được phân công. */
@@ -947,8 +741,7 @@ export class LearningService {
     rawMaterialIds: string[] = [],
     skipMaterials = false,
   ): Promise<ExamGenerationContext> {
-    return await exam_generation_ops.getExamGenerationContext(
-      this.operationContext,
+    return await this.examAssessment.getExamGenerationContext(
       classId,
       actorId,
       rawMaterialIds,
@@ -962,12 +755,7 @@ export class LearningService {
     classId: string,
     actorId: string,
   ): Promise<LearningExam | undefined> {
-    return await exam_generation_ops.getGeneratedExamByRequest(
-      this.operationContext,
-      clientRequestId,
-      classId,
-      actorId,
-    );
+    return await this.examAssessment.getGeneratedExamByRequest(clientRequestId, classId, actorId);
   }
 
   /** Lưu câu hỏi AI đã chuẩn hóa và đề nháp trong một giao dịch, tái dùng câu trùng đã xuất bản. */
@@ -987,8 +775,7 @@ export class LearningService {
     clientRequestId: string = randomUUID(),
     actorId: string,
   ): Promise<LearningExam> {
-    return await exam_generation_ops.createGeneratedExam(
-      this.operationContext,
+    return await this.examAssessment.createGeneratedExam(
       input,
       questions,
       courseId,
@@ -999,15 +786,8 @@ export class LearningService {
   }
 
   /** Trả đầy đủ đề, bài làm và điểm từng câu sau khi xác minh phạm vi giảng viên. */
-  async getAttemptReview(
-    attemptId: string,
-    actorId: string,
-  ): Promise<ExamAttemptReview> {
-    return await grading_ops.getAttemptReview(
-      this.operationContext,
-      attemptId,
-      actorId,
-    );
+  async getAttemptReview(attemptId: string, actorId: string): Promise<ExamAttemptReview> {
+    return await this.examAssessment.getAttemptReview(attemptId, actorId);
   }
 
   /** Ghi điểm thủ công/hiệu chỉnh, bắt buộc lý do khi đổi điểm và cập nhật điểm hiện hành. */
@@ -1019,8 +799,7 @@ export class LearningService {
     graderId: string,
     questionScores?: Array<{ questionId: string; score: number }>,
   ): Promise<ExamAttempt> {
-    return await grading_ops.gradeAttempt(
-      this.operationContext,
+    return await this.examAssessment.gradeAttempt(
       attemptId,
       score,
       feedback,
@@ -1617,11 +1396,7 @@ export class LearningService {
     input: { classId?: string; examId?: string; from?: string; to?: string },
     actorId: string,
   ): Promise<ExamAnalytics> {
-    return await analytics_ops.getExamAnalytics(
-      this.operationContext,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.getExamAnalytics(input, actorId);
   }
 
   /** Chuyển dữ liệu phân tích đề thi sang CSV có BOM để Excel đọc Unicode đúng. */
@@ -1629,18 +1404,11 @@ export class LearningService {
     input: { classId?: string; examId?: string; from?: string; to?: string },
     actorId: string,
   ): Promise<Buffer> {
-    return await analytics_ops.exportExamAnalytics(
-      this.operationContext,
-      input,
-      actorId,
-    );
+    return await this.examAssessment.exportExamAnalytics(input, actorId);
   }
 
   /** Cung cấp giới hạn tệp hiện hành cho trình chọn học liệu của giảng viên. */
   async getMaterialUploadPolicy(): Promise<{ maxFileSizeMb: number; allowedMimeTypes: string[] }> {
-    const policy = this.prisma
-      ? await this.operationContext.getStoragePolicy(this.prisma)
-      : { maxFileSizeMb: 50, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
-    return { maxFileSizeMb: policy.maxFileSizeMb, allowedMimeTypes: policy.allowedMimeTypes };
+    return await this.contentMaterial.getMaterialUploadPolicy();
   }
 }

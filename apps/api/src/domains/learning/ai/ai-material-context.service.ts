@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, HttpException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { LearningService } from "../core/learning.service.js";
+import { ContentMaterialService } from "../content/content-material.service.js";
 import { AiProviderService } from "../../system/ai/ai-provider.service.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { chunkDocument, type ContextChunk, retrieveDocumentContext } from "../../system/ai/ai-document-context.js";
@@ -13,7 +13,7 @@ import { AiDocumentExtractionStore } from "./ai-document-extraction-store.js";
 @Injectable()
 /** Trích xuất bản tài liệu được phép xem và cache theo bytes, phiên bản, provider/model. */
 export class AiMaterialContextService {
-  constructor(private readonly learning: LearningService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
+  constructor(private readonly learning: ContentMaterialService, private readonly ai: AiProviderService, @Optional() private readonly prisma?: PrismaService, @Optional() private readonly drafts: AiStudyDraftService = new AiStudyDraftService(prisma), @Optional() private readonly answers: AiDocumentAnswerStore = new AiDocumentAnswerStore(prisma), @Optional() private readonly extractions: AiDocumentExtractionStore = new AiDocumentExtractionStore(prisma)) {}
 
   /** Chỉ đọc lịch sử riêng khi vẫn có quyền truy cập học liệu nguồn được yêu cầu. */
   async questionHistory(materialId: string, version: number, actorId: string, role: string, cursor?: string): ReturnType<AiDocumentAnswerStore["list"]> {

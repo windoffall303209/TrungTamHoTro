@@ -7,7 +7,7 @@ import { ContentController } from "../../src/domains/learning/content/content.co
 describe("Route AI học liệu của giảng viên", () => {
   it("từ chối mọi vai trò khác giảng viên trước khi chạm vào service AI", () => {
     const materialAi = new Proxy({}, { get: (): unknown => vi.fn((): Promise<object> => Promise.resolve({})) });
-    const controller = new ContentController({} as never, {} as never, {} as never, materialAi as never);
+    const controller = new ContentController({} as never, {} as never, {} as never, {} as never, materialAi as never);
     const learner = { roleCode: "LEARNER", user: { id: "usr-learner" }, permissions: ["material:manage"] } as unknown as AuthenticatedSession;
     const calls: Array<() => unknown> = [
       (): unknown => controller.questionHistory("mat-1", { version: 1 } as never, learner),

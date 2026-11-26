@@ -6,6 +6,8 @@ import { RealtimeController } from "../engagement/realtime.controller.js";
 import { LearningRuntimeService } from "./learning-runtime.service.js";
 import { LearningService } from "./learning.service.js";
 import { CourseClassService } from "../courses/course-class.service.js";
+import { ContentMaterialService } from "../content/content-material.service.js";
+import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
 import { AcademicController } from "../academic/academic.controller.js";
 import { AcademicService } from "../academic/academic.service.js";
 import { ExamAttemptReconciliationService } from "../exams/exam-attempt-reconciliation.service.js";
@@ -22,8 +24,8 @@ import { AiGradingOperationsController, AiGradingOperationsService } from "../ai
 @Module({
   imports: [SystemModule],
   controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, AiGradingOperationsController],
-  providers: [LearningRuntimeService, CourseClassService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
-  exports: [LearningRuntimeService, CourseClassService, LearningService],
+  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
+  exports: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, LearningService],
 })
 /** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */
 export class LearningModule {}

@@ -10,11 +10,13 @@ import {
 } from "../../src/common/pagination.js";
 import { AcademicController } from "../../src/domains/learning/academic/academic.controller.js";
 import { AcademicService } from "../../src/domains/learning/academic/academic.service.js";
+import { ContentMaterialService } from "../../src/domains/learning/content/content-material.service.js";
 import { ContentController } from "../../src/domains/learning/content/content.controller.js";
 import { LearningService } from "../../src/domains/learning/core/learning.service.js";
 import { CourseClassService } from "../../src/domains/learning/courses/course-class.service.js";
 import { CourseController } from "../../src/domains/learning/courses/course.controller.js";
 import { EngagementController } from "../../src/domains/learning/engagement/engagement.controller.js";
+import { ExamAssessmentService } from "../../src/domains/learning/exams/exam-assessment.service.js";
 import { SystemController } from "../../src/domains/system/core/system.controller.js";
 import { SystemService } from "../../src/domains/system/core/system.service.js";
 
@@ -244,7 +246,13 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
 
   it("Controller kiểm tra chặt tham số truy vấn cho các endpoint phân trang", () => {
     const service = new LearningService();
-    const contentController = new ContentController(service, {} as never, {} as never, {} as never);
+    const contentController = new ContentController(
+      new ContentMaterialService(),
+      new ExamAssessmentService(),
+      {} as never,
+      {} as never,
+      {} as never,
+    );
     const courseController = new CourseController(new CourseClassService());
     const session = { user: { id: "usr-manager" }, roleCode: "CENTER_MANAGER" } as never;
 
