@@ -58,10 +58,14 @@ interface NavSection {
   items: NavigationItem[];
 }
 
-/** Ánh xạ thông báo sang đường dẫn deep-link đúng thực thể và mã hóa an toàn entityId. */
-export function resolveNotificationHref(item: Pick<LearningNotification, "entityType" | "entityId" | "type">): string {
+/** Ánh xạ thông báo sang đường dẫn deep-link đúng thực thể theo vai trò và mã hóa an toàn entityId. */
+export function resolveNotificationHref(
+  item: Pick<LearningNotification, "entityType" | "entityId" | "type">,
+  roleCode: RoleCode = "INSTRUCTOR",
+): string {
   const entityType = item.entityType.trim().toUpperCase();
   const entityId = encodeURIComponent(item.entityId);
+  const sessionHref = roleCode === "INSTRUCTOR" ? `/live-classes?sessionId=${entityId}` : "/courses";
   const destinations: Record<string, string> = {
     CLASS: `/courses/classes/${entityId}`,
     MATERIAL: `/materials?materialId=${entityId}`,
@@ -70,7 +74,7 @@ export function resolveNotificationHref(item: Pick<LearningNotification, "entity
     EXAM_ATTEMPT: `/exams?attemptId=${entityId}`,
     ASSIGNMENT: `/academic?assignmentId=${entityId}`,
     CLASS_ANNOUNCEMENT: `/academic?announcementId=${entityId}`,
-    LIVE_SESSION: `/live-classes?sessionId=${entityId}`,
+    LIVE_SESSION: sessionHref,
     SUPPORT_TICKET: `/support?ticketId=${entityId}`,
     CHAT_CONVERSATION: `/messages?conversationId=${entityId}`,
     FORUM_TOPIC: `/forum?topicId=${entityId}`,
@@ -84,7 +88,7 @@ export function resolveNotificationHref(item: Pick<LearningNotification, "entity
     item.type.includes("SESSION") ||
     item.type.includes("RECORDING")
   )
-    return `/live-classes?sessionId=${entityId}`;
+    return sessionHref;
   if (item.type.includes("EXAM") || item.type.includes("GRADE"))
     return `/exams?examId=${entityId}`;
   if (item.type.includes("ASSIGNMENT"))
@@ -138,10 +142,10 @@ const allNavItems: NavigationItem[] = [
   },
   {
     href: "/live-classes",
-    label: "Lớp học online",
+    label: "Lịch học",
     icon: CalendarDays,
     permissions: ["session:view"],
-    roles: ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"],
+    roles: ["INSTRUCTOR"],
   },
   {
     href: "/academic",
@@ -304,11 +308,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     ].filter((s) => s.items.length > 0);
   }, [availableItems]);
 
-  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Lịch học, Tin nhắn
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Tin nhắn
   const learnerNavItems = useMemo(
     () => [
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
-      { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],
@@ -476,9 +479,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-  /** Lấy đường dẫn đích của thông báo từ hàm ánh xạ deep-link dùng chung. */
+  /** Lấy đường dẫn đích của thông báo từ hàm ánh xạ deep-link dùng chung theo vai trò hiện tại. */
   function notificationHref(item: LearningNotification): string {
-    return resolveNotificationHref(item);
+    return resolveNotificationHref(item, session.roleCode);
   }
 
 /** Đảm nhiệm signOut trong phạm vi module hiện tại. */

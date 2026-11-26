@@ -179,7 +179,23 @@ export function ManagerClassWorkspace({
     currentClass.status !== "CLOSED";
   const canTransitionSession =
     session.roleCode === "SYSTEM_ADMIN" || hasPermission(session, "session:manage");
-  const [activeTab, setActiveTab] = useState<ManagerSubTab>("overview");
+  const [activeTab, setActiveTab] = useState<ManagerSubTab>(() => {
+    if (typeof window !== "undefined") {
+      const tabParam = new URLSearchParams(window.location.search).get("tab") as ManagerSubTab | null;
+      const validTabs: ManagerSubTab[] = [
+        "overview",
+        "feed",
+        "instructors",
+        "learners",
+        "schedule",
+        "assignments",
+        "materials",
+        "lectures",
+      ];
+      if (tabParam && validTabs.includes(tabParam)) return tabParam;
+    }
+    return "overview";
+  });
   const [copiedLink, setCopiedLink] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyRequest = useRef(0);

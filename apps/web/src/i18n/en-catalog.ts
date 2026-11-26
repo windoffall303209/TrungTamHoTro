@@ -1560,6 +1560,14 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại được kiểm toán minh bạch.": "Verify readiness, close classes without data loss, and reopen with transparent audit trails.",
   "Thao tác mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.": "Reopening will be recorded in the system audit log. Archived data remains preserved.",
   "Chưa có báo cáo đối soát lưu trữ hoàn tất; hãy tạo tác vụ chạy nền.": "No completed storage audit report is available yet; queue a background audit job first.",
+  "Lịch giảng dạy tổng hợp theo tuần và tháng của tất cả các lớp phụ trách.": "Aggregated weekly and monthly teaching schedule across all assigned classes.",
+  "Đổi lịch buổi học": "Reschedule session",
+  "Thêm buổi học mới": "Add new session",
+  "Bắt đầu": "Start",
+  "Kết thúc": "End",
+  "Đổi lịch": "Reschedule",
+  "Xác nhận lịch": "Confirm schedule",
+  "Mở lớp đang theo học, chọn tab Lịch học để kiểm tra khung giờ theo tuần hoặc tháng và bấm vào phòng Google Meet của buổi học.": "Open your enrolled class, select the Schedule tab to check the weekly or monthly timetable, and join the session's Google Meet room.",
 };
 
 

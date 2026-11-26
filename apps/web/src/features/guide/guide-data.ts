@@ -73,8 +73,8 @@ export const ROLE_GUIDE_CATALOG: readonly [RoleGuideContent, ...RoleGuideContent
         id: "learner-materials-live",
         title: "Học liệu, bài giảng và lịch Google Meet",
         summary: "Xem bài giảng, tải tài liệu trong lớp và mở đúng phòng học trực tuyến theo lịch.",
-        actionHref: "/live-classes",
-        actionLabel: "Mở Lịch học",
+        actionHref: "/courses",
+        actionLabel: "Mở lớp học",
         steps: [
           {
             title: "Xem bài giảng và tài liệu lớp",
@@ -86,7 +86,7 @@ export const ROLE_GUIDE_CATALOG: readonly [RoleGuideContent, ...RoleGuideContent
           },
           {
             title: "Vào buổi học trực tuyến",
-            detail: "Mở tab Lịch học trong lớp hoặc trang Lịch học chung, kiểm tra khung giờ và bấm link Google Meet được giảng viên gắn cho buổi học.",
+            detail: "Mở lớp đang theo học, chọn tab Lịch học để kiểm tra khung giờ theo tuần hoặc tháng và bấm vào phòng Google Meet của buổi học.",
           },
         ],
         tip: "Một số học liệu đang ở trạng thái Ẩn sẽ chưa hiển thị cho đến khi giảng viên công bố.",

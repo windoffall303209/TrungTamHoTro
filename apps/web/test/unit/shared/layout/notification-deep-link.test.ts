@@ -19,6 +19,14 @@ describe("ánh xạ deep-link thông báo theo từng loại thực thể (D07)"
     expect(resolveNotificationHref(item)).toBe(expected);
   });
 
+  it("chỉ điều hướng thông báo buổi học sang /live-classes cho giảng viên, các vai trò khác về /courses", () => {
+    const liveItem = { entityType: "LIVE_SESSION", entityId: "ses-01", type: "LIVE_SESSION_SCHEDULED" };
+    expect(resolveNotificationHref(liveItem, "INSTRUCTOR")).toBe("/live-classes?sessionId=ses-01");
+    expect(resolveNotificationHref(liveItem, "LEARNER")).toBe("/courses");
+    expect(resolveNotificationHref(liveItem, "CENTER_MANAGER")).toBe("/courses");
+    expect(resolveNotificationHref(liveItem, "SYSTEM_ADMIN")).toBe("/courses");
+  });
+
   it("mã hóa an toàn entityId chứa ký tự đặc biệt và xử lý fallback hợp lệ", () => {
     expect(resolveNotificationHref({ entityType: "ASSIGNMENT", entityId: "id/1&x=2", type: "ASSIGNMENT_GRADED" })).toBe(
       "/academic?assignmentId=id%2F1%26x%3D2",

@@ -1,9 +1,20 @@
 "use client";
 
 import { activeLocale } from "@/i18n/runtime";
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock, ExternalLink, Pencil, Play, Radio, Trash2, Video } from "lucide-react";
+import {
+  CalendarPlus,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  ExternalLink,
+  Pencil,
+  Play,
+  Radio,
+  Trash2,
+  Video,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
@@ -13,10 +24,9 @@ import {
   Field,
   inputClass,
   Modal,
-  Pagination,
   StatusBadge,
 } from "@/shared/ui/ui";
-import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
+import type { PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
 import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
 import type { LearningClass, LiveSession } from "@/lib/learning-types";
@@ -26,10 +36,26 @@ import {
   GOOGLE_MEET_URL_ERROR,
   normalizeGoogleMeetUrlInput,
 } from "@/features/class-detail/live-session-utils";
-import { hasPermission } from "@/lib/access-control";
 import { safeExternalUrl } from "@/lib/safe-content";
 
-// Lấy mốc thời gian ngày thứ Hai đầu tuần từ một ngày bất kỳ
+const WORKSPACE_ROLES = [
+  "SYSTEM_ADMIN",
+  "CENTER_MANAGER",
+  "INSTRUCTOR",
+  "LEARNER",
+] as const;
+
+const WEEK_DAY_NAMES = [
+  "Thứ 2",
+  "Thứ 3",
+  "Thứ 4",
+  "Thứ 5",
+  "Thứ 6",
+  "Thứ 7",
+  "Chủ nhật",
+] as const;
+
+// Lấy mốc thời gian ngày thứ Hai đầu tuần từ một ngày bất kỳ.
 function getMonday(d: Date): Date {
   const date = new Date(d);
   const day = date.getDay();
@@ -39,7 +65,7 @@ function getMonday(d: Date): Date {
   return date;
 }
 
-// Kiểm tra hai đối tượng thời gian có cùng ngày tháng năm hay không
+// Kiểm tra hai đối tượng thời gian có cùng ngày tháng năm hay không.
 function isSameDay(d1: Date, d2: Date): boolean {
   return (
     d1.getFullYear() === d2.getFullYear() &&
@@ -48,40 +74,30 @@ function isSameDay(d1: Date, d2: Date): boolean {
   );
 }
 
-// Định dạng ngày và tháng dạng DD/MM từ đối tượng thời gian
+// Định dạng ngày và tháng dạng DD/MM từ đối tượng thời gian.
 function formatDateDayMonth(d: Date): string {
   const day = d.getDate().toString().padStart(2, "0");
   const month = (d.getMonth() + 1).toString().padStart(2, "0");
   return `${day}/${month}`;
 }
 
-/** Quản lý lịch, trạng thái tham gia và vòng đời của các buổi học trực tuyến. */
+/** Hiển thị và điều phối lịch giảng dạy tổng hợp theo tuần/tháng dành riêng cho giáo viên. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
   const { t } = useI18n();
+  const router = useRouter();
   const searchParams = useSearchParams();
-  const allowed = [
-    "SYSTEM_ADMIN",
-    "CENTER_MANAGER",
-    "INSTRUCTOR",
-    "LEARNER",
-  ].includes(session.roleCode);
+
+  const knownWorkspaceRole = (WORKSPACE_ROLES as readonly string[]).includes(
+    session.roleCode,
+  );
   const instructor = session.roleCode === "INSTRUCTOR";
-  const learner = session.roleCode === "LEARNER";
-  const manager =
-    ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
-    hasPermission(session, "class:manage");
+  const classIdParam = searchParams.get("classId")?.trim() ?? "";
+  const redirectHref = classIdParam
+    ? `/courses/classes/${encodeURIComponent(classIdParam)}?tab=schedule`
+    : "/courses";
+
   const [items, setItems] = useState<LiveSession[]>([]);
-  const pagination = useServerPagination(10);
-  const {
-    page: sessionPage,
-    displayPage: sessionDisplayPage,
-    pageSize: sessionPageSize,
-    totalItems: sessionTotalItems,
-    setPage: setSessionPage,
-    setPageSize: setSessionPageSize,
-    syncResponse: syncSessionPage,
-  } = pagination;
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(false);
@@ -97,16 +113,11 @@ export default function LiveClassesPage() {
     endsAt: "",
     provider: "GOOGLE_MEET",
     meetingUrl: "",
-    reason: "",
   });
 
-  // Trạng thái ngày được chọn để duyệt tuần hoặc tháng
   const [currentDate, setCurrentDate] = useState(() => new Date());
-
-  // Lấy mốc ngày thứ Hai đầu tuần hiện tại
   const currentMonday = useMemo(() => getMonday(currentDate), [currentDate]);
 
-  // Lấy danh sách 7 ngày trong tuần từ thứ Hai đến Chủ nhật
   const weekDays = useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(currentMonday);
@@ -115,7 +126,11 @@ export default function LiveClassesPage() {
     });
   }, [currentMonday]);
 
-  // Tính nhãn hiển thị khoảng thời gian theo tuần hoặc theo tháng
+  const classById = useMemo(
+    () => new Map(classes.map((entry) => [entry.id, entry])),
+    [classes],
+  );
+
   const periodLabel = useMemo(() => {
     if (scheduleView === "week") {
       const sunday = weekDays[6] ?? currentMonday;
@@ -131,7 +146,7 @@ export default function LiveClassesPage() {
     return `${t("Tháng")} ${month}, ${year}`;
   }, [scheduleView, currentMonday, weekDays, currentDate, t]);
 
-  // Chuyển sang tuần hoặc tháng trước đó
+  // Chuyển sang tuần hoặc tháng trước đó.
   const handlePrevPeriod = () => {
     setCurrentDate((prev) => {
       const next = new Date(prev);
@@ -144,7 +159,7 @@ export default function LiveClassesPage() {
     });
   };
 
-  // Chuyển sang tuần hoặc tháng tiếp theo
+  // Chuyển sang tuần hoặc tháng tiếp theo.
   const handleNextPeriod = () => {
     setCurrentDate((prev) => {
       const next = new Date(prev);
@@ -157,76 +172,116 @@ export default function LiveClassesPage() {
     });
   };
 
-  // Quay về mốc tuần hoặc tháng hiện tại
+  // Quay về mốc tuần hoặc tháng hiện tại.
   const handleToday = () => {
     setCurrentDate(new Date());
   };
-  /** Nạp lớp và buổi trực tuyến theo trang (hoặc cửa sổ lịch tuần/tháng với học viên và giảng viên). */
+
+  useEffect(() => {
+    if (knownWorkspaceRole && !instructor) {
+      router.replace(redirectHref);
+    }
+  }, [instructor, knownWorkspaceRole, redirectHref, router]);
+
+  /** Nạp danh sách lớp phụ trách và các buổi học trong cửa sổ tuần hoặc tháng của giáo viên. */
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (!allowed || !mountedRef.current) return;
+    if (!instructor || !mountedRef.current) return;
     const requestVersion = ++loadRequestVersion.current;
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (learner || instructor) {
-        let rangeStart: Date;
-        let rangeEnd: Date;
-        if (scheduleView === "week") {
-          rangeStart = new Date(currentMonday);
-          rangeStart.setHours(0, 0, 0, 0);
-          rangeEnd = new Date(weekDays[6] ?? currentMonday);
-          rangeEnd.setHours(23, 59, 59, 999);
-        } else {
-          rangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1, 0, 0, 0, 0);
-          rangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59, 999);
-        }
-        params.set("page", "1");
-        params.set("pageSize", "100");
-        params.set("from", rangeStart.toISOString());
-        params.set("to", rangeEnd.toISOString());
+      let rangeStart: Date;
+      let rangeEnd: Date;
+      if (scheduleView === "week") {
+        rangeStart = new Date(currentMonday);
+        rangeStart.setHours(0, 0, 0, 0);
+        rangeEnd = new Date(weekDays[6] ?? currentMonday);
+        rangeEnd.setHours(23, 59, 59, 999);
       } else {
-        params.set("page", String(sessionPage));
-        params.set("pageSize", String(sessionPageSize));
+        rangeStart = new Date(
+          currentDate.getFullYear(),
+          currentDate.getMonth(),
+          1,
+          0,
+          0,
+          0,
+          0,
+        );
+        rangeEnd = new Date(
+          currentDate.getFullYear(),
+          currentDate.getMonth() + 1,
+          0,
+          23,
+          59,
+          59,
+          999,
+        );
       }
+      const params = new URLSearchParams({
+        page: "1",
+        pageSize: "100",
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      });
       const [sessionsResult, classData] = await Promise.all([
         apiRequest<PaginatedResponse<LiveSession> | LiveSession[]>(
           `/sessions/page?${params.toString()}`,
           { roleCode: session.roleCode, signal },
         ),
-        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal }),
+        apiRequest<LearningClass[]>("/classes", {
+          roleCode: session.roleCode,
+          signal,
+        }),
       ]);
-      if (signal?.aborted || !mountedRef.current || requestVersion !== loadRequestVersion.current) return;
+      if (
+        signal?.aborted ||
+        !mountedRef.current ||
+        requestVersion !== loadRequestVersion.current
+      ) {
+        return;
+      }
       if (Array.isArray(sessionsResult)) {
         setItems(sessionsResult);
-        syncSessionPage({ total: sessionsResult.length, page: 1, totalPages: 1 });
       } else {
         setItems(Array.isArray(sessionsResult.items) ? sessionsResult.items : []);
-        syncSessionPage(sessionsResult);
       }
-      setClasses(classData);
+      setClasses(Array.isArray(classData) ? classData : []);
     } catch (error) {
-      if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) {
-        notify(error instanceof Error ? error.message : "Không tải được lịch học.", "error");
+      if (
+        !signal?.aborted &&
+        mountedRef.current &&
+        requestVersion === loadRequestVersion.current
+      ) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được lịch học.",
+          "error",
+        );
       }
     } finally {
-      if (!signal?.aborted && mountedRef.current && requestVersion === loadRequestVersion.current) setLoading(false);
+      if (
+        !signal?.aborted &&
+        mountedRef.current &&
+        requestVersion === loadRequestVersion.current
+      ) {
+        setLoading(false);
+      }
     }
   }, [
-    allowed,
     currentDate,
     currentMonday,
     instructor,
-    learner,
     notify,
     scheduleView,
     session.roleCode,
-    sessionPage,
-    sessionPageSize,
-    syncSessionPage,
     weekDays,
   ]);
+
   useEffect(() => {
     mountedRef.current = true;
+    if (!instructor) {
+      return () => {
+        mountedRef.current = false;
+      };
+    }
     const controller = new AbortController();
     const timer = window.setTimeout(() => void load(controller.signal), 0);
     return () => {
@@ -235,30 +290,36 @@ export default function LiveClassesPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [load]);
+  }, [instructor, load]);
+
   /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn. */
   useEffect(() => {
+    if (!instructor) return;
     const sessionId = searchParams.get("sessionId");
     if (!sessionId || loading) return;
     const timer = window.setTimeout(() => {
       const node = document.getElementById(`session-${sessionId}`);
       if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
-      else
+      else {
         notify(
           "Buổi học không còn khả dụng hoặc bạn không có quyền xem.",
           "error",
         );
+      }
     }, 100);
     return () => window.clearTimeout(timer);
-  }, [items, loading, notify, searchParams]);
+  }, [instructor, items, loading, notify, searchParams]);
+
   useEffect(() => {
-    /** Cập nhật mốc thời gian dùng để tính trạng thái sắp diễn ra/đang học trên giao diện. */
+    if (!instructor) return;
+    // Cập nhật mốc thời gian dùng để tính trạng thái sắp diễn ra/đang học trên giao diện.
     const updateClock = () => setClock(Date.now());
     updateClock();
     const timer = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(timer);
-  }, []);
-  /** Tạo buổi học trực tuyến mới sau khi kiểm tra link Google Meet và chuẩn hóa mốc thời gian sang ISO. */
+  }, [instructor]);
+
+  /** Tạo buổi học mới gắn link Google Meet và chuẩn hóa mốc thời gian sang ISO. */
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     const normalizedMeetUrl = normalizeGoogleMeetUrlInput(form.meetingUrl);
@@ -267,23 +328,18 @@ export default function LiveClassesPage() {
       return;
     }
     try {
-      await apiRequest(
-        manager
-          ? `/manager/classes/${form.classId}/sessions`
-          : `/instructor/classes/${form.classId}/sessions`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            title: form.title,
-            startsAt: localDateTimeToIso(form.startsAt),
-            endsAt: localDateTimeToIso(form.endsAt),
-            provider: form.provider,
-            ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
-          }),
-        },
-      );
-      notify("Đã lên lịch lớp trực tuyến.");
+      await apiRequest(`/instructor/classes/${form.classId}/sessions`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: form.title,
+          startsAt: localDateTimeToIso(form.startsAt),
+          endsAt: localDateTimeToIso(form.endsAt),
+          provider: form.provider,
+          ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
+        }),
+      });
+      notify("Đã thêm buổi học mới thành công.");
       setOpen(false);
       await load();
     } catch (error) {
@@ -293,7 +349,8 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Chuẩn hóa dữ liệu buổi học vào input datetime-local theo giờ địa phương và mở editor đổi lịch. */
+
+  /** Chuẩn hóa dữ liệu buổi học vào input datetime-local theo giờ địa phương và mở hộp thoại đổi lịch. */
   const openEdit = (item: LiveSession) => {
     setEditing(item);
     setForm({
@@ -303,10 +360,10 @@ export default function LiveClassesPage() {
       endsAt: toLocalDateTimeInput(item.endsAt),
       provider: item.provider,
       meetingUrl: item.hostUrl || item.attendeeUrl || "",
-      reason: "",
     });
     setOpen(true);
   };
+
   /** Đổi lịch buổi học và để máy chủ phát thông báo cho lớp. */
   const update = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -317,22 +374,17 @@ export default function LiveClassesPage() {
       return;
     }
     try {
-      await apiRequest(
-        manager
-          ? `/manager/sessions/${editing.id}`
-          : `/instructor/sessions/${editing.id}`,
-        {
-          method: "PATCH",
-          roleCode: session.roleCode,
-          body: JSON.stringify({
-            title: form.title,
-            startsAt: localDateTimeToIso(form.startsAt),
-            endsAt: localDateTimeToIso(form.endsAt),
-            provider: form.provider,
-            ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
-          }),
-        },
-      );
+      await apiRequest(`/instructor/sessions/${editing.id}`, {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          title: form.title,
+          startsAt: localDateTimeToIso(form.startsAt),
+          endsAt: localDateTimeToIso(form.endsAt),
+          provider: form.provider,
+          ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
+        }),
+      });
       notify("Đã đổi lịch và gửi thông báo cho lớp.");
       setOpen(false);
       setEditing(null);
@@ -344,20 +396,16 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Hủy buổi học và làm mới lịch sau khi API gửi thông báo. */
+
+  /** Hủy buổi học chưa diễn ra và làm mới lịch sau khi API gửi thông báo. */
   const cancel = async (item: LiveSession) => {
     if (!window.confirm(`${t("Hủy buổi học")}?`)) return;
     try {
-      await apiRequest(
-        manager
-          ? `/manager/sessions/${item.id}/cancel`
-          : `/instructor/sessions/${item.id}/cancel`,
-        {
-          method: "POST",
-          roleCode: session.roleCode,
-          body: JSON.stringify({}),
-        },
-      );
+      await apiRequest(`/instructor/sessions/${item.id}/cancel`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: JSON.stringify({}),
+      });
       notify("Đã hủy buổi học và gửi thông báo.");
       await load();
     } catch (error) {
@@ -367,7 +415,8 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Chuyển trạng thái vận hành của buổi học qua endpoint hành động tương ứng. */
+
+  /** Chuyển trạng thái vận hành của buổi học qua endpoint giảng viên. */
   const transition = async (
     item: LiveSession,
     status: "LIVE" | "COMPLETED" | "CANCELLED",
@@ -387,7 +436,8 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Ghi nhận tham gia theo vai trò và mở liên kết phòng học được máy chủ cấp. */
+
+  /** Mở liên kết phòng học trực tuyến được máy chủ xác thực cho giáo viên. */
   const join = async (item: LiveSession) => {
     const meetingWindow = window.open("", "_blank");
     if (!meetingWindow) {
@@ -396,13 +446,10 @@ export default function LiveClassesPage() {
     }
     meetingWindow.opener = null;
     try {
-      const endpoint = learner
-        ? `/learner/sessions/${item.id}/join`
-        : `/sessions/${item.id}/join`;
       const result = await apiRequest<{
         attendeeUrl: string;
         joinedAt: string;
-      }>(endpoint, {
+      }>(`/sessions/${item.id}/join`, {
         method: "POST",
         roleCode: session.roleCode,
       });
@@ -421,127 +468,129 @@ export default function LiveClassesPage() {
     }
   };
 
-  if (!allowed) return <AccessDenied />;
+  if (!knownWorkspaceRole) return <AccessDenied />;
+  if (!instructor) return null;
+
+  const monthSessions = items
+    .filter((entry) => {
+      const d = new Date(entry.startsAt);
+      return (
+        d.getMonth() === currentDate.getMonth() &&
+        d.getFullYear() === currentDate.getFullYear()
+      );
+    })
+    .sort(
+      (left, right) =>
+        new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime(),
+    );
 
   return (
     <div className="w-full px-5 sm:px-6 lg:px-8 py-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3">
         <PageHeader
-          title={learner ? t("Lịch học trực tuyến") : t("Lớp học online")}
-          description={
-            learner
-              ? t("Xem thời khóa biểu và vào phòng trực tuyến.")
-              : t("Lập lịch, mở phòng và gắn bản ghi sau buổi học.")
-          }
+          title={t("Lịch học")}
+          description={t(
+            "Lịch giảng dạy tổng hợp theo tuần và tháng của tất cả các lớp phụ trách.",
+          )}
           actions={
-            instructor || manager ? (
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setForm({
-                    classId: classes[0]?.id ?? "",
-                    title: "",
-                    startsAt: "",
-                    endsAt: "",
-                    provider: "GOOGLE_MEET",
-                    meetingUrl: "",
-                    reason: "",
-                  });
-                  setOpen(true);
-                }}
-              >
-                <CalendarPlus size={17} />
-                {t("Lên lịch")}
-              </Button>
-            ) : undefined
+            <Button
+              onClick={() => {
+                setEditing(null);
+                const preselectedClassId =
+                  classIdParam && classes.some((entry) => entry.id === classIdParam)
+                    ? classIdParam
+                    : (classes[0]?.id ?? "");
+                setForm({
+                  classId: preselectedClassId,
+                  title: "",
+                  startsAt: "",
+                  endsAt: "",
+                  provider: "GOOGLE_MEET",
+                  meetingUrl: "",
+                });
+                setOpen(true);
+              }}
+            >
+              <CalendarPlus size={17} />
+              {t("Lên lịch")}
+            </Button>
           }
         />
       </div>
 
       {/* Thanh công cụ lịch học: Chuyển Tuần/Tháng và Điều hướng thời gian */}
-      {(learner || instructor) && (
-        <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs mb-4">
-          {/* Nút chuyển đổi chế độ Tuần / Tháng */}
-          <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
-            <button
-              type="button"
-              onClick={() => setScheduleView("week")}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                scheduleView === "week"
-                  ? "bg-[#0b57d0] text-white shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              {t("Tuần")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setScheduleView("month")}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                scheduleView === "month"
-                  ? "bg-[#0b57d0] text-white shadow-xs"
-                  : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-              }`}
-            >
-              {t("Tháng")}
-            </button>
-          </div>
-
-          {/* Bộ điều hướng thời gian có nút chuyển lùi/tiến và mốc thời gian */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handlePrevPeriod}
-              className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-              title={t("Thời gian trước")}
-            >
-              <ChevronLeft size={16} />
-            </button>
-
-            <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 px-2 min-w-36 sm:min-w-44 text-center">
-              {periodLabel}
-            </span>
-
-            <button
-              type="button"
-              onClick={handleNextPeriod}
-              className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
-              title={t("Thời gian sau")}
-            >
-              <ChevronRight size={16} />
-            </button>
-
-            <button
-              type="button"
-              onClick={handleToday}
-              className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
-            >
-              {t("Hôm nay")}
-            </button>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs mb-4">
+        <div className="inline-flex p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setScheduleView("week")}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              scheduleView === "week"
+                ? "bg-[#0b57d0] text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            {t("Tuần")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setScheduleView("month")}
+            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              scheduleView === "month"
+                ? "bg-[#0b57d0] text-white shadow-xs"
+                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+            }`}
+          >
+            {t("Tháng")}
+          </button>
         </div>
-      )}
 
-      <SectionState loading={loading} empty={items.length === 0}>
-        {(learner || instructor) && scheduleView === "week" ? (
-          /* CHẾ ĐỘ DẠNG TUẦN (LƯỚI 7 NGÀY THỜI KHÓA BIỂU) CHO HỌC SINH VÀ GIẢNG VIÊN */
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrevPeriod}
+            className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+            title={t("Thời gian trước")}
+          >
+            <ChevronLeft size={16} />
+          </button>
+
+          <span className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100 px-2 min-w-36 sm:min-w-44 text-center">
+            {periodLabel}
+          </span>
+
+          <button
+            type="button"
+            onClick={handleNextPeriod}
+            className="size-8 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+            title={t("Thời gian sau")}
+          >
+            <ChevronRight size={16} />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleToday}
+            className="px-2.5 py-1 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+          >
+            {t("Hôm nay")}
+          </button>
+        </div>
+      </div>
+
+      <SectionState loading={loading} empty={false}>
+        {scheduleView === "week" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {weekDays.map((colDate, idx) => {
-              const daySessions = items.filter((session) => {
-                const sDate = new Date(session.startsAt);
-                return isSameDay(sDate, colDate);
-              });
+              const daySessions = items
+                .filter((entry) => isSameDay(new Date(entry.startsAt), colDate))
+                .sort(
+                  (left, right) =>
+                    new Date(left.startsAt).getTime() -
+                    new Date(right.startsAt).getTime(),
+                );
               const isColToday = isSameDay(colDate, new Date());
-              const dayNames = [
-                "Thứ 2",
-                "Thứ 3",
-                "Thứ 4",
-                "Thứ 5",
-                "Thứ 6",
-                "Thứ 7",
-                "Chủ nhật",
-              ];
-              const dayName = dayNames[idx];
+              const dayName = WEEK_DAY_NAMES[idx] ?? "Thứ 2";
 
               return (
                 <div
@@ -553,10 +602,9 @@ export default function LiveClassesPage() {
                   }`}
                 >
                   <div className="flex-1 flex flex-col">
-                    {/* Header cột thứ và ngày DD/MM */}
                     <div className="border-b border-slate-200/60 dark:border-slate-800 pb-2 mb-2.5">
                       <p className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                        {t(dayName || "Thứ 2")}
+                        {t(dayName)}
                         {isColToday ? ` - ${t("Hôm nay")}` : ""}
                       </p>
                       <p className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
@@ -564,28 +612,29 @@ export default function LiveClassesPage() {
                       </p>
                     </div>
 
-                    {/* Danh sách ca học trong ngày */}
                     {daySessions.length > 0 ? (
                       <div className="space-y-2.5 flex-1">
-                        {daySessions.map((session) => {
-                          const isLive = session.status === "LIVE";
-                          const isUpcoming = clock < new Date(session.startsAt).getTime();
-                          // Buổi đã hủy/kết thúc không còn cho vào phòng dù vẫn trong khung giờ.
-                          const joinable = session.status === "SCHEDULED" || session.status === "LIVE";
-                          const canJoin =
-                            joinable &&
-                            clock >= new Date(session.startsAt).getTime() - 15 * 60_000 &&
-                            clock <= new Date(session.endsAt).getTime() + 30 * 60_000;
+                        {daySessions.map((sessionItem) => {
+                          const isLive = sessionItem.status === "LIVE";
+                          const isUpcoming =
+                            clock < new Date(sessionItem.startsAt).getTime();
+                          const joinable =
+                            sessionItem.status === "SCHEDULED" ||
+                            sessionItem.status === "LIVE";
+                          const classInfo = classById.get(sessionItem.classId);
 
                           return (
                             <div
-                              key={session.id}
-                              id={`session-${session.id}`}
+                              key={sessionItem.id}
+                              id={`session-${sessionItem.id}`}
                               className="p-3 rounded-xl bg-[#0070ba] dark:bg-[#0b57d0] text-white shadow-md space-y-2 hover:shadow-lg transition-shadow"
                             >
                               <div className="flex items-center justify-between gap-1">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 text-white backdrop-blur-xs">
-                                  <Radio size={11} className={isLive ? "animate-pulse" : ""} />
+                                  <Radio
+                                    size={11}
+                                    className={isLive ? "animate-pulse" : ""}
+                                  />
                                   <span>
                                     {isLive
                                       ? t("Đang diễn ra")
@@ -595,23 +644,32 @@ export default function LiveClassesPage() {
                                   </span>
                                 </span>
                                 <span className="text-[10px] text-white/80 font-medium">
-                                  {session.provider.replace("_", " ")}
+                                  {sessionItem.provider.replace("_", " ")}
                                 </span>
                               </div>
 
                               <div>
+                                {classInfo ? (
+                                  <p className="text-[10px] font-bold uppercase tracking-wide text-sky-100/90 truncate">
+                                    {classInfo.code} · {classInfo.name}
+                                  </p>
+                                ) : null}
                                 <h3 className="text-xs font-extrabold text-white line-clamp-2 leading-snug">
-                                  {session.title}
+                                  {sessionItem.title}
                                 </h3>
                                 <p className="text-[10px] text-white/80 mt-0.5 flex items-center gap-1 font-medium">
                                   <Clock size={11} className="shrink-0" />
                                   <span>
-                                    {new Date(session.startsAt).toLocaleTimeString(activeLocale(), {
+                                    {new Date(
+                                      sessionItem.startsAt,
+                                    ).toLocaleTimeString(activeLocale(), {
                                       hour: "2-digit",
                                       minute: "2-digit",
                                     })}
                                     {" - "}
-                                    {new Date(session.endsAt).toLocaleTimeString(activeLocale(), {
+                                    {new Date(
+                                      sessionItem.endsAt,
+                                    ).toLocaleTimeString(activeLocale(), {
                                       hour: "2-digit",
                                       minute: "2-digit",
                                     })}
@@ -620,54 +678,36 @@ export default function LiveClassesPage() {
                               </div>
 
                               <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
-                                {instructor ? (
-                                  <div className="flex flex-col gap-1.5">
-                                    {session.status === "SCHEDULED" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void transition(session, "LIVE")}
-                                        className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                      >
-                                        <Play size={12} /> {t("Bắt đầu ca dạy")}
-                                      </button>
-                                    )}
-                                    {session.status === "LIVE" && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void transition(session, "COMPLETED")}
-                                        className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                      >
-                                        {t("Kết thúc ca dạy")}
-                                      </button>
-                                    )}
-                                    {joinable && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void join(session)}
-                                        className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                      >
-                                        {t("Vào phòng")} <ExternalLink size={11} />
-                                      </button>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <>
-
-                                    {joinable && (
-                                      <button
-                                        type="button"
-                                        disabled={!canJoin && !isLive}
-                                        onClick={() => void join(session)}
-                                        className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
-                                          canJoin || isLive
-                                            ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs"
-                                            : "bg-white/10 text-white/50 cursor-not-allowed"
-                                        }`}
-                                      >
-                                        {isLive ? t("Vào lớp ngay") : canJoin ? t("Vào phòng") : t("Chưa đến giờ")}
-                                      </button>
-                                    )}
-                                  </>
+                                {sessionItem.status === "SCHEDULED" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void transition(sessionItem, "LIVE")
+                                    }
+                                    className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                  >
+                                    <Play size={12} /> {t("Bắt đầu ca dạy")}
+                                  </button>
+                                )}
+                                {sessionItem.status === "LIVE" && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void transition(sessionItem, "COMPLETED")
+                                    }
+                                    className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                  >
+                                    {t("Kết thúc ca dạy")}
+                                  </button>
+                                )}
+                                {joinable && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void join(sessionItem)}
+                                    className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                  >
+                                    {t("Vào phòng")} <ExternalLink size={11} />
+                                  </button>
                                 )}
                               </div>
                             </div>
@@ -684,229 +724,111 @@ export default function LiveClassesPage() {
               );
             })}
           </div>
-        ) : (learner || instructor) && scheduleView === "month" ? (
-          /* CHẾ ĐỘ DẠNG THÁNG CHO HỌC SINH VÀ GIẢNG VIÊN */
-          <div className="space-y-4">
-            {(() => {
-              const monthSessions = items.filter((session) => {
-                const d = new Date(session.startsAt);
-                return (
-                  d.getMonth() === currentDate.getMonth() &&
-                  d.getFullYear() === currentDate.getFullYear()
-                );
-              });
-
-              if (monthSessions.length === 0) {
-                return (
-                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-12 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
-                    {t("Không có lịch học trong tháng này")}
-                  </div>
-                );
-              }
-
-              return monthSessions.map((item) => (
-                <article
-                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
-                  id={`session-${item.id}`}
-                  key={item.id}
-                >
-                  <div
-                    className={`grid size-12 place-items-center rounded-2xl ${
-                      item.status === "LIVE" ? "bg-rose-100 text-rose-600" : "bg-sky-50 text-sky-700"
-                    }`}
-                  >
-                    {item.status === "LIVE" ? <Radio className="animate-pulse" /> : <Video />}
-                  </div>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="font-heading text-lg font-extrabold">{item.title}</h2>
-                      <StatusBadge status={item.status} />
-                    </div>
-                    <p className="mt-2 text-xs sm:text-sm text-slate-500">
-                      {new Date(item.startsAt).toLocaleString(activeLocale())} —{" "}
-                      {new Date(item.endsAt).toLocaleTimeString(activeLocale(), {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}{" "}
-                      · {item.provider.replace("_", " ")}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {instructor && item.status === "SCHEDULED" ? (
-                      <Button onClick={() => void transition(item, "LIVE")}>
-                        <Play size={15} />
-                        Bắt đầu
-                      </Button>
-                    ) : null}
-                    {instructor && item.status === "LIVE" ? (
-                      <Button
-                        onClick={() => void transition(item, "COMPLETED")}
-                        variant="secondary"
-                      >
-                        Kết thúc
-                      </Button>
-                    ) : null}
-                    {instructor &&
-                    item.status === "SCHEDULED" &&
-                    new Date(item.startsAt) > new Date() ? (
-                      <>
-                        <Button onClick={() => openEdit(item)} variant="secondary">
-                          <Pencil size={15} />
-                          Đổi lịch
-                        </Button>
-                        <Button onClick={() => void cancel(item)} variant="ghost">
-                          <Trash2 size={15} />
-                          Hủy
-                        </Button>
-                      </>
-                    ) : null}
-                    {item.status !== "SCHEDULED" && item.status !== "LIVE" ? null : instructor ? (
-                      <Button onClick={() => void join(item)} variant="secondary">
-                        Vào phòng <ExternalLink size={15} />
-                      </Button>
-                    ) : (
-                      <Button
-                        disabled={
-                          clock < new Date(item.startsAt).getTime() - 15 * 60_000 ||
-                          clock > new Date(item.endsAt).getTime() + 30 * 60_000
-                        }
-                        onClick={() => void join(item)}
-                      >
-                        {clock < new Date(item.startsAt).getTime() - 15 * 60_000
-                          ? t("Chưa đến giờ")
-                          : clock > new Date(item.endsAt).getTime() + 30 * 60_000
-                            ? t("Đã kết thúc")
-                            : t("Vào lớp")}{" "}
-                        <ExternalLink size={15} />
-                      </Button>
-                    )}
-                  </div>
-                </article>
-              ));
-            })()}
-          </div>
         ) : (
-          /* CHẾ ĐỘ DẠNG THÁNG (DANH SÁCH CHI TIẾT) HOẶC VIEW CHO QUẢN TRỊ / GIẢNG VIÊN */
           <div className="space-y-4">
-            {items.map((item) => (
-              <article
-                className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
-                id={`session-${item.id}`}
-                key={item.id}
-              >
-                <div
-                  className={`grid size-12 place-items-center rounded-2xl ${item.status === "LIVE" ? "bg-rose-100 text-rose-600" : "bg-sky-50 text-sky-700"}`}
-                >
-                  {item.status === "LIVE" ? (
-                    <Radio className="animate-pulse" />
-                  ) : (
-                    <Video />
-                  )}
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-heading text-xl font-extrabold">
-                      {item.title}
-                    </h2>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  <p className="mt-2 text-sm text-slate-500">
-                    {new Date(item.startsAt).toLocaleString(activeLocale())} —{" "}
-                    {new Date(item.endsAt).toLocaleTimeString(activeLocale(), {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    · {item.provider.replace("_", " ")}
-                    {item.fallbackUsed
-                      ? ` · fallback từ ${item.requestedProvider?.replace("_", " ")} sau ${item.provisioningAttempts} lần thử`
-                      : item.provisioningAttempts && item.provisioningAttempts > 1
-                        ? ` · ${item.provisioningAttempts} lần thử`
-                        : ""}
-                    {item.timezone ? ` · ${item.timezone}` : ""}
-                  </p>
-                  {safeExternalUrl(item.recordingUrl) ? (
-                    <a
-                      className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-sky-700"
-                      href={safeExternalUrl(item.recordingUrl)}
-                      rel="noopener noreferrer"
-                      target="_blank"
+            {monthSessions.length === 0 ? (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-12 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
+                {t("Không có lịch học trong tháng này")}
+              </div>
+            ) : (
+              monthSessions.map((item) => {
+                const classInfo = classById.get(item.classId);
+                return (
+                  <article
+                    className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
+                    id={`session-${item.id}`}
+                    key={item.id}
+                  >
+                    <div
+                      className={`grid size-12 place-items-center rounded-2xl ${
+                        item.status === "LIVE"
+                          ? "bg-rose-100 text-rose-600"
+                          : "bg-sky-50 text-sky-700"
+                      }`}
                     >
-                      Xem bản ghi <ExternalLink size={12} />
-                    </a>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {instructor && item.status === "SCHEDULED" ? (
-                    <Button onClick={() => void transition(item, "LIVE")}>
-                      <Radio size={15} />
-                      Bắt đầu
-                    </Button>
-                  ) : null}
-                  {instructor && item.status === "LIVE" ? (
-                    <Button
-                      onClick={() => void transition(item, "COMPLETED")}
-                      variant="secondary"
-                    >
-                      Kết thúc
-                    </Button>
-                  ) : null}
-                  {(manager || instructor) &&
-                  item.status === "SCHEDULED" &&
-                  new Date(item.startsAt) > new Date() ? (
-                    <>
-                      <Button onClick={() => openEdit(item)} variant="secondary">
-                        <Pencil size={15} />
-                        Đổi lịch
-                      </Button>
-                      <Button onClick={() => void cancel(item)} variant="ghost">
-                        <Trash2 size={15} />
-                        Hủy
-                      </Button>
-                    </>
-                  ) : null}
-                  {(manager || instructor) &&
-                  (item.status === "SCHEDULED" || item.status === "LIVE") ? (
-                    <Button onClick={() => void join(item)} variant="secondary">
-                      Vào phòng <ExternalLink size={15} />
-                    </Button>
-                  ) : null}
-                  { learner &&
-                    (item.status === "SCHEDULED" || item.status === "LIVE") ? (
-                    <Button
-                      disabled={
-                        clock < new Date(item.startsAt).getTime() - 15 * 60_000 ||
-                        clock > new Date(item.endsAt).getTime() + 30 * 60_000
-                      }
-                      onClick={() => void join(item)}
-                    >
-                      {clock < new Date(item.startsAt).getTime() - 15 * 60_000
-                        ? "Mở trước giờ học 15 phút"
-                        : clock > new Date(item.endsAt).getTime() + 30 * 60_000
-                          ? "Đã hết giờ tham gia"
-                          : "Vào lớp"}{" "}
-                      <ExternalLink size={15} />
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
+                      {item.status === "LIVE" ? (
+                        <Radio className="animate-pulse" />
+                      ) : (
+                        <Video />
+                      )}
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {classInfo ? (
+                          <span className="px-2 py-0.5 rounded-md bg-sky-50 dark:bg-sky-950/60 border border-sky-200/80 dark:border-sky-800/60 text-sky-700 dark:text-sky-300 text-xs font-mono font-bold">
+                            {classInfo.code}
+                          </span>
+                        ) : null}
+                        <h2 className="font-heading text-lg font-extrabold">
+                          {item.title}
+                        </h2>
+                        <StatusBadge status={item.status} />
+                      </div>
+                      <p className="mt-2 text-xs sm:text-sm text-slate-500">
+                        {classInfo ? `${classInfo.name} · ` : ""}
+                        {new Date(item.startsAt).toLocaleString(activeLocale())} —{" "}
+                        {new Date(item.endsAt).toLocaleTimeString(activeLocale(), {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}{" "}
+                        · {item.provider.replace("_", " ")}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {item.status === "SCHEDULED" ? (
+                        <Button onClick={() => void transition(item, "LIVE")}>
+                          <Play size={15} />
+                          {t("Bắt đầu")}
+                        </Button>
+                      ) : null}
+                      {item.status === "LIVE" ? (
+                        <Button
+                          onClick={() => void transition(item, "COMPLETED")}
+                          variant="secondary"
+                        >
+                          {t("Kết thúc")}
+                        </Button>
+                      ) : null}
+                      {item.status === "SCHEDULED" &&
+                      new Date(item.startsAt) > new Date() ? (
+                        <>
+                          <Button
+                            onClick={() => openEdit(item)}
+                            variant="secondary"
+                          >
+                            <Pencil size={15} />
+                            {t("Đổi lịch")}
+                          </Button>
+                          <Button
+                            onClick={() => void cancel(item)}
+                            variant="ghost"
+                          >
+                            <Trash2 size={15} />
+                            {t("Hủy")}
+                          </Button>
+                        </>
+                      ) : null}
+                      {item.status === "SCHEDULED" || item.status === "LIVE" ? (
+                        <Button
+                          onClick={() => void join(item)}
+                          variant="secondary"
+                        >
+                          {t("Vào phòng")} <ExternalLink size={15} />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })
+            )}
           </div>
         )}
       </SectionState>
-      {!(learner || instructor) ? (
-        <Pagination
-          itemLabel="buổi học trực tuyến"
-          onPageChange={setSessionPage}
-          onPageSizeChange={setSessionPageSize}
-          page={sessionDisplayPage}
-          pageSize={sessionPageSize}
-          totalItems={sessionTotalItems}
-        />
-      ) : null}
+
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? "Đổi lịch lớp trực tuyến" : "Lên lịch lớp trực tuyến"}
+        title={editing ? t("Đổi lịch buổi học") : t("Thêm buổi học mới")}
       >
         <form
           className="space-y-4"
@@ -966,7 +888,7 @@ export default function LiveClassesPage() {
             />
           </Field>
           <Button disabled={!editing && !form.classId} type="submit">
-            Xác nhận lịch
+            {t("Xác nhận lịch")}
           </Button>
         </form>
       </Modal>

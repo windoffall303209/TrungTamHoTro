@@ -43,7 +43,10 @@ export async function calendar(
         title: sessionItem.title,
         startAt: sessionItem.startsAt.toISOString(),
         endAt: sessionItem.endsAt.toISOString(),
-        href: `/live-classes?classId=${encodeURIComponent(item.id)}&sessionId=${encodeURIComponent(sessionItem.id)}`,
+        href:
+          session.roleCode === "INSTRUCTOR"
+            ? `/live-classes?classId=${encodeURIComponent(item.id)}&sessionId=${encodeURIComponent(sessionItem.id)}`
+            : `/courses/classes/${encodeURIComponent(item.id)}?tab=schedule`,
       })),
     );
     events.push(
