@@ -1553,6 +1553,7 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Gỡ phân công giảng viên?": "Remove instructor assignment?",
   "Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại được kiểm toán minh bạch.": "Verify readiness, close classes without data loss, and reopen with transparent audit trails.",
   "Thao tác mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.": "Reopening will be recorded in the system audit log. Archived data remains preserved.",
+  "Chưa có báo cáo đối soát lưu trữ hoàn tất; hãy tạo tác vụ chạy nền.": "No completed storage audit report is available yet; queue a background audit job first.",
 };
 
 

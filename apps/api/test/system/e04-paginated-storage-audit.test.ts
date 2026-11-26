@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,6 +8,7 @@ import type { Environment } from "../../src/config/environment.js";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import type { SystemServiceContext } from "../../src/domains/system/core/system.context.js";
 import {
+  getLatestSnapshotAssetAudit,
   queueStorageAudit,
   runPaginatedStorageAudit,
 } from "../../src/domains/system/operations/storage/system-storage-audit.js";
@@ -275,5 +277,21 @@ describe("E04 Paginated background storage audit job (HEAD/metadata, sampled che
     const drained = await drainOperationalJobs(context, 3);
     expect(drained.audit).toBe(1);
     expect(state.job.status).toBe("COMPLETED");
+
+    // 4. API kiểm toán cũ đọc lại báo cáo hoàn tất gần nhất từ DB mà không quét lại kho lưu trữ.
+    const statCallsBefore = vi.spyOn(storage, "stat");
+    const latestReport = await getLatestSnapshotAssetAudit(context);
+    expect(latestReport.uniqueObjectCount).toBe(1);
+    expect(statCallsBefore).not.toHaveBeenCalled();
+
+    // 5. Lỗi mạng tạm thời (503 ServiceUnavailableException) từ stat() không bị ghi nhầm thành tệp mất mà chuyển job sang retry.
+    statCallsBefore.mockRejectedValueOnce(
+      new ServiceUnavailableException("Không thể kết nối Cloudinary để kiểm tra tệp."),
+    );
+    await queueStorageAudit(context, "admin-1", 0);
+    await processQueuedStorageAudit(context, prisma);
+    expect(state.job.status).toBe("PENDING");
+    expect(state.job.verification).toBeNull();
+    expect(String(state.job.errorMessage)).toContain("Cloudinary");
   });
 });

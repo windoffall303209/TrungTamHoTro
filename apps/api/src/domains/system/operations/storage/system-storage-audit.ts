@@ -70,6 +70,20 @@ async function computeObjectChecksum(
   return `sha256:${hash.digest("hex")}`;
 }
 
+/** Nhận diện lỗi mất tệp thật sự (404 / ENOENT) để không báo nhầm lỗi mạng hoặc kho lưu trữ tạm thời thành tệp mất. */
+function isMissingStorageObjectError(error: unknown): boolean {
+  if (error instanceof NotFoundException) return true;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** Chuyển bản ghi OperationalJob loại AUDIT sang DTO công khai kèm báo cáo JSON khi đã hoàn tất. */
 export function mapStorageAudit(
   row: Prisma.OperationalJobGetPayload<Record<string, never>>,
@@ -278,8 +292,12 @@ export async function runPaginatedStorageAudit(
             void chunk;
           }
         }
-      } catch {
-        missingObjects.push({ objectKey, references: owners });
+      } catch (error) {
+        if (isMissingStorageObjectError(error)) {
+          missingObjects.push({ objectKey, references: owners });
+        } else {
+          throw error;
+        }
       }
       checkedCount += 1;
     }
@@ -314,6 +332,33 @@ export async function snapshotAssetAudit(
   return runPaginatedStorageAudit(serviceContext, {
     sampleRate: DEFAULT_AUDIT_SAMPLE_RATE,
   });
+}
+
+/** Đọc báo cáo đối soát hoàn tất gần nhất từ hàng đợi nền để API cũ không quét đồng bộ trong request HTTP. */
+export async function getLatestSnapshotAssetAudit(
+  serviceContext: SystemServiceContext,
+): Promise<SnapshotAssetAudit> {
+  const prisma = serviceContext.database();
+  if (!prisma) {
+    throw new ServiceUnavailableException(
+      "Đối soát snapshot/asset cần database và kho object đang hoạt động.",
+    );
+  }
+  const latest = await prisma.operationalJob.findFirst({
+    where: {
+      kind: "AUDIT",
+      status: "COMPLETED",
+      verification: { not: null },
+    },
+    orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+  });
+  const mapped = latest ? mapStorageAudit(latest) : undefined;
+  if (!mapped?.report) {
+    throw new NotFoundException(
+      "Chưa có báo cáo đối soát lưu trữ hoàn tất; hãy tạo tác vụ chạy nền.",
+    );
+  }
+  return mapped.report;
 }
 
 /** Xếp tác vụ đối soát lưu trữ phân trang vào hàng đợi operational_jobs để chạy nền có lease và tiến độ. */

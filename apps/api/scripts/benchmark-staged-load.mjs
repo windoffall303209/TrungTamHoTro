@@ -710,6 +710,13 @@ async function main() {
       })),
     };
     process.stdout.write(`${JSON.stringify(compact, null, 2)}\n`);
+    if (
+      stoppedAtStage !== null ||
+      stopReasons.length > 0 ||
+      stageReports.some((s) => s.stopThresholdTriggered || !s.leakCheckAfterDisconnect.leakFree)
+    ) {
+      process.exitCode = 1;
+    }
   } finally {
     // Dọn phiên đăng nhập gọn trước khi tắt tiến trình API.
     await runWithConcurrency(authenticatedSessions, 50, async (s) => {

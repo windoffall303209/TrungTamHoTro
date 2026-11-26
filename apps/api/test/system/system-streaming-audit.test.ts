@@ -1,3 +1,4 @@
+import { NotFoundException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
@@ -18,7 +19,7 @@ function snapshotDatabase(): SnapshotDatabase {
     learningClass: { findMany: vi.fn().mockResolvedValue([{ id: "class-1", courseId: "course-1", courseVersion: 3 }]) },
     courseVersion: { findMany: vi.fn().mockResolvedValue([{ courseId: "course-1", version: 3 }]) },
     material: { findMany: vi.fn().mockResolvedValue([{ id: "material-1", objectKey: "shared" }]) },
-    assignmentSubmissionAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "attachment-1", objectKey: "broken" }]) },
+    assignmentSubmissionAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "attachment-1", objectKey: "missing" }]) },
     question: { findMany: vi.fn().mockResolvedValue([]) },
     chatMessageAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "chat-1", objectKey: "shared" }]) },
     classFeedAttachment: { findMany: vi.fn().mockResolvedValue([]) },
@@ -27,15 +28,12 @@ function snapshotDatabase(): SnapshotDatabase {
 }
 
 describe("Đối soát object theo stream", () => {
-  it("chỉ giữ metadata, đọc hết stream và ghi nhận object lỗi giữa chừng", async () => {
+  it("chỉ giữ metadata, đọc hết stream và ghi nhận đúng object mất 404 đồng thời ném lỗi mạng tạm thời", async () => {
     const prisma = snapshotDatabase();
     const get = vi.fn();
     const openReadStream = vi.fn((key: string): Promise<Readable> => {
       if (key === "shared") return Promise.resolve(Readable.from([Buffer.from("chunk-1"), Buffer.from("chunk-2")]));
-      return Promise.resolve(Readable.from((function* (): Generator<Buffer> {
-        yield Buffer.from("partial");
-        throw new Error("storage disconnected");
-      })()));
+      return Promise.reject(new NotFoundException("Tệp không còn tồn tại trong kho lưu trữ."));
     });
     const context = {
       database: () => prisma,
@@ -51,10 +49,26 @@ describe("Đối soát object theo stream", () => {
       objectKey: "shared", references: ["material:material-1", "chat-attachment:chat-1"],
     }]);
     expect(result.missingObjects).toEqual([{
-      objectKey: "broken", references: ["assignment-attachment:attachment-1"],
+      objectKey: "missing", references: ["assignment-attachment:attachment-1"],
     }]);
-    expect(openReadStream.mock.calls.map(([key]) => key)).toEqual(["shared", "broken"]);
+    expect(openReadStream.mock.calls.map(([key]) => key)).toEqual(["shared", "missing"]);
     expect(get).not.toHaveBeenCalled();
+
+    // Lỗi kết nối gián đoạn không được ghi nhận nhầm thành tệp mất mà phải ném ra để worker retry.
+    const transientContext = {
+      database: () => snapshotDatabase(),
+      objectStorage: {
+        get,
+        openReadStream: vi.fn((key: string): Promise<Readable> => {
+          if (key === "shared") return Promise.resolve(Readable.from([Buffer.from("ok")]));
+          return Promise.resolve(Readable.from((function* (): Generator<Buffer> {
+            yield Buffer.from("partial");
+            throw new Error("storage disconnected");
+          })()));
+        }),
+      },
+    } as unknown as SystemServiceContext;
+    await expect(snapshotAssetAudit(transientContext)).rejects.toThrow("storage disconnected");
   });
 
   it("gom nhiều tham chiếu tới cùng một object theo đúng thứ tự và chỉ đọc object một lần", async () => {

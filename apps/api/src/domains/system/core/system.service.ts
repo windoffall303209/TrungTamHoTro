@@ -606,9 +606,9 @@ export class SystemService {
     return mapping_ops.mapAudit(this.operationContext, row);
   }
 
-  /** Đối soát snapshot lớp và mọi object reference để migration không tự sửa hoặc xóa dữ liệu mơ hồ. */
+  /** Trả báo cáo đối soát snapshot/asset mới nhất đã hoàn tất từ hàng đợi nền, không quét đồng bộ trong request HTTP. */
   async snapshotAssetAudit(): Promise<SnapshotAssetAudit> {
-    return await storage_audit_ops.snapshotAssetAudit(this.operationContext);
+    return await storage_audit_ops.getLatestSnapshotAssetAudit(this.operationContext);
   }
 
   /** Xếp job nền đối soát lưu trữ phân trang (HEAD/metadata + lấy mẫu checksum) vào hàng đợi. */
