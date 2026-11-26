@@ -64,6 +64,98 @@ type ConversationMembershipRow = Prisma.ChatConversationMemberGetPayload<{
   include: { conversation: { include: { class: true } } };
 }>;
 type ChatStreamCursor = { sequence: bigint };
+
+interface SqlChatAttachmentJson {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: string | number;
+}
+
+interface SqlChatMessageJson {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatarObjectKey: string | null;
+  senderAvatarUpdatedAt: string | Date | null;
+  clientMessageId: string;
+  content: string;
+  contextType: string | null;
+  contextId: string | null;
+  createdAt: string | Date;
+  replyTo: { id: string; senderName: string; content: string } | null;
+  attachments: SqlChatAttachmentJson[];
+  mentionedUserIds: string[];
+}
+
+interface SqlChatMemberJson {
+  userId: string;
+  displayName: string;
+  avatarObjectKey: string | null;
+  avatarUpdatedAt: string | Date | null;
+  roleCode: string;
+  status: "ACTIVE" | "REMOVED";
+}
+
+interface SqlConversationSummaryRow {
+  id: string;
+  type: "DIRECT" | "CLASS";
+  classId: string | null;
+  updatedAt: Date | string;
+  className: string | null;
+  classStatus: string | null;
+  actorStatus: "ACTIVE" | "REMOVED";
+  actorMutedUntil: Date | string | null;
+  unreadCount: number;
+  membersJson: SqlChatMemberJson[] | string | null;
+  lastMessageJson: SqlChatMessageJson | string | null;
+}
+
+interface SqlMessageListRow {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderName: string;
+  senderAvatarObjectKey: string | null;
+  senderAvatarUpdatedAt: Date | null;
+  clientMessageId: string;
+  content: string;
+  contextType: string | null;
+  contextId: string | null;
+  createdAt: Date;
+  replyToId: string | null;
+  replyToSenderName: string | null;
+  replyToContent: string | null;
+  attachmentsJson: SqlChatAttachmentJson[] | string | null;
+  mentionsJson: string[] | string | null;
+}
+
+interface SqlDirectTargetEligibilityRow {
+  targetId: string;
+  targetRoles: string[] | null;
+  actorRoles: string[] | null;
+  allowed: boolean;
+}
+
+/** Chuyển giá trị JSON hoặc chuỗi JSON từ PostgreSQL về đúng kiểu đối tượng đã khai báo. */
+function parseJsonField<T>(raw: T | string | null | undefined, fallback: T): T {
+  if (raw === null || raw === undefined) return fallback;
+  if (typeof raw === "string") return JSON.parse(raw) as T;
+  return raw;
+}
+
+/** Chuẩn hóa giá trị thời gian trả về từ driver PostgreSQL sang đối tượng Date hợp lệ. */
+function toDateValue(value: Date | string | null | undefined): Date | null {
+  if (!value) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
+/** Tạo khóa chuẩn hóa duy nhất cho mỗi cặp (contextType, contextId) khi gom lô kiểm quyền thẻ ngữ cảnh. */
+function contextCacheKey(type: "ASSIGNMENT" | "EXAM" | "MATERIAL", contextId: string): string {
+  return `${type}:${contextId}`;
+}
+
 export interface UploadedChatFile {
   originalName: string;
   mimeType: string;
@@ -222,7 +314,7 @@ export class ChatService {
       .slice(0, limit);
   }
 
-  /** Mở đúng một hội thoại riêng cho một cặp người dùng, chống tạo trùng bằng directKey. */
+  /** Mở đúng một hội thoại riêng cho một cặp người dùng, kiểm quyền trực tiếp theo targetUserId thay vì tải cả danh bạ. */
   async openDirect(
     session: AuthenticatedSession,
     targetUserId: string,
@@ -231,12 +323,64 @@ export class ChatService {
       throw new BadRequestException(
         "Không thể tự mở hội thoại với chính mình.",
       );
+    const directKey = [session.user.id, targetUserId].sort().join(":");
+    if (typeof this.prisma.$queryRaw === "function") {
+      const eligibility = await this.checkDirectTargetEligibility(session, targetUserId);
+      if (!eligibility)
+        throw new NotFoundException(
+          "Không tìm thấy người dùng trong phạm vi có thể liên hệ.",
+        );
+      // Fast-path: hội thoại riêng đã tồn tại và cả hai thành viên đều ACTIVE với đúng roleSnapshot -> bỏ qua transaction ghi.
+      const existingView = await this.loadSingleConversationSql(
+        { kind: "directKey", value: directKey },
+        session.user.id,
+      );
+      if (existingView) {
+        const actorMember = existingView.members.find((m) => m.userId === session.user.id);
+        const targetMember = existingView.members.find((m) => m.userId === targetUserId);
+        if (
+          actorMember?.status === "ACTIVE" &&
+          actorMember.roleCode === eligibility.actorRole &&
+          targetMember?.status === "ACTIVE" &&
+          targetMember.roleCode === eligibility.targetRole
+        ) {
+          return existingView;
+        }
+      }
+      const newConversationId = `conversation-${randomUUID()}`;
+      // Truyền thời điểm UTC từ JS Date để khớp kiểu timestamp without time zone của Prisma, tránh lệch múi giờ phiên PG.
+      const createdAt = new Date();
+      await this.prisma.$executeRaw`
+        WITH upserted AS (
+          INSERT INTO chat_conversations (id, type, direct_key, created_by_id, created_at, updated_at)
+          VALUES (${newConversationId}, 'DIRECT'::"ChatConversationType", ${directKey}, ${session.user.id}, ${createdAt}, ${createdAt})
+          ON CONFLICT (direct_key) DO UPDATE SET direct_key = EXCLUDED.direct_key
+          RETURNING id
+        )
+        INSERT INTO chat_conversation_members (conversation_id, user_id, role_snapshot, status, joined_at)
+        SELECT upserted.id, member_rows.user_id, member_rows.role_snapshot, 'ACTIVE'::"ChatMemberStatus", ${createdAt}
+        FROM upserted
+        CROSS JOIN (
+          VALUES
+            (${session.user.id}::text, ${eligibility.actorRole}::text),
+            (${targetUserId}::text, ${eligibility.targetRole}::text)
+        ) AS member_rows(user_id, role_snapshot)
+        ON CONFLICT (conversation_id, user_id) DO UPDATE
+          SET status = 'ACTIVE'::"ChatMemberStatus",
+              removed_at = NULL,
+              role_snapshot = EXCLUDED.role_snapshot
+      `;
+      const createdView = await this.loadSingleConversationSql(
+        { kind: "directKey", value: directKey },
+        session.user.id,
+      );
+      if (createdView) return createdView;
+    }
     const allowed = await this.directory(session, "", Number.MAX_SAFE_INTEGER);
     if (!allowed.some((entry) => entry.id === targetUserId))
       throw new NotFoundException(
         "Không tìm thấy người dùng trong phạm vi có thể liên hệ.",
       );
-    const directKey = [session.user.id, targetUserId].sort().join(":");
     const row = await this.prisma.$transaction(async (transaction) => {
       const conversation = await transaction.chatConversation.upsert({
         where: { directKey },
@@ -280,13 +424,45 @@ export class ChatService {
     return this.mapConversation(row, session.user.id);
   }
 
-  /** Mở hội thoại lớp; trigger khởi tạo membership từ ghi danh/phân công trong transaction tạo mới. */
+  /** Mở hội thoại lớp; ưu tiên đọc nhanh khi hội thoại đã tồn tại và chỉ khởi tạo (kèm trigger membership) lần đầu. */
   async openClass(
     session: AuthenticatedSession,
     classId: string,
   ): Promise<ChatConversationView> {
     if (!(await this.canJoinClassConversation(classId, session.user.id)))
       throw new NotFoundException("Không tìm thấy lớp được phép trò chuyện.");
+    if (typeof this.prisma.$queryRaw === "function") {
+      // Fast-path: bỏ qua BEGIN/upsert/COMMIT khi hội thoại lớp đã được tạo từ trước.
+      const existing = await this.loadSingleConversationSql(
+        { kind: "classId", value: classId },
+        session.user.id,
+      );
+      if (existing) return existing;
+      await this.prisma.chatConversation
+        .create({
+          data: {
+            id: `conversation-${randomUUID()}`,
+            type: "CLASS",
+            classId,
+            createdById: session.user.id,
+          },
+          select: { id: true },
+        })
+        .catch((error: unknown) => {
+          // Hai phiên có thể cùng tạo hội thoại đầu tiên của lớp trước khi thấy bản ghi của nhau.
+          if (
+            !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+            error.code !== "P2002"
+          ) {
+            throw error;
+          }
+        });
+      const created = await this.loadSingleConversationSql(
+        { kind: "classId", value: classId },
+        session.user.id,
+      );
+      if (created) return created;
+    }
     const conversation = await this.prisma.chatConversation.upsert({
       where: { classId },
       update: {},
@@ -310,10 +486,14 @@ export class ChatService {
     );
   }
 
-  /** Liệt kê hội thoại của thành viên, tính chưa đọc trên server và giữ lớp đóng ở chế độ đọc. */
+  /** Liệt kê hội thoại của thành viên, tính chưa đọc và tin mới nhất trong 1 truy vấn SQL (giữ fallback cho unit test mock). */
   async listConversations(
     session: AuthenticatedSession,
   ): Promise<ChatConversationView[]> {
+    if (typeof this.prisma.$queryRaw === "function") {
+      const rows = await this.loadConversationSummariesSql(session.user.id);
+      return this.mapSqlConversationSummaries(rows, session.user.id);
+    }
     const rows = await this.prisma.chatConversation.findMany({
       where: { members: { some: { userId: session.user.id } } },
       include: {
@@ -371,10 +551,6 @@ export class ChatService {
     before?: string,
     limit = 40,
   ): Promise<ChatMessagePage> {
-    const membership = await this.resolveMembership(
-      conversationId,
-      session.user.id,
-    );
     if (!Number.isFinite(limit) || !Number.isInteger(limit))
       throw new BadRequestException("Giới hạn số tin nhắn không hợp lệ.");
     const take = Math.min(Math.max(limit, 1), 100);
@@ -387,6 +563,10 @@ export class ChatService {
     const beforeDate = before ? new Date(separator >= 0 ? before.slice(0, separator) : before) : undefined;
     if (beforeDate && Number.isNaN(beforeDate.getTime()))
       throw new BadRequestException("Cursor tin nhắn không hợp lệ.");
+    const membership = await this.resolveMembershipLite(
+      conversationId,
+      session.user.id,
+    );
     const upperBound =
       membership.status === "REMOVED" &&
       membership.removedAt &&
@@ -394,9 +574,34 @@ export class ChatService {
         ? membership.removedAt
         : beforeDate;
     // Cursor có ID chỉ được dùng khi mốc rời nhóm không chặn các tin cùng thời điểm.
-    const useIdCursor = beforeId !== undefined && beforeDate && (
-      membership.status !== "REMOVED" || !membership.removedAt || beforeDate < membership.removedAt
+    const useIdCursor = Boolean(
+      beforeId !== undefined &&
+      beforeDate &&
+      (membership.status !== "REMOVED" || !membership.removedAt || beforeDate < membership.removedAt),
     );
+    if (typeof this.prisma.$queryRaw === "function") {
+      const rows = await this.loadMessagePageSql(
+        conversationId,
+        take + 1,
+        useIdCursor ? { kind: "idCursor", beforeDate: beforeDate!, beforeId: beforeId! } : { kind: "upperBound", upperBound },
+      );
+      const hasNext = rows.length > take;
+      const page = rows.slice(0, take);
+      const last = page.at(-1);
+      const nextRow = hasNext ? rows[take] : undefined;
+      const nextCursor = nextRow && last
+        ? `${last.createdAt.toISOString()}${nextRow.createdAt.getTime() === last.createdAt.getTime() ? `|${last.id}` : ""}`
+        : undefined;
+      const ordered = page.reverse();
+      const contextMap = await this.resolveContextCardsForActor(
+        session.user.id,
+        ordered.map((row) => ({ contextType: row.contextType, contextId: row.contextId })),
+      );
+      return {
+        items: ordered.map((row) => this.mapSqlMessageRow(row, contextMap)),
+        nextCursor,
+      };
+    }
     const rows = await this.prisma.chatMessage.findMany({
       where: {
         conversationId,
@@ -421,11 +626,14 @@ export class ChatService {
     const nextCursor = nextRow && last
       ? `${last.createdAt.toISOString()}${nextRow.createdAt.getTime() === last.createdAt.getTime() ? `|${last.id}` : ""}`
       : undefined;
+    const ordered = page.reverse();
+    const contextMap = await this.resolveContextCardsForActor(
+      session.user.id,
+      ordered.map((row) => ({ contextType: row.contextType, contextId: row.contextId })),
+    );
     return {
       items: await Promise.all(
-        page
-          .reverse()
-          .map((row) => this.mapMessageForActor(row, session.user.id)),
+        ordered.map((row) => this.mapMessageForActor(row, session.user.id, contextMap)),
       ),
       nextCursor,
     };
@@ -514,17 +722,15 @@ export class ChatService {
         "Chỉ được nhắc thành viên đang có trong hội thoại.",
       );
     if (input.contextType && input.contextId) {
-      for (const member of activeMembers)
-        if (
-          !(await this.canAccessContext(
-            input.contextType,
-            input.contextId,
-            member.userId,
-          ))
-        )
-          throw new BadRequestException(
-            "Một hoặc nhiều người nhận không còn quyền xem đối tượng được đính kèm.",
-          );
+      const everyoneAllowed = await this.canAllUsersAccessContext(
+        input.contextType,
+        input.contextId,
+        activeMembers.map((member) => member.userId),
+      );
+      if (!everyoneAllowed)
+        throw new BadRequestException(
+          "Một hoặc nhiều người nhận không còn quyền xem đối tượng được đính kèm.",
+        );
     }
     const stored: Array<
       UploadedChatFile & { objectKey: string; checksum: string }
@@ -780,8 +986,12 @@ export class ChatService {
         mentions: true,
       },
     });
+    const contextMap = await this.resolveContextCardsForActor(
+      session.user.id,
+      rows.map((row) => ({ contextType: row.contextType, contextId: row.contextId })),
+    );
     return Promise.all(
-      rows.map((row) => this.mapMessageForActor(row, session.user.id)),
+      rows.map((row) => this.mapMessageForActor(row, session.user.id, contextMap)),
     );
   }
 
@@ -926,6 +1136,647 @@ export class ChatService {
     );
   }
 
+  /** Đọc trạng thái thành viên tối gọn (không join class/conversation) cho các đường đọc chỉ cần status và removedAt. */
+  private async resolveMembershipLite(
+    conversationId: string,
+    userId: string,
+  ): Promise<{ status: "ACTIVE" | "REMOVED"; removedAt: Date | null }> {
+    const membership = await this.prisma.chatConversationMember.findUnique({
+      where: { conversationId_userId: { conversationId, userId } },
+      select: { status: true, removedAt: true },
+    });
+    if (!membership)
+      throw new NotFoundException(
+        "Không tìm thấy hội thoại trong phạm vi truy cập.",
+      );
+    return membership;
+  }
+
+  /** Kiểm tra quyền mở hội thoại riêng trực tiếp theo targetUserId bằng đúng 1 câu SQL thay vì nạp cả danh bạ. */
+  private async checkDirectTargetEligibility(
+    session: AuthenticatedSession,
+    targetUserId: string,
+  ): Promise<{
+    actorRole: ChatDirectoryEntry["roleCode"];
+    targetRole: ChatDirectoryEntry["roleCode"];
+  } | null> {
+    const isStaffActor =
+      session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN";
+    const rows = await this.prisma.$queryRaw<SqlDirectTargetEligibilityRow[]>`
+      SELECT
+        target.id AS "targetId",
+        COALESCE(
+          (
+            SELECT array_agg(r.code)
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = target.id
+          ),
+          ARRAY[]::text[]
+        ) AS "targetRoles",
+        COALESCE(
+          (
+            SELECT array_agg(r.code)
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = ${session.user.id}
+          ),
+          ARRAY[]::text[]
+        ) AS "actorRoles",
+        (
+          ${isStaffActor}
+          OR EXISTS (
+            SELECT 1
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = target.id
+              AND r.code IN ('SYSTEM_ADMIN', 'CENTER_MANAGER')
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM chat_conversations c
+            JOIN chat_conversation_members m1
+              ON m1.conversation_id = c.id
+             AND m1.user_id = ${session.user.id}
+             AND m1.status = 'ACTIVE'::"ChatMemberStatus"
+            JOIN chat_conversation_members m2
+              ON m2.conversation_id = c.id
+             AND m2.user_id = target.id
+            WHERE c.type = 'DIRECT'::"ChatConversationType"
+              AND EXISTS (SELECT 1 FROM chat_messages msg WHERE msg.conversation_id = c.id)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM learning_classes lc
+            WHERE (
+              EXISTS (SELECT 1 FROM class_instructors ci WHERE ci.class_id = lc.id AND ci.instructor_id = ${session.user.id})
+              OR EXISTS (SELECT 1 FROM class_enrollments ce WHERE ce.class_id = lc.id AND ce.learner_id = ${session.user.id} AND ce.status = 'ACTIVE'::"EnrollmentStatus")
+            )
+            AND (
+              EXISTS (SELECT 1 FROM class_instructors ci WHERE ci.class_id = lc.id AND ci.instructor_id = target.id)
+              OR EXISTS (SELECT 1 FROM class_enrollments ce WHERE ce.class_id = lc.id AND ce.learner_id = target.id AND ce.status = 'ACTIVE'::"EnrollmentStatus")
+            )
+          )
+        ) AS "allowed"
+      FROM users target
+      WHERE target.id = ${targetUserId}
+        AND target.status = 'ACTIVE'::"UserStatus"
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row || !row.allowed) return null;
+    const targetRole = this.primaryRole(row.targetRoles ?? []);
+    const actorRole = this.primaryRole(row.actorRoles ?? []);
+    return { actorRole, targetRole };
+  }
+
+  /** Tải toàn bộ danh sách hội thoại của actor kèm thành viên, tin cuối và số tin chưa đọc trong 1 truy vấn SQL. */
+  private loadConversationSummariesSql(actorId: string): Promise<SqlConversationSummaryRow[]> {
+    return this.prisma.$queryRaw<SqlConversationSummaryRow[]>`
+      SELECT
+        c.id,
+        c.type::text AS "type",
+        c.class_id AS "classId",
+        c.updated_at AS "updatedAt",
+        lc.name AS "className",
+        lc.status::text AS "classStatus",
+        me.status::text AS "actorStatus",
+        me.muted_until AS "actorMutedUntil",
+        (
+          SELECT count(*)::int
+          FROM chat_messages um
+          WHERE um.conversation_id = c.id
+            AND um.sender_id <> ${actorId}
+            AND um.created_at > COALESCE(me.last_read_at, me.joined_at)
+            AND (me.removed_at IS NULL OR um.created_at <= me.removed_at)
+        ) AS "unreadCount",
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'userId', cm.user_id,
+              'displayName', u.display_name,
+              'avatarObjectKey', u.avatar_object_key,
+              'avatarUpdatedAt', u.avatar_updated_at,
+              'roleCode', cm.role_snapshot,
+              'status', cm.status::text
+            )
+          )
+          FROM chat_conversation_members cm
+          JOIN users u ON u.id = cm.user_id
+          WHERE cm.conversation_id = c.id
+        ), '[]'::json) AS "membersJson",
+        (
+          SELECT json_build_object(
+            'id', lm.id,
+            'conversationId', lm.conversation_id,
+            'senderId', lm.sender_id,
+            'senderName', su.display_name,
+            'senderAvatarObjectKey', su.avatar_object_key,
+            'senderAvatarUpdatedAt', su.avatar_updated_at,
+            'clientMessageId', lm.client_message_id,
+            'content', lm.content,
+            'contextType', lm.context_type,
+            'contextId', lm.context_id,
+            'createdAt', lm.created_at,
+            'replyTo', CASE WHEN rm.id IS NOT NULL THEN json_build_object(
+              'id', rm.id,
+              'senderName', rsu.display_name,
+              'content', left(rm.content, 160)
+            ) ELSE NULL END,
+            'attachments', COALESCE((
+              SELECT json_agg(
+                json_build_object(
+                  'id', att.id,
+                  'originalName', att.original_name,
+                  'mimeType', att.mime_type,
+                  'sizeBytes', att.size_bytes::text
+                )
+                ORDER BY att.created_at ASC
+              )
+              FROM chat_message_attachments att
+              WHERE att.message_id = lm.id
+            ), '[]'::json),
+            'mentionedUserIds', COALESCE((
+              SELECT json_agg(mn.mentioned_user_id)
+              FROM chat_message_mentions mn
+              WHERE mn.message_id = lm.id
+            ), '[]'::json)
+          )
+          FROM chat_messages lm
+          JOIN users su ON su.id = lm.sender_id
+          LEFT JOIN chat_messages rm ON rm.id = lm.reply_to_id
+          LEFT JOIN users rsu ON rsu.id = rm.sender_id
+          WHERE lm.conversation_id = c.id
+          ORDER BY lm.created_at DESC
+          LIMIT 1
+        ) AS "lastMessageJson"
+      FROM chat_conversation_members me
+      JOIN chat_conversations c ON c.id = me.conversation_id
+      LEFT JOIN learning_classes lc ON lc.id = c.class_id
+      WHERE me.user_id = ${actorId}
+      ORDER BY c.updated_at DESC
+    `;
+  }
+
+  /** Tải đúng một hội thoại theo directKey hoặc classId trong 1 truy vấn SQL cho đường mở hội thoại nhanh. */
+  private async loadSingleConversationSql(
+    lookup: { kind: "directKey" | "classId"; value: string },
+    actorId: string,
+  ): Promise<ChatConversationView | null> {
+    const rows =
+      lookup.kind === "directKey"
+        ? await this.prisma.$queryRaw<SqlConversationSummaryRow[]>`
+            SELECT
+              c.id,
+              c.type::text AS "type",
+              c.class_id AS "classId",
+              c.updated_at AS "updatedAt",
+              lc.name AS "className",
+              lc.status::text AS "classStatus",
+              COALESCE(me.status::text, 'ACTIVE') AS "actorStatus",
+              me.muted_until AS "actorMutedUntil",
+              0::int AS "unreadCount",
+              COALESCE((
+                SELECT json_agg(
+                  json_build_object(
+                    'userId', cm.user_id,
+                    'displayName', u.display_name,
+                    'avatarObjectKey', u.avatar_object_key,
+                    'avatarUpdatedAt', u.avatar_updated_at,
+                    'roleCode', cm.role_snapshot,
+                    'status', cm.status::text
+                  )
+                )
+                FROM chat_conversation_members cm
+                JOIN users u ON u.id = cm.user_id
+                WHERE cm.conversation_id = c.id
+              ), '[]'::json) AS "membersJson",
+              (
+                SELECT json_build_object(
+                  'id', lm.id,
+                  'conversationId', lm.conversation_id,
+                  'senderId', lm.sender_id,
+                  'senderName', su.display_name,
+                  'senderAvatarObjectKey', su.avatar_object_key,
+                  'senderAvatarUpdatedAt', su.avatar_updated_at,
+                  'clientMessageId', lm.client_message_id,
+                  'content', lm.content,
+                  'contextType', lm.context_type,
+                  'contextId', lm.context_id,
+                  'createdAt', lm.created_at,
+                  'replyTo', CASE WHEN rm.id IS NOT NULL THEN json_build_object(
+                    'id', rm.id,
+                    'senderName', rsu.display_name,
+                    'content', left(rm.content, 160)
+                  ) ELSE NULL END,
+                  'attachments', COALESCE((
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', att.id,
+                        'originalName', att.original_name,
+                        'mimeType', att.mime_type,
+                        'sizeBytes', att.size_bytes::text
+                      )
+                      ORDER BY att.created_at ASC
+                    )
+                    FROM chat_message_attachments att
+                    WHERE att.message_id = lm.id
+                  ), '[]'::json),
+                  'mentionedUserIds', COALESCE((
+                    SELECT json_agg(mn.mentioned_user_id)
+                    FROM chat_message_mentions mn
+                    WHERE mn.message_id = lm.id
+                  ), '[]'::json)
+                )
+                FROM chat_messages lm
+                JOIN users su ON su.id = lm.sender_id
+                LEFT JOIN chat_messages rm ON rm.id = lm.reply_to_id
+                LEFT JOIN users rsu ON rsu.id = rm.sender_id
+                WHERE lm.conversation_id = c.id
+                ORDER BY lm.created_at DESC
+                LIMIT 1
+              ) AS "lastMessageJson"
+            FROM chat_conversations c
+            LEFT JOIN learning_classes lc ON lc.id = c.class_id
+            LEFT JOIN chat_conversation_members me
+              ON me.conversation_id = c.id AND me.user_id = ${actorId}
+            WHERE c.direct_key = ${lookup.value}
+            LIMIT 1
+          `
+        : await this.prisma.$queryRaw<SqlConversationSummaryRow[]>`
+            SELECT
+              c.id,
+              c.type::text AS "type",
+              c.class_id AS "classId",
+              c.updated_at AS "updatedAt",
+              lc.name AS "className",
+              lc.status::text AS "classStatus",
+              COALESCE(me.status::text, 'ACTIVE') AS "actorStatus",
+              me.muted_until AS "actorMutedUntil",
+              0::int AS "unreadCount",
+              COALESCE((
+                SELECT json_agg(
+                  json_build_object(
+                    'userId', cm.user_id,
+                    'displayName', u.display_name,
+                    'avatarObjectKey', u.avatar_object_key,
+                    'avatarUpdatedAt', u.avatar_updated_at,
+                    'roleCode', cm.role_snapshot,
+                    'status', cm.status::text
+                  )
+                )
+                FROM chat_conversation_members cm
+                JOIN users u ON u.id = cm.user_id
+                WHERE cm.conversation_id = c.id
+              ), '[]'::json) AS "membersJson",
+              (
+                SELECT json_build_object(
+                  'id', lm.id,
+                  'conversationId', lm.conversation_id,
+                  'senderId', lm.sender_id,
+                  'senderName', su.display_name,
+                  'senderAvatarObjectKey', su.avatar_object_key,
+                  'senderAvatarUpdatedAt', su.avatar_updated_at,
+                  'clientMessageId', lm.client_message_id,
+                  'content', lm.content,
+                  'contextType', lm.context_type,
+                  'contextId', lm.context_id,
+                  'createdAt', lm.created_at,
+                  'replyTo', CASE WHEN rm.id IS NOT NULL THEN json_build_object(
+                    'id', rm.id,
+                    'senderName', rsu.display_name,
+                    'content', left(rm.content, 160)
+                  ) ELSE NULL END,
+                  'attachments', COALESCE((
+                    SELECT json_agg(
+                      json_build_object(
+                        'id', att.id,
+                        'originalName', att.original_name,
+                        'mimeType', att.mime_type,
+                        'sizeBytes', att.size_bytes::text
+                      )
+                      ORDER BY att.created_at ASC
+                    )
+                    FROM chat_message_attachments att
+                    WHERE att.message_id = lm.id
+                  ), '[]'::json),
+                  'mentionedUserIds', COALESCE((
+                    SELECT json_agg(mn.mentioned_user_id)
+                    FROM chat_message_mentions mn
+                    WHERE mn.message_id = lm.id
+                  ), '[]'::json)
+                )
+                FROM chat_messages lm
+                JOIN users su ON su.id = lm.sender_id
+                LEFT JOIN chat_messages rm ON rm.id = lm.reply_to_id
+                LEFT JOIN users rsu ON rsu.id = rm.sender_id
+                WHERE lm.conversation_id = c.id
+                ORDER BY lm.created_at DESC
+                LIMIT 1
+              ) AS "lastMessageJson"
+            FROM chat_conversations c
+            LEFT JOIN learning_classes lc ON lc.id = c.class_id
+            LEFT JOIN chat_conversation_members me
+              ON me.conversation_id = c.id AND me.user_id = ${actorId}
+            WHERE c.class_id = ${lookup.value}
+            LIMIT 1
+          `;
+    if (!rows.length) return null;
+    const mapped = await this.mapSqlConversationSummaries(rows, actorId);
+    return mapped[0] ?? null;
+  }
+
+  /** Ánh xạ kết quả truy vấn tổng hợp hội thoại SQL sang hợp đồng ChatConversationView kèm gom lô thẻ ngữ cảnh. */
+  private async mapSqlConversationSummaries(
+    rows: SqlConversationSummaryRow[],
+    actorId: string,
+  ): Promise<ChatConversationView[]> {
+    const lastMessages = rows.map((row) =>
+      parseJsonField<SqlChatMessageJson | null>(row.lastMessageJson, null),
+    );
+    const contextMap = await this.resolveContextCardsForActor(
+      actorId,
+      lastMessages.map((msg) => ({
+        contextType: msg?.contextType ?? null,
+        contextId: msg?.contextId ?? null,
+      })),
+    );
+    return rows.map((row, idx) => {
+      const membersRaw = parseJsonField<SqlChatMemberJson[]>(row.membersJson, []);
+      const members = membersRaw.map((member) => ({
+        userId: member.userId,
+        displayName: member.displayName,
+        avatarUrl: this.avatarUrl({
+          id: member.userId,
+          avatarObjectKey: member.avatarObjectKey,
+          avatarUpdatedAt: toDateValue(member.avatarUpdatedAt),
+        }),
+        roleCode: member.roleCode,
+        status: member.status,
+      }));
+      const other = members.find((member) => member.userId !== actorId);
+      const lastMsg = lastMessages[idx];
+      const mutedUntil = toDateValue(row.actorMutedUntil);
+      const updatedAt = toDateValue(row.updatedAt) ?? new Date();
+      return {
+        id: row.id,
+        type: row.type,
+        classId: row.classId ?? undefined,
+        title:
+          row.type === "CLASS"
+            ? (row.className ?? "Hội thoại lớp")
+            : (other?.displayName ?? "Hội thoại"),
+        members,
+        lastMessage: lastMsg ? this.mapSqlMessageJson(lastMsg, contextMap) : undefined,
+        unreadCount: Number(row.unreadCount ?? 0),
+        readOnly: row.actorStatus === "REMOVED" || row.classStatus === "CLOSED",
+        mutedUntil: mutedUntil?.toISOString(),
+        updatedAt: updatedAt.toISOString(),
+      };
+    });
+  }
+
+  /** Đọc một trang tin nhắn kèm người gửi, tin trả lời, tệp đính kèm và lượt nhắc trong đúng 1 truy vấn SQL. */
+  private loadMessagePageSql(
+    conversationId: string,
+    limit: number,
+    cursor:
+      | { kind: "idCursor"; beforeDate: Date; beforeId: string }
+      | { kind: "upperBound"; upperBound?: Date },
+  ): Promise<SqlMessageListRow[]> {
+    if (cursor.kind === "idCursor") {
+      return this.prisma.$queryRaw<SqlMessageListRow[]>`
+        SELECT
+          m.id,
+          m.conversation_id AS "conversationId",
+          m.sender_id AS "senderId",
+          su.display_name AS "senderName",
+          su.avatar_object_key AS "senderAvatarObjectKey",
+          su.avatar_updated_at AS "senderAvatarUpdatedAt",
+          m.client_message_id AS "clientMessageId",
+          m.content,
+          m.context_type AS "contextType",
+          m.context_id AS "contextId",
+          m.created_at AS "createdAt",
+          rm.id AS "replyToId",
+          rsu.display_name AS "replyToSenderName",
+          left(rm.content, 160) AS "replyToContent",
+          COALESCE((
+            SELECT json_agg(
+              json_build_object(
+                'id', att.id,
+                'originalName', att.original_name,
+                'mimeType', att.mime_type,
+                'sizeBytes', att.size_bytes::text
+              )
+              ORDER BY att.created_at ASC
+            )
+            FROM chat_message_attachments att
+            WHERE att.message_id = m.id
+          ), '[]'::json) AS "attachmentsJson",
+          COALESCE((
+            SELECT json_agg(mn.mentioned_user_id)
+            FROM chat_message_mentions mn
+            WHERE mn.message_id = m.id
+          ), '[]'::json) AS "mentionsJson"
+        FROM chat_messages m
+        JOIN users su ON su.id = m.sender_id
+        LEFT JOIN chat_messages rm ON rm.id = m.reply_to_id
+        LEFT JOIN users rsu ON rsu.id = rm.sender_id
+        WHERE m.conversation_id = ${conversationId}
+          AND (
+            m.created_at < ${cursor.beforeDate}
+            OR (m.created_at = ${cursor.beforeDate} AND m.id < ${cursor.beforeId})
+          )
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT ${limit}
+      `;
+    }
+    if (cursor.upperBound) {
+      return this.prisma.$queryRaw<SqlMessageListRow[]>`
+        SELECT
+          m.id,
+          m.conversation_id AS "conversationId",
+          m.sender_id AS "senderId",
+          su.display_name AS "senderName",
+          su.avatar_object_key AS "senderAvatarObjectKey",
+          su.avatar_updated_at AS "senderAvatarUpdatedAt",
+          m.client_message_id AS "clientMessageId",
+          m.content,
+          m.context_type AS "contextType",
+          m.context_id AS "contextId",
+          m.created_at AS "createdAt",
+          rm.id AS "replyToId",
+          rsu.display_name AS "replyToSenderName",
+          left(rm.content, 160) AS "replyToContent",
+          COALESCE((
+            SELECT json_agg(
+              json_build_object(
+                'id', att.id,
+                'originalName', att.original_name,
+                'mimeType', att.mime_type,
+                'sizeBytes', att.size_bytes::text
+              )
+              ORDER BY att.created_at ASC
+            )
+            FROM chat_message_attachments att
+            WHERE att.message_id = m.id
+          ), '[]'::json) AS "attachmentsJson",
+          COALESCE((
+            SELECT json_agg(mn.mentioned_user_id)
+            FROM chat_message_mentions mn
+            WHERE mn.message_id = m.id
+          ), '[]'::json) AS "mentionsJson"
+        FROM chat_messages m
+        JOIN users su ON su.id = m.sender_id
+        LEFT JOIN chat_messages rm ON rm.id = m.reply_to_id
+        LEFT JOIN users rsu ON rsu.id = rm.sender_id
+        WHERE m.conversation_id = ${conversationId}
+          AND m.created_at < ${cursor.upperBound}
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT ${limit}
+      `;
+    }
+    return this.prisma.$queryRaw<SqlMessageListRow[]>`
+      SELECT
+        m.id,
+        m.conversation_id AS "conversationId",
+        m.sender_id AS "senderId",
+        su.display_name AS "senderName",
+        su.avatar_object_key AS "senderAvatarObjectKey",
+        su.avatar_updated_at AS "senderAvatarUpdatedAt",
+        m.client_message_id AS "clientMessageId",
+        m.content,
+        m.context_type AS "contextType",
+        m.context_id AS "contextId",
+        m.created_at AS "createdAt",
+        rm.id AS "replyToId",
+        rsu.display_name AS "replyToSenderName",
+        left(rm.content, 160) AS "replyToContent",
+        COALESCE((
+          SELECT json_agg(
+            json_build_object(
+              'id', att.id,
+              'originalName', att.original_name,
+              'mimeType', att.mime_type,
+              'sizeBytes', att.size_bytes::text
+            )
+            ORDER BY att.created_at ASC
+          )
+          FROM chat_message_attachments att
+          WHERE att.message_id = m.id
+        ), '[]'::json) AS "attachmentsJson",
+        COALESCE((
+          SELECT json_agg(mn.mentioned_user_id)
+          FROM chat_message_mentions mn
+          WHERE mn.message_id = m.id
+        ), '[]'::json) AS "mentionsJson"
+      FROM chat_messages m
+      JOIN users su ON su.id = m.sender_id
+      LEFT JOIN chat_messages rm ON rm.id = m.reply_to_id
+      LEFT JOIN users rsu ON rsu.id = rm.sender_id
+      WHERE m.conversation_id = ${conversationId}
+      ORDER BY m.created_at DESC, m.id DESC
+      LIMIT ${limit}
+    `;
+  }
+
+  /** Ánh xạ dòng tin nhắn SQL sang ChatMessageView bằng bảng thẻ ngữ cảnh đã gom lô sẵn. */
+  private mapSqlMessageRow(
+    row: SqlMessageListRow,
+    contextMap: Map<string, ChatMessageView["context"]>,
+  ): ChatMessageView {
+    const attachments = parseJsonField<SqlChatAttachmentJson[]>(row.attachmentsJson, []);
+    const mentionedUserIds = parseJsonField<string[]>(row.mentionsJson, []);
+    const createdAt = toDateValue(row.createdAt) ?? new Date();
+    const context =
+      row.contextType && row.contextId
+        ? contextMap.get(
+            contextCacheKey(
+              row.contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
+              row.contextId,
+            ),
+          )
+        : undefined;
+    return {
+      id: row.id,
+      conversationId: row.conversationId,
+      senderId: row.senderId,
+      senderName: row.senderName,
+      senderAvatarUrl: this.avatarUrl({
+        id: row.senderId,
+        avatarObjectKey: row.senderAvatarObjectKey,
+        avatarUpdatedAt: toDateValue(row.senderAvatarUpdatedAt),
+      }),
+      clientMessageId: row.clientMessageId,
+      content: row.content,
+      replyTo: row.replyToId
+        ? {
+            id: row.replyToId,
+            senderName: row.replyToSenderName ?? "",
+            content: row.replyToContent ?? "",
+          }
+        : undefined,
+      attachments: attachments.map((item) => ({
+        id: item.id,
+        originalName: normalizeMultipartFileName(item.originalName),
+        mimeType: item.mimeType,
+        sizeBytes: Number(item.sizeBytes),
+        canPreview:
+          item.mimeType === "application/pdf" ||
+          item.mimeType.startsWith("image/") ||
+          item.mimeType.startsWith("audio/"),
+      })),
+      mentionedUserIds,
+      context,
+      createdAt: createdAt.toISOString(),
+    };
+  }
+
+  /** Ánh xạ đối tượng JSON lastMessage từ SQL tổng hợp sang ChatMessageView. */
+  private mapSqlMessageJson(
+    raw: SqlChatMessageJson,
+    contextMap: Map<string, ChatMessageView["context"]>,
+  ): ChatMessageView {
+    const createdAt = toDateValue(raw.createdAt) ?? new Date();
+    const context =
+      raw.contextType && raw.contextId
+        ? contextMap.get(
+            contextCacheKey(
+              raw.contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
+              raw.contextId,
+            ),
+          )
+        : undefined;
+    return {
+      id: raw.id,
+      conversationId: raw.conversationId,
+      senderId: raw.senderId,
+      senderName: raw.senderName,
+      senderAvatarUrl: this.avatarUrl({
+        id: raw.senderId,
+        avatarObjectKey: raw.senderAvatarObjectKey,
+        avatarUpdatedAt: toDateValue(raw.senderAvatarUpdatedAt),
+      }),
+      clientMessageId: raw.clientMessageId,
+      content: raw.content,
+      replyTo: raw.replyTo ?? undefined,
+      attachments: (raw.attachments ?? []).map((item) => ({
+        id: item.id,
+        originalName: normalizeMultipartFileName(item.originalName),
+        mimeType: item.mimeType,
+        sizeBytes: Number(item.sizeBytes),
+        canPreview:
+          item.mimeType === "application/pdf" ||
+          item.mimeType.startsWith("image/") ||
+          item.mimeType.startsWith("audio/"),
+      })),
+      mentionedUserIds: raw.mentionedUserIds ?? [],
+      context,
+      createdAt: createdAt.toISOString(),
+    };
+  }
+
   /** Đọc projection membership được cập nhật cùng transaction ghi danh/phân công. */
   private async resolveMembership(
     conversationId: string,
@@ -990,8 +1841,15 @@ export class ChatService {
         mentions: true,
       },
     });
+    const contextMap = await this.resolveContextCardsForActor(
+      actorId,
+      rows.map((row) => ({ contextType: row.contextType, contextId: row.contextId })),
+    );
     return Promise.all(
-      rows.map(async (row) => ({ ...await this.mapMessageForActor(row, actorId), streamSequence: row.streamSequence })),
+      rows.map(async (row) => ({
+        ...(await this.mapMessageForActor(row, actorId, contextMap)),
+        streamSequence: row.streamSequence,
+      })),
     );
   }
 
@@ -1036,22 +1894,32 @@ export class ChatService {
     };
   }
 
-  /** Ánh xạ tin nhắn và chỉ trả thẻ ngữ cảnh khi người đọc còn quyền đối tượng. */
+  /** Ánh xạ tin nhắn đơn lẻ và tái sử dụng bảng thẻ ngữ cảnh đã gom lô nếu caller truyền sẵn. */
   private async mapMessageForActor(
     row: MessageRow,
     actorId: string,
+    preloadedContextMap?: Map<string, ChatMessageView["context"]>,
   ): Promise<ChatMessageView> {
+    const contextMap =
+      preloadedContextMap ??
+      (await this.resolveContextCardsForActor(actorId, [
+        { contextType: row.contextType, contextId: row.contextId },
+      ]));
+    return this.mapMessageWithContext(row, contextMap);
+  }
+
+  /** Ánh xạ tin nhắn Prisma sang ChatMessageView từ bảng thẻ ngữ cảnh đã giải quyết sẵn theo lô. */
+  private mapMessageWithContext(
+    row: MessageRow,
+    contextMap: Map<string, ChatMessageView["context"]>,
+  ): ChatMessageView {
     const context =
-      row.contextType &&
-      row.contextId &&
-      (await this.canAccessContext(
-        row.contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
-        row.contextId,
-        actorId,
-      ))
-        ? await this.contextCard(
-            row.contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
-            row.contextId,
+      row.contextType && row.contextId
+        ? contextMap.get(
+            contextCacheKey(
+              row.contextType as "ASSIGNMENT" | "EXAM" | "MATERIAL",
+              row.contextId,
+            ),
           )
         : undefined;
     return {
@@ -1085,96 +1953,176 @@ export class ChatService {
     };
   }
 
-  /** Kiểm tra quyền hiện tại của người dùng đối với đối tượng gắn trong thẻ chat. */
-  private async canAccessContext(
+  /** Kiểm tra quyền xem một đối tượng đính kèm cho toàn bộ thành viên đang hoạt động theo lô, loại bỏ N+1 theo sĩ số lớp. */
+  private async canAllUsersAccessContext(
     type: "ASSIGNMENT" | "EXAM" | "MATERIAL",
     contextId: string,
-    userId: string,
+    userIds: string[],
   ): Promise<boolean> {
-    const resource = type === "ASSIGNMENT"
-      ? await this.prisma.assignment.findUnique({ where: { id: contextId }, select: { classId: true, hidden: true } })
-      : type === "MATERIAL"
-        ? await this.prisma.material.findUnique({ where: { id: contextId }, select: { classId: true, visibility: true } })
-        : await this.prisma.exam.findUnique({ where: { id: contextId }, select: { classId: true, hidden: true } });
+    const uniqueUserIds = [...new Set(userIds)];
+    if (!uniqueUserIds.length) return true;
+    const resource =
+      type === "ASSIGNMENT"
+        ? await this.prisma.assignment.findUnique({
+            where: { id: contextId },
+            select: { classId: true, hidden: true },
+          })
+        : type === "MATERIAL"
+          ? await this.prisma.material.findUnique({
+              where: { id: contextId },
+              select: { classId: true, visibility: true },
+            })
+          : await this.prisma.exam.findUnique({
+              where: { id: contextId },
+              select: { classId: true, hidden: true },
+            });
     const classId = resource?.classId;
-    const hidden = resource && (("hidden" in resource && resource.hidden) || ("visibility" in resource && resource.visibility !== "PUBLISHED"));
     if (!classId) return false;
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { roles: { select: { role: { select: { code: true } } } } },
-    });
-    if (
-      user?.roles.some((item) =>
-        ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(item.role.code),
-      )
-    )
-      return true;
-    return Boolean(
-      await this.prisma.learningClass.findFirst({
+    const hidden = Boolean(
+      ("hidden" in resource && resource.hidden) ||
+      ("visibility" in resource && resource.visibility !== "PUBLISHED"),
+    );
+    const [staffUsers, instructors, enrollments] = await Promise.all([
+      this.prisma.user.findMany({
         where: {
-          id: classId,
-          OR: [
-            { instructors: { some: { instructorId: userId } } },
-            ...(hidden ? [] : [{ enrollments: { some: { learnerId: userId, status: "ACTIVE" as const } } }]),
-          ],
+          id: { in: uniqueUserIds },
+          roles: { some: { role: { code: { in: ["SYSTEM_ADMIN", "CENTER_MANAGER"] } } } },
         },
         select: { id: true },
       }),
-    );
+      this.prisma.classInstructor.findMany({
+        where: { classId, instructorId: { in: uniqueUserIds } },
+        select: { instructorId: true },
+      }),
+      hidden
+        ? Promise.resolve([])
+        : this.prisma.classEnrollment.findMany({
+            where: { classId, learnerId: { in: uniqueUserIds }, status: "ACTIVE" },
+            select: { learnerId: true },
+          }),
+    ]);
+    const allowedIds = new Set<string>([
+      ...staffUsers.map((item) => item.id),
+      ...instructors.map((item) => item.instructorId),
+      ...enrollments.map((item) => item.learnerId),
+    ]);
+    return uniqueUserIds.every((uid) => allowedIds.has(uid));
   }
 
-  /** Tạo nhãn và đường dẫn sâu cho thẻ ngữ cảnh đã được cấp quyền. */
-  private async contextCard(
-    type: "ASSIGNMENT" | "EXAM" | "MATERIAL",
-    contextId: string,
-  ): Promise<ChatMessageView["context"]> {
-    if (type === "ASSIGNMENT") {
-      const row = await this.prisma.assignment.findUnique({
-        where: { id: contextId },
-        select: { title: true, classId: true },
-      });
-      return row
-        ? {
-            type,
-            id: contextId,
-            title: row.title,
-            href: `/academic?classId=${encodeURIComponent(row.classId)}&assignmentId=${encodeURIComponent(contextId)}`,
-          }
-        : undefined;
+  /** Gom lô đọc và kiểm quyền mọi thẻ ngữ cảnh xuất hiện trong trang tin nhắn để loại bỏ hoàn toàn N+1 và truy vấn lặp. */
+  private async resolveContextCardsForActor(
+    actorId: string,
+    refs: Array<{ contextType: string | null; contextId: string | null }>,
+  ): Promise<Map<string, ChatMessageView["context"]>> {
+    const result = new Map<string, ChatMessageView["context"]>();
+    const assignmentIds = new Set<string>();
+    const examIds = new Set<string>();
+    const materialIds = new Set<string>();
+    for (const ref of refs) {
+      if (!ref.contextType || !ref.contextId) continue;
+      if (ref.contextType === "ASSIGNMENT") assignmentIds.add(ref.contextId);
+      else if (ref.contextType === "EXAM") examIds.add(ref.contextId);
+      else if (ref.contextType === "MATERIAL") materialIds.add(ref.contextId);
     }
-    if (type === "EXAM") {
-      const row = await this.prisma.exam.findUnique({
-        where: { id: contextId },
-        select: { title: true, classId: true },
-      });
-      return row
-        ? {
-            type,
-            id: contextId,
-            title: row.title,
-            href: `/exams?classId=${encodeURIComponent(row.classId)}&examId=${encodeURIComponent(contextId)}`,
-          }
-        : undefined;
+    if (!assignmentIds.size && !examIds.size && !materialIds.size) return result;
+
+    const [assignments, exams, materials, actorStaff] = await Promise.all([
+      assignmentIds.size
+        ? this.prisma.assignment.findMany({
+            where: { id: { in: [...assignmentIds] } },
+            select: { id: true, title: true, classId: true, hidden: true },
+          })
+        : Promise.resolve([]),
+      examIds.size
+        ? this.prisma.exam.findMany({
+            where: { id: { in: [...examIds] } },
+            select: { id: true, title: true, classId: true, hidden: true },
+          })
+        : Promise.resolve([]),
+      materialIds.size
+        ? this.prisma.material.findMany({
+            where: { id: { in: [...materialIds] } },
+            select: {
+              id: true,
+              name: true,
+              classId: true,
+              visibility: true,
+              quarantinedAt: true,
+            },
+          })
+        : Promise.resolve([]),
+      this.prisma.user.findFirst({
+        where: {
+          id: actorId,
+          roles: { some: { role: { code: { in: ["SYSTEM_ADMIN", "CENTER_MANAGER"] } } } },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    const isStaff = Boolean(actorStaff);
+    const referencedClassIds = new Set<string>();
+    for (const item of assignments) if (item.classId) referencedClassIds.add(item.classId);
+    for (const item of exams) if (item.classId) referencedClassIds.add(item.classId);
+    for (const item of materials) if (item.classId) referencedClassIds.add(item.classId);
+
+    const instructorClasses = new Set<string>();
+    const learnerClasses = new Set<string>();
+    if (!isStaff && referencedClassIds.size) {
+      const classIdList = [...referencedClassIds];
+      const [instructed, enrolled] = await Promise.all([
+        this.prisma.classInstructor.findMany({
+          where: { classId: { in: classIdList }, instructorId: actorId },
+          select: { classId: true },
+        }),
+        this.prisma.classEnrollment.findMany({
+          where: { classId: { in: classIdList }, learnerId: actorId, status: "ACTIVE" },
+          select: { classId: true },
+        }),
+      ]);
+      for (const row of instructed) instructorClasses.add(row.classId);
+      for (const row of enrolled) learnerClasses.add(row.classId);
     }
-    const row = await this.prisma.material.findUnique({
-      where: { id: contextId },
-      select: {
-        name: true,
-        classId: true,
-        visibility: true,
-        quarantinedAt: true,
-      },
-    });
-    return row && row.visibility === "PUBLISHED" && !row.quarantinedAt
-      ? {
-          type,
-          id: contextId,
-          title: row.name,
-          href: row.classId
-            ? `/materials?classId=${encodeURIComponent(row.classId)}&materialId=${encodeURIComponent(contextId)}`
-            : `/materials?materialId=${encodeURIComponent(contextId)}`,
-        }
-      : undefined;
+
+    /** Kiểm tra người đọc hiện tại có quyền xem đối tượng thuộc một lớp và trạng thái ẩn/hiện hay không. */
+    const canViewClassResource = (classId: string | null, hidden: boolean): boolean => {
+      if (!classId) return false;
+      if (isStaff || instructorClasses.has(classId)) return true;
+      return !hidden && learnerClasses.has(classId);
+    };
+
+    for (const item of assignments) {
+      if (!canViewClassResource(item.classId, item.hidden)) continue;
+      result.set(contextCacheKey("ASSIGNMENT", item.id), {
+        type: "ASSIGNMENT",
+        id: item.id,
+        title: item.title,
+        href: `/academic?classId=${encodeURIComponent(item.classId)}&assignmentId=${encodeURIComponent(item.id)}`,
+      });
+    }
+    for (const item of exams) {
+      if (!canViewClassResource(item.classId, item.hidden)) continue;
+      result.set(contextCacheKey("EXAM", item.id), {
+        type: "EXAM",
+        id: item.id,
+        title: item.title,
+        href: `/exams?classId=${encodeURIComponent(item.classId)}&examId=${encodeURIComponent(item.id)}`,
+      });
+    }
+    for (const item of materials) {
+      const hidden = item.visibility !== "PUBLISHED";
+      if (!canViewClassResource(item.classId, hidden)) continue;
+      if (item.visibility !== "PUBLISHED" || item.quarantinedAt) continue;
+      result.set(contextCacheKey("MATERIAL", item.id), {
+        type: "MATERIAL",
+        id: item.id,
+        title: item.name,
+        href: item.classId
+          ? `/materials?classId=${encodeURIComponent(item.classId)}&materialId=${encodeURIComponent(item.id)}`
+          : `/materials?materialId=${encodeURIComponent(item.id)}`,
+      });
+    }
+    return result;
   }
 
   /** Giới hạn và xác thực định dạng tệp (MIME + magic bytes + cấu trúc DOCX) trước khi quét virus/lưu storage. */
