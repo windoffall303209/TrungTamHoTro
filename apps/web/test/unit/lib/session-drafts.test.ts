@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearSessionDrafts,
+  clearSessionDraftsExceptUser,
   clearUserLocalData,
   readSessionDraft,
   removeSessionDraft,
@@ -49,6 +50,13 @@ describe("Bộ nhớ nháp của tab", () => {
     clearSessionDrafts();
     expect(readSessionDraft("draft", isText)).toBeNull();
     expect(sessionStorage.getItem("unrelated")).toBe("Giữ nguyên");
+  });
+  it("đăng nhập tài khoản khác trong cùng tab chỉ xóa nháp của tài khoản cũ và giữ nháp của tài khoản mới", () => {
+    writeSessionDraft("usr-old:INSTRUCTOR:MANUAL", "Nháp cũ");
+    writeSessionDraft("usr-new:INSTRUCTOR:MANUAL", "Nháp mới");
+    clearSessionDraftsExceptUser("usr-new");
+    expect(readSessionDraft("usr-old:INSTRUCTOR:MANUAL", isText)).toBeNull();
+    expect(readSessionDraft("usr-new:INSTRUCTOR:MANUAL", isText)).toBe("Nháp mới");
   });
   it("đăng xuất xóa dữ liệu localStorage theo tài khoản nhưng giữ ngôn ngữ và giao diện", () => {
     localStorage.setItem("wind-chat-drafts:usr-1", "{}");

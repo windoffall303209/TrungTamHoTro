@@ -72,6 +72,25 @@ export function clearSessionDrafts(): void {
   }
 }
 
+/** Xóa toàn bộ bản nháp thuộc tài khoản khác khi một tài khoản mới đăng nhập trong cùng tab. */
+export function clearSessionDraftsExceptUser(userId: string): void {
+  if (!userId) return;
+  const ownerPrefix = `${PREFIX}${userId}:`;
+  try {
+    const storage = window.sessionStorage;
+    const keys = Array.from({ length: storage.length }, (_, index) =>
+      storage.key(index),
+    );
+    keys.forEach((key) => {
+      if (key?.startsWith(PREFIX) && !key.startsWith(ownerPrefix)) {
+        storage.removeItem(key);
+      }
+    });
+  } catch {
+    /* Không có dữ liệu đọc được khi trình duyệt chặn storage. */
+  }
+}
+
 /** Tiền tố localStorage gắn với tài khoản: nháp chat, bảng tin lớp, trạng thái mini chat, mã yêu cầu AI, luồng tài khoản. */
 const USER_LOCAL_PREFIXES = ["wind_edu_", "wind-edu:", "wind-ai-request:", "wind-chat-drafts:", "class_feed_"];
 

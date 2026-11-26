@@ -3,7 +3,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Info, X } from "lucide-react";
 import { ApiError, apiRequest, resetCsrfToken } from "@/lib/api-client";
-import { clearSessionDrafts, clearUserLocalData } from "@/lib/session-drafts";
+import {
+  clearSessionDrafts,
+  clearSessionDraftsExceptUser,
+  clearUserLocalData,
+} from "@/lib/session-drafts";
 import { realtimeClient } from "@/lib/realtime-client";
 import type { RoleCode, SessionData } from "@/lib/app-types";
 import { isSupportedLocale, LOCALE_STORAGE_KEY } from "@/i18n/catalog";
@@ -46,9 +50,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     realtimeClient.setSession();
   }, []);
 
-  /** Nhận phiên hợp lệ và áp tùy chọn ngôn ngữ đã lưu trong hồ sơ người dùng. */
+  /** Nhận phiên hợp lệ, dọn nháp thuộc tài khoản khác trong tab và áp tùy chọn ngôn ngữ của hồ sơ. */
   const adoptSession = useCallback((nextSession: SessionData) => {
     setAuthError("");
+    if (nextSession.user.id) {
+      clearSessionDraftsExceptUser(nextSession.user.id);
+    }
     realtimeClient.setSession(nextSession.sessionId && nextSession.user.id ? {
       sessionId: nextSession.sessionId, userId: nextSession.user.id, roleCode: nextSession.roleCode,
     } : undefined);
@@ -86,12 +93,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { window.queueMicrotask(() => void refreshSession()); }, [refreshSession]);
   useEffect(() => {
-    /** Xóa session cục bộ khi API phát tín hiệu phiên hết hạn từ tab hiện tại hoặc tab khác. */
-    /** Dọn token CSRF và dữ liệu cục bộ theo tài khoản khi máy chủ báo phiên đã hết hạn. */
+    /** Dọn phiên, CSRF và dữ liệu cục bộ khi hết hạn phiên; giữ nháp theo userId trong sessionStorage để phục hồi sau đăng nhập lại. */
     const clearExpiredSession = () => {
       realtimeClient.setSession();
       resetCsrfToken();
-      clearSessionDrafts();
       clearUserLocalData();
       setSession(emptySession);
     };

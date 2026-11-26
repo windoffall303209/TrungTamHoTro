@@ -3,7 +3,8 @@ import { BadRequestException, type CallHandler, type ExecutionContext } from "@n
 import { SSE_METADATA } from "@nestjs/common/constants.js";
 import { lastValueFrom, of, throwError } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
-import { LearningService } from "../../src/domains/learning/core/learning.service.js";
+import { createLearningTestRuntime } from "../../src/domains/learning/core/learning-runtime.service.js";
+import { EngagementSupportService } from "../../src/domains/learning/engagement/engagement-support.service.js";
 import { MetricsInterceptor } from "../../src/observability/metrics.interceptor.js";
 import type { MetricsService } from "../../src/observability/metrics.service.js";
 
@@ -39,10 +40,10 @@ describe("Giảm tải luồng thời gian thực", () => {
   });
 
   it("đánh dấu tất cả thông báo đã đọc trong một lệnh", async () => {
-    const service = new LearningService();
-    const store = (service as unknown as { notifications: Array<Record<string, unknown>> }).notifications;
+    const runtime = createLearningTestRuntime();
+    const service = new EngagementSupportService(runtime);
     for (const id of ["n-read-all-1", "n-read-all-2"])
-      store.unshift({ id, recipientId: "usr-read-all", type: "INFO", title: id, entityType: "CLASS", entityId: "class-web-01", createdAt: new Date().toISOString() });
+      runtime.memoryState.notifications.unshift({ id, recipientId: "usr-read-all", type: "INFO", title: id, entityType: "CLASS", entityId: "class-web-01", createdAt: new Date().toISOString() });
     expect((await service.listNotifications("usr-read-all")).some((item) => !item.readAt)).toBe(true);
     const after = await service.markAllNotificationsRead("usr-read-all");
     expect(after).toHaveLength(2);

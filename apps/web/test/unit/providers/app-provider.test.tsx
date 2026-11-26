@@ -49,7 +49,12 @@ describe("AppProvider realtime lifecycle", () => {
     view.unmount();
     expect(realtimeSession).toHaveBeenCalledWith();
   });
-  it("disconnects when another request announces an expired session", async () => {
+  it("disconnects when another request announces an expired session without wiping same-user session drafts", async () => {
+    sessionStorage.clear();
+    sessionStorage.setItem(
+      "wind-edu:draft:v1:u2:LEARNER:MANUAL",
+      JSON.stringify({ version: 1, savedAt: Date.now(), value: "draft" }),
+    );
     request.mockReset().mockResolvedValue({ sessionId: "s2", user: { id: "u2" }, roleCode: "LEARNER", permissions: [], availableRoles: [] });
     render(<AppProvider><SessionFixture /></AppProvider>);
     await waitFor(() => expect(screen.getByText("s2")).toBeInTheDocument());
@@ -57,6 +62,8 @@ describe("AppProvider realtime lifecycle", () => {
     act(() => window.dispatchEvent(new Event("wind-edu:unauthorized")));
     expect(realtimeSession).toHaveBeenCalledWith();
     expect(screen.queryByText("s2")).not.toBeInTheDocument();
+    expect(sessionStorage.getItem("wind-edu:draft:v1:u2:LEARNER:MANUAL")).not.toBeNull();
+    sessionStorage.clear();
   });
 });
 

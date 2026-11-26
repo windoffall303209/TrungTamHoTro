@@ -90,11 +90,21 @@ describe("CoursesPage request lifecycle", () => {
 
   it("không ghi đè danh sách lớp mới bằng phản hồi của vai trò cũ", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        "/classes/page?page=1&pageSize=10",
+        expect.objectContaining({ roleCode: "INSTRUCTOR", signal: expect.any(AbortSignal) }),
+      ),
+    );
 
     mocks.session.roleCode = "LEARNER";
     page.rerender(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "LEARNER" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        "/classes/page?page=1&pageSize=10",
+        expect.objectContaining({ roleCode: "LEARNER", signal: expect.any(AbortSignal) }),
+      ),
+    );
 
     await act(async () => learnerRequest.resolve(toPage([makeClass("Latest class")])));
     expect(screen.getByText("Latest class")).toBeInTheDocument();
@@ -106,10 +116,20 @@ describe("CoursesPage request lifecycle", () => {
 
   it("bỏ qua lỗi của request lớp học đã lỗi thời", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        "/classes/page?page=1&pageSize=10",
+        expect.objectContaining({ roleCode: "INSTRUCTOR", signal: expect.any(AbortSignal) }),
+      ),
+    );
     mocks.session.roleCode = "LEARNER";
     page.rerender(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "LEARNER" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        "/classes/page?page=1&pageSize=10",
+        expect.objectContaining({ roleCode: "LEARNER", signal: expect.any(AbortSignal) }),
+      ),
+    );
 
     await act(async () => instructorRequest.reject(new Error("Old request failed")));
     await act(async () => learnerRequest.resolve(toPage([makeClass("Latest class")])));
@@ -119,7 +139,12 @@ describe("CoursesPage request lifecycle", () => {
 
   it("không thông báo lỗi khi request hoàn thành sau khi unmount", async () => {
     const page = render(<CoursesPage />);
-    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/classes/page?page=1&pageSize=10", { roleCode: "INSTRUCTOR" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        "/classes/page?page=1&pageSize=10",
+        expect.objectContaining({ roleCode: "INSTRUCTOR", signal: expect.any(AbortSignal) }),
+      ),
+    );
     page.unmount();
     await act(async () => instructorRequest.reject(new Error("Unmounted request failed")));
     expect(mocks.notify).not.toHaveBeenCalled();
