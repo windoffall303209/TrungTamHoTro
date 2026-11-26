@@ -428,11 +428,12 @@ export async function readSubmissionAttachment(
   if (session.roleCode === "LEARNER") {
     if (current.submission.assignment.hidden || current.submission.learnerId !== session.user.id)
       throw new NotFoundException("Không tìm thấy tệp đính kèm.");
-  } else
+  } else if (!isAcademicSupervisor(session)) {
     await serviceContext.requireTeachingAccess(
       current.submission.assignment.classId,
       session,
     );
+  }
   if (
     current.objectKey !== attachment.objectKey ||
     current.checksum !== checksum ||

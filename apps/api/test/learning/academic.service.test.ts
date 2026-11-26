@@ -317,6 +317,46 @@ describe("AcademicService", () => {
       instructor,
     );
     expect(downloaded.fileName).toBe("minh-chung.pdf");
+    const managerSession: AuthenticatedSession = {
+      sessionId: "test-manager",
+      user: {
+        id: "usr-manager",
+        username: "manager",
+        name: "Quản lý trung tâm",
+        email: "manager@wind.edu.vn",
+        roleName: "Quản lý trung tâm",
+      },
+      roleCode: "CENTER_MANAGER",
+      permissions: ["class:view", "report:view"],
+      availableRoles: [{ code: "CENTER_MANAGER", name: "Quản lý trung tâm" }],
+    };
+    const managerPreview = await service.previewSubmissionAttachment(
+      second.id,
+      second.attachments[0]!.id,
+      managerSession,
+    );
+    expect(managerPreview).toMatchObject({
+      kind: "text",
+      fileName: "bao-cao.txt",
+      text: "bao cao",
+    });
+    const adminPreview = await service.previewSubmissionAttachment(
+      second.id,
+      second.attachments[0]!.id,
+      { ...administrator, permissions: ["class:view", ...administrator.permissions] },
+    );
+    expect(adminPreview).toMatchObject({
+      kind: "text",
+      fileName: "bao-cao.txt",
+      text: "bao cao",
+    });
+    await expect(
+      service.previewSubmissionAttachment(
+        second.id,
+        second.attachments[0]!.id,
+        { ...managerSession, permissions: [] },
+      ),
+    ).rejects.toThrow("Nghiệp vụ học thuật chỉ dành cho giảng viên được phân công.");
     const remaining = await service.removeSubmissionAttachment(
       second.id,
       second.attachments[0]!.id,
