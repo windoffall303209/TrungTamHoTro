@@ -21,7 +21,7 @@ describe("Quyền xử lý tác vụ", () => {
       isStartupConnectionEnabled: () => true,
       operationalJob,
     } as unknown as PrismaService);
-    expect(await service.drainOperationalJobs()).toEqual({ backup: 0, export: 0 });
+    expect(await service.drainOperationalJobs()).toEqual({ backup: 0, export: 0, audit: 0 });
     const first = operationalJob.updateMany.mock.calls[0]?.[0] as {
       where: { status: unknown; attempts: unknown };
       data: { status: string };

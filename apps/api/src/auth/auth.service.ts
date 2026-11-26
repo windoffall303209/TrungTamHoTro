@@ -39,6 +39,64 @@ type UserWithRoles = {
   roles: Array<{ role: { code: string; name: string; permissions: Array<{ permission: { code: string } }> } }>;
 };
 
+interface SqlRoleEntry {
+  code: string;
+  name: string;
+  permissions: string[];
+}
+
+interface UserWithRolesSqlRow {
+  id: string;
+  username: string;
+  email: string | null;
+  emailVerifiedAt: Date | null;
+  passwordHash: string | null;
+  displayName: string;
+  status: string;
+  locale: string;
+  mfaSecretEncrypted: string | null;
+  mfaEnabledAt: Date | null;
+  avatarObjectKey: string | null;
+  avatarMimeType: string | null;
+  avatarUpdatedAt: Date | null;
+  rolesJson: SqlRoleEntry[] | string | null;
+}
+
+interface ResolvedSessionSqlRow {
+  sessionId: string;
+  currentRoleCode: string;
+  expiresAt: Date;
+  lastSeenAt: Date;
+  revokedAt: Date | null;
+  userId: string;
+  username: string;
+  email: string | null;
+  emailVerifiedAt: Date | null;
+  displayName: string;
+  status: string;
+  locale: string;
+  mfaEnabledAt: Date | null;
+  avatarObjectKey: string | null;
+  avatarMimeType: string | null;
+  avatarUpdatedAt: Date | null;
+  rolesJson: SqlRoleEntry[] | string | null;
+}
+
+/** Chuẩn hóa JSON vai trò/quyền trả về từ truy vấn JOIN PostgreSQL sang cấu trúc UserWithRoles thống nhất. */
+function parseSqlRoles(raw: SqlRoleEntry[] | string | null | undefined): UserWithRoles["roles"] {
+  const parsed = typeof raw === "string" ? (JSON.parse(raw) as SqlRoleEntry[]) : raw;
+  if (!Array.isArray(parsed)) return [];
+  return parsed.map((entry) => ({
+    role: {
+      code: entry.code,
+      name: entry.name,
+      permissions: Array.isArray(entry.permissions)
+        ? entry.permissions.map((code) => ({ permission: { code } }))
+        : [],
+    },
+  }));
+}
+
 import type {
   AccountProfile,
   AccountSession,
@@ -659,14 +717,11 @@ export class AuthService {
     return { revokedSessions: result.count };
   }
 
-  /** Băm token cookie để tìm phiên, kiểm tra hạn/trạng thái và áp dụng vai trò được yêu cầu. */
+  /** Băm token cookie để tìm phiên, kiểm tra hạn/trạng thái và áp dụng vai trò được yêu cầu trong một truy vấn JOIN duy nhất. */
   async resolve(token: string | undefined, requestedRole?: string, persistRole = false): Promise<AuthenticatedSession> {
     this.assertDatabase();
     if (!token) throw new UnauthorizedException("Vui lòng đăng nhập để tiếp tục.");
-    const row = await this.prisma.authSession.findUnique({
-      where: { tokenHash: this.hashToken(token) },
-      include: { user: { include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } } },
-    });
+    const row = await this.loadSessionByTokenHash(this.hashToken(token));
     if (!row || row.revokedAt || row.expiresAt <= new Date()) throw new UnauthorizedException("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
     this.assertActive(row.user);
     const roleCode = requestedRole ?? row.currentRoleCode;
@@ -737,33 +792,242 @@ export class AuthService {
     return cookieHeader?.split(";").map((part) => part.trim().split("=")).find(([cookieName]) => cookieName === name)?.slice(1).join("=");
   }
 
-  /** Tạo token phiên/CSRF, lưu bản băm cùng dấu vết thiết bị rồi trả session đã ánh xạ. */
+  /** Tạo token phiên/CSRF dẫn xuất v3 theo sessionId, lưu bản băm cùng dấu vết thiết bị rồi trả session đã ánh xạ. */
   private async createSession(user: UserWithRoles, rememberMe: boolean, context: SessionContext): Promise<SessionIssue> {
     const selectedRole = user.roles[0]?.role;
     if (!selectedRole) throw new ForbiddenException("Tài khoản chưa được cấp vai trò sử dụng.");
+    const sessionId = randomUUID();
     const token = randomBytes(48).toString("base64url");
-    const csrfToken = randomBytes(32).toString("base64url");
+    // Phát sẵn CSRF v3 gắn sessionId ngay lúc đăng nhập để CsrfGuard xác minh HMAC 0 query DB trên các mutation kế tiếp.
+    const csrfToken = await this.issueCsrf(sessionId);
     const maxAgeMs = rememberMe ? LONG_SESSION_MS : SHORT_SESSION_MS;
     const row = await this.prisma.authSession.create({ data: {
+      id: sessionId,
       tokenHash: this.hashToken(token), csrfTokenHash: this.hashToken(csrfToken), userId: user.id, currentRoleCode: selectedRole.code,
       expiresAt: new Date(Date.now() + maxAgeMs), ipAddress: context.ipAddress?.slice(0, 45), userAgent: context.userAgent?.slice(0, 500),
     } });
     return { token, csrfToken, maxAgeMs, session: this.mapSession(row.id, user, selectedRole.code as RoleCode) };
   }
 
-  /** Tải người dùng và toàn bộ vai trò/quyền cần cho xác thực theo email. */
+  /** Đọc phiên, hồ sơ, vai trò và quyền trực tiếp từ PostgreSQL trong đúng 1 truy vấn SQL; giữ fallback cho unit test mock. */
+  private async loadSessionByTokenHash(tokenHash: string): Promise<{
+    id: string;
+    currentRoleCode: string;
+    expiresAt: Date;
+    lastSeenAt: Date;
+    revokedAt: Date | null;
+    user: UserWithRoles;
+  } | null> {
+    if (typeof this.prisma.$queryRaw !== "function") {
+      return this.prisma.authSession.findUnique({
+        where: { tokenHash },
+        include: { user: { include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } } },
+      });
+    }
+    const rows = await this.prisma.$queryRaw<ResolvedSessionSqlRow[]>`
+      SELECT
+        s.id AS "sessionId",
+        s.current_role_code AS "currentRoleCode",
+        s.expires_at AS "expiresAt",
+        s.last_seen_at AS "lastSeenAt",
+        s.revoked_at AS "revokedAt",
+        u.id AS "userId",
+        u.username,
+        u.email,
+        u.email_verified_at AS "emailVerifiedAt",
+        u.display_name AS "displayName",
+        u.status::text AS "status",
+        u.locale,
+        u.mfa_enabled_at AS "mfaEnabledAt",
+        u.avatar_object_key AS "avatarObjectKey",
+        u.avatar_mime_type AS "avatarMimeType",
+        u.avatar_updated_at AS "avatarUpdatedAt",
+        COALESCE(
+          (
+            SELECT json_agg(
+              json_build_object(
+                'code', r.code,
+                'name', r.name,
+                'permissions', COALESCE(
+                  (
+                    SELECT json_agg(p.code ORDER BY p.code)
+                    FROM role_permissions rp
+                    JOIN permissions p ON p.id = rp.permission_id
+                    WHERE rp.role_id = r.id
+                  ),
+                  '[]'::json
+                )
+              )
+              ORDER BY ur.role_id
+            )
+            FROM user_roles ur
+            JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = u.id
+          ),
+          '[]'::json
+        ) AS "rolesJson"
+      FROM auth_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ${tokenHash}
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.sessionId,
+      currentRoleCode: row.currentRoleCode,
+      expiresAt: row.expiresAt instanceof Date ? row.expiresAt : new Date(row.expiresAt),
+      lastSeenAt: row.lastSeenAt instanceof Date ? row.lastSeenAt : new Date(row.lastSeenAt),
+      revokedAt: row.revokedAt ? (row.revokedAt instanceof Date ? row.revokedAt : new Date(row.revokedAt)) : null,
+      user: {
+        id: row.userId,
+        username: row.username,
+        email: row.email,
+        emailVerifiedAt: row.emailVerifiedAt ? (row.emailVerifiedAt instanceof Date ? row.emailVerifiedAt : new Date(row.emailVerifiedAt)) : null,
+        passwordHash: null,
+        displayName: row.displayName,
+        status: row.status,
+        locale: row.locale,
+        mfaSecretEncrypted: null,
+        mfaEnabledAt: row.mfaEnabledAt ? (row.mfaEnabledAt instanceof Date ? row.mfaEnabledAt : new Date(row.mfaEnabledAt)) : null,
+        avatarObjectKey: row.avatarObjectKey,
+        avatarMimeType: row.avatarMimeType,
+        avatarUpdatedAt: row.avatarUpdatedAt ? (row.avatarUpdatedAt instanceof Date ? row.avatarUpdatedAt : new Date(row.avatarUpdatedAt)) : null,
+        roles: parseSqlRoles(row.rolesJson),
+      },
+    };
+  }
+
+  /** Tải một tài khoản kèm toàn bộ vai trò và quyền trong 1 truy vấn SQL theo khóa duy nhất (id, username hoặc email). */
+  private async loadUserWithRolesSql(
+    lookup: { kind: "id" | "username" | "email"; value: string },
+  ): Promise<UserWithRoles | null> {
+    if (typeof this.prisma.$queryRaw !== "function") {
+      const where =
+        lookup.kind === "id"
+          ? { id: lookup.value }
+          : lookup.kind === "username"
+            ? { username: lookup.value }
+            : { email: lookup.value };
+      return this.prisma.user.findUnique({
+        where,
+        include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } },
+      });
+    }
+    const rows =
+      lookup.kind === "username"
+        ? await this.prisma.$queryRaw<UserWithRolesSqlRow[]>`
+            SELECT
+              u.id, u.username, u.email, u.email_verified_at AS "emailVerifiedAt",
+              u.password_hash AS "passwordHash", u.display_name AS "displayName",
+              u.status::text AS "status", u.locale,
+              u.mfa_secret_encrypted AS "mfaSecretEncrypted", u.mfa_enabled_at AS "mfaEnabledAt",
+              u.avatar_object_key AS "avatarObjectKey", u.avatar_mime_type AS "avatarMimeType",
+              u.avatar_updated_at AS "avatarUpdatedAt",
+              COALESCE((
+                SELECT json_agg(
+                  json_build_object(
+                    'code', r.code, 'name', r.name,
+                    'permissions', COALESCE((
+                      SELECT json_agg(p.code ORDER BY p.code)
+                      FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+                      WHERE rp.role_id = r.id
+                    ), '[]'::json)
+                  ) ORDER BY ur.role_id
+                )
+                FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                WHERE ur.user_id = u.id
+              ), '[]'::json) AS "rolesJson"
+            FROM users u
+            WHERE u.username = ${lookup.value}
+            LIMIT 1
+          `
+        : lookup.kind === "email"
+          ? await this.prisma.$queryRaw<UserWithRolesSqlRow[]>`
+              SELECT
+                u.id, u.username, u.email, u.email_verified_at AS "emailVerifiedAt",
+                u.password_hash AS "passwordHash", u.display_name AS "displayName",
+                u.status::text AS "status", u.locale,
+                u.mfa_secret_encrypted AS "mfaSecretEncrypted", u.mfa_enabled_at AS "mfaEnabledAt",
+                u.avatar_object_key AS "avatarObjectKey", u.avatar_mime_type AS "avatarMimeType",
+                u.avatar_updated_at AS "avatarUpdatedAt",
+                COALESCE((
+                  SELECT json_agg(
+                    json_build_object(
+                      'code', r.code, 'name', r.name,
+                      'permissions', COALESCE((
+                        SELECT json_agg(p.code ORDER BY p.code)
+                        FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+                        WHERE rp.role_id = r.id
+                      ), '[]'::json)
+                    ) ORDER BY ur.role_id
+                  )
+                  FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                  WHERE ur.user_id = u.id
+                ), '[]'::json) AS "rolesJson"
+              FROM users u
+              WHERE u.email = ${lookup.value}
+              LIMIT 1
+            `
+          : await this.prisma.$queryRaw<UserWithRolesSqlRow[]>`
+              SELECT
+                u.id, u.username, u.email, u.email_verified_at AS "emailVerifiedAt",
+                u.password_hash AS "passwordHash", u.display_name AS "displayName",
+                u.status::text AS "status", u.locale,
+                u.mfa_secret_encrypted AS "mfaSecretEncrypted", u.mfa_enabled_at AS "mfaEnabledAt",
+                u.avatar_object_key AS "avatarObjectKey", u.avatar_mime_type AS "avatarMimeType",
+                u.avatar_updated_at AS "avatarUpdatedAt",
+                COALESCE((
+                  SELECT json_agg(
+                    json_build_object(
+                      'code', r.code, 'name', r.name,
+                      'permissions', COALESCE((
+                        SELECT json_agg(p.code ORDER BY p.code)
+                        FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
+                        WHERE rp.role_id = r.id
+                      ), '[]'::json)
+                    ) ORDER BY ur.role_id
+                  )
+                  FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                  WHERE ur.user_id = u.id
+                ), '[]'::json) AS "rolesJson"
+              FROM users u
+              WHERE u.id = ${lookup.value}
+              LIMIT 1
+            `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      emailVerifiedAt: row.emailVerifiedAt ? (row.emailVerifiedAt instanceof Date ? row.emailVerifiedAt : new Date(row.emailVerifiedAt)) : null,
+      passwordHash: row.passwordHash,
+      displayName: row.displayName,
+      status: row.status,
+      locale: row.locale,
+      mfaSecretEncrypted: row.mfaSecretEncrypted,
+      mfaEnabledAt: row.mfaEnabledAt ? (row.mfaEnabledAt instanceof Date ? row.mfaEnabledAt : new Date(row.mfaEnabledAt)) : null,
+      avatarObjectKey: row.avatarObjectKey,
+      avatarMimeType: row.avatarMimeType,
+      avatarUpdatedAt: row.avatarUpdatedAt ? (row.avatarUpdatedAt instanceof Date ? row.avatarUpdatedAt : new Date(row.avatarUpdatedAt)) : null,
+      roles: parseSqlRoles(row.rolesJson),
+    };
+  }
+
+  /** Tải người dùng và toàn bộ vai trò/quyền cần cho xác thực theo email trong 1 truy vấn SQL. */
   private loadUserByEmail(email: string): Promise<UserWithRoles | null> {
-    return this.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    return this.loadUserWithRolesSql({ kind: "email", value: email.trim().toLowerCase() });
   }
 
-  /** Tải người dùng và ma trận quyền theo tên đăng nhập đã chuẩn hóa. */
+  /** Tải người dùng và ma trận quyền theo tên đăng nhập đã chuẩn hóa trong 1 truy vấn SQL. */
   private loadUserByUsername(username: string): Promise<UserWithRoles | null> {
-    return this.prisma.user.findUnique({ where: { username: username.trim().toLowerCase() }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    return this.loadUserWithRolesSql({ kind: "username", value: username.trim().toLowerCase() });
   }
 
-  /** Tải người dùng theo khóa chính với cùng cấu trúc vai trò dùng để tạo phiên. */
+  /** Tải người dùng theo khóa chính với cùng cấu trúc vai trò dùng để tạo phiên trong 1 truy vấn SQL. */
   private loadUser(userId: string): Promise<UserWithRoles | null> {
-    return this.prisma.user.findUnique({ where: { id: userId }, include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } });
+    return this.loadUserWithRolesSql({ kind: "id", value: userId });
   }
 
   /** Chỉ cấp quyền cho tài khoản ACTIVE đã xác thực; tài khoản có email phải xác minh email trước. */
