@@ -1,503 +1,80 @@
+import { LearningRuntimeService } from "./learning-runtime.service.js";
+import { CourseClassService } from "../courses/course-class.service.js";
 import * as folderOps from "../operations/materials/class-folders.js";
 import { BadRequestException, Injectable, Optional } from "@nestjs/common";
 import { listExamPage, type ExamPage, type ExamPageQuery } from "../operations/exams/learning-exam-page.js";
 import type { PaginatedResult } from "../../../common/pagination.js";
 import { ConfigService } from "@nestjs/config";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import type { ByteRange } from "../../../infrastructure/http-range-stream.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import type { Environment } from "../../../config/environment.js";
 import { PrismaService } from "../../../database/prisma.service.js";
 import { DEFAULT_MATERIAL_MIME_TYPES } from "../../../infrastructure/file-transfer.js";
-import { Prisma } from "../../../generated/prisma/client.js";
 import { AntivirusService } from "../../../infrastructure/antivirus.service.js";
-import {
-  ObjectStorageService,
-  type StoredObject,
-} from "../../../infrastructure/object-storage.service.js";
+import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import type { ScannedQuestionDraft } from "../../system/ai/ai-provider.service.js";
-import {
-  SystemService,
-} from "../../system/core/system.service.js";
+import { SystemService } from "../../system/core/system.service.js";
 import type { LearningServiceContext } from "./learning.context.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
-import { type AttemptWithAnswers, type ClassWithMembers, type ExamGenerationContext, type ExamWithQuestions, type ForumPostWithRelations, type MaterialAccessAction, type MaterialDownload, type MaterialSearchResult, type MaterialSummaryBucket, type MemoryQuestionImage, now, type QuestionSummary, type SupportTicketWithAttachments, type UploadedMaterialFile } from "./learning.shared.js";
-import type { ClassCapabilities, ClassClosureReadiness, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerProgress, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
-import * as access_ops from "../operations/access/learning-access.js";
+import { type ExamGenerationContext, type MaterialAccessAction, type MaterialDownload, type MaterialSearchResult, type MaterialSummaryBucket, type QuestionSummary, type UploadedMaterialFile } from "./learning.shared.js";
+import type { ClassCapabilities, ClassClosureReadiness, ClassProgressReport, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, ExamAnalytics, ExamAttempt, ExamAttemptReview, ForumPost, ForumTopic, InstructorRole, LearnerExamSummary, LearnerResult, LearningClass, LearningCourse, LearningExam, LearningMaterial, LearningNotification, LearningQuestion, LiveSession, ProgressIntervention, QuestionImportResult, RegradeRequest, RiskThresholds, SupportAttachment, SupportTicket, TicketComment } from "./learning.types.js";
 import * as analytics_ops from "../operations/analytics/learning-analytics.js";
 import * as attempts_ops from "../operations/exams/learning-attempts.js";
-
-import * as class_enrollments_ops from "../operations/classes/learning-class-enrollments.js";
-import * as class_instructors_ops from "../operations/classes/learning-class-instructors.js";
-import * as class_lifecycle_ops from "../operations/classes/learning-class-lifecycle.js";
-import * as class_rules_ops from "../operations/classes/learning-class-rules.js";
-import * as classes_ops from "../operations/classes/learning-classes.js";
-import * as content_rules_ops from "../operations/content/learning-content-rules.js";
-import * as courses_ops from "../operations/courses/learning-courses.js";
-import * as directory_ops from "../operations/directory/learning-directory.js";
-import * as engagement_mapping_ops from "../operations/engagement/learning-engagement-mapping.js";
+import type * as classes_ops from "../operations/classes/learning-classes.js";
+import type * as courses_ops from "../operations/courses/learning-courses.js";
 import * as exam_approval_ops from "../operations/exams/learning-exam-approval.js";
 import * as exam_editing_ops from "../operations/exams/learning-exam-editing.js";
 import * as exam_generation_ops from "../operations/exams/learning-exam-generation.js";
 import * as exams_ops from "../operations/exams/learning-exams.js";
-import * as file_rules_ops from "../operations/materials/learning-file-rules.js";
-import * as forum_rules_ops from "../operations/forum/learning-forum-rules.js";
 import * as forum_ops from "../operations/forum/learning-forum.js";
 import * as grading_ops from "../operations/grading/learning-grading.js";
 import * as live_sessions_ops from "../operations/live/learning-live-sessions.js";
-import * as lookups_ops from "../operations/support/learning-lookups.js";
-import * as mapping_ops from "../operations/mapping/learning-mapping.js";
 import * as material_downloads_ops from "../operations/materials/learning-material-downloads.js";
 import * as materials_ops from "../operations/materials/learning-materials.js";
 import * as moderation_ops from "../operations/moderation/learning-moderation.js";
 import * as progress_ops from "../operations/progress/learning-progress.js";
-import * as providers_ops from "../operations/support/learning-providers.js";
-import * as question_rules_ops from "../operations/questions/learning-question-rules.js";
 import * as questions_ops from "../operations/questions/learning-questions.js";
 import * as recordings_ops from "../operations/live/learning-recordings.js";
 import * as regrades_ops from "../operations/grading/learning-regrades.js";
-import * as report_rules_ops from "../operations/reports/learning-report-rules.js";
-
-import * as result_mapping_ops from "../operations/mapping/learning-result-mapping.js";
-import * as session_mapping_ops from "../operations/mapping/learning-session-mapping.js";
-import * as storage_ops from "../operations/storage/learning-storage.js";
 import * as support_ops from "../operations/support/learning-support.js";
 export * from "./learning.shared.js";
 export type { ForumPostPageResult } from "../operations/forum/learning-forum.js";
 
 @Injectable()
-/** Điều phối toàn bộ nghiệp vụ đào tạo, có đường chạy Prisma và fallback in-memory cho môi trường demo. */
+/** Facade điều phối tương thích ngược của miền đào tạo, ủy quyền theo từng domain service và dùng chung LearningRuntimeService. */
 export class LearningService {
-  private readonly courses: LearningCourse[] = [
-    {
-      id: "course-web",
-      code: "WEB-FULLSTACK",
-      name: "Phát triển Web Full-stack",
-      description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.",
-      outcomes: [
-        "Thiết kế giao diện responsive",
-        "Xây dựng REST API",
-        "Thiết kế cơ sở dữ liệu",
-      ],
-      status: "PUBLISHED",
-      version: 1,
-      createdAt: now(),
-      updatedAt: now(),
-    },
-    {
-      id: "course-data",
-      code: "DATA-FOUNDATION",
-      name: "Nền tảng dữ liệu",
-      description: "Tổ chức, phân tích và trực quan hóa dữ liệu.",
-      outcomes: ["Làm sạch dữ liệu", "Mô hình hóa dữ liệu"],
-      status: "DRAFT",
-      version: 1,
-      createdAt: now(),
-      updatedAt: now(),
-    },
-  ];
-
-  private readonly courseVersions: CourseVersionSnapshot[] = [
-    {
-      id: "course-version-web-1",
-      courseId: "course-web",
-      version: 1,
-      name: "Phát triển Web Full-stack",
-      description: "Xây dựng ứng dụng web hiện đại từ giao diện đến API.",
-      outcomes: [
-        "Thiết kế giao diện responsive",
-        "Xây dựng REST API",
-        "Thiết kế cơ sở dữ liệu",
-      ],
-      publishedBy: "usr-manager",
-      publishedAt: now(),
-    },
-  ];
-
-  private readonly classes: LearningClass[] = [
-    {
-      id: "class-web-01",
-      courseId: "course-web",
-      courseVersion: 1,
-      code: "WEB-K01",
-      name: "Web Full-stack K01",
-      term: "2026-HK1",
-      startAt: "2026-08-18T01:00:00.000Z",
-      endAt: "2026-12-20T10:00:00.000Z",
-      capacity: 40,
-      timezone: "Asia/Bangkok",
-      allowLateEnrollment: true,
-      status: "ACTIVE",
-      instructorIds: ["usr-instructor"],
-      learnerIds: ["usr-learner"],
-    },
-  ];
-
-  private readonly folderRegistry = new Map<string, Set<string>>([
-    [JSON.stringify(["class-web-01", "materials"]), new Set(["Tài liệu chung", "Tài liệu", "Bài tập tự luận", "Tuần 1", "Tuần 2"])],
-    [JSON.stringify(["class-web-01", "lectures"]), new Set(["Bài giảng chung", "Bài giảng"])],
-  ]);
-  private readonly materials: LearningMaterial[] = [
-    {
-      id: "mat-web-intro",
-      classId: "class-web-01",
-      ownerId: "usr-instructor",
-      name: "01 — Tổng quan kiến trúc Web.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 2_420_000,
-      folder: "Tuần 1",
-      tags: ["kiến trúc", "bắt đầu"],
-      version: 1,
-      visibility: "PUBLISHED",
-      scope: "CLASS",
-      createdAt: now(),
-    },
-    {
-      id: "mat-api-guide",
-      classId: "class-web-01",
-      ownerId: "usr-instructor",
-      name: "02 — Thiết kế REST API.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 3_180_000,
-      folder: "Tuần 2",
-      tags: ["api", "backend"],
-      version: 2,
-      visibility: "PUBLISHED",
-      scope: "CLASS",
-      createdAt: now(),
-    },
-  ];
-
-  private readonly questions: LearningQuestion[] = [
-    {
-      id: "q-rest-01",
-      familyId: "q-rest-01",
-      courseId: "course-web",
-      type: "SINGLE_CHOICE",
-      content: "HTTP method nào phù hợp để cập nhật một phần tài nguyên?",
-      options: ["GET", "POST", "PATCH", "DELETE"],
-      correctAnswers: ["PATCH"],
-      difficulty: 1,
-      tags: ["http", "api"],
-      status: "PUBLISHED",
-      version: 1,
-    },
-    {
-      id: "q-db-01",
-      familyId: "q-db-01",
-      courseId: "course-web",
-      type: "TRUE_FALSE",
-      content: "Khóa ngoại giúp duy trì tính toàn vẹn tham chiếu.",
-      options: ["Đúng", "Sai"],
-      correctAnswers: ["Đúng"],
-      difficulty: 1,
-      tags: ["database"],
-      status: "PUBLISHED",
-      version: 1,
-    },
-  ];
-
-  private readonly questionImages = new Map<string, MemoryQuestionImage>();
-
-  private readonly exams: LearningExam[] = [
-    {
-      id: "exam-mid-web",
-      classId: "class-web-01",
-      title: "Kiểm tra giữa kỳ Web Full-stack",
-      questionIds: ["q-rest-01", "q-db-01"],
-      durationMinutes: 45,
-      totalScore: 10,
-      openAt: "2026-08-20T00:00:00.000Z",
-      closeAt: "2026-12-30T23:59:00.000Z",
-      attemptLimit: 2,
-      status: "PUBLISHED",
-      version: 1,
-    },
-  ];
-
-  private readonly attempts: ExamAttempt[] = [];
-  private readonly receiptFallbackSecret = randomBytes(32).toString("hex");
-
-
-  private readonly regradeRequests: RegradeRequest[] = [];
-
-  private readonly topics: ForumTopic[] = [
-    {
-      id: "topic-rest",
-      classId: "class-web-01",
-      title: "Thảo luận: REST hay GraphQL?",
-      body: "Chia sẻ trường hợp bạn sẽ chọn REST hoặc GraphQL và lý do.",
-      authorId: "usr-instructor",
-      tags: ["api", "thảo luận"],
-      isPinned: true,
-      isLocked: false,
-      status: "VISIBLE",
-      createdAt: now(),
-    },
-  ];
-
-  private readonly posts: ForumPost[] = [
-    {
-      id: "post-rest-01",
-      topicId: "topic-rest",
-      authorId: "usr-learner",
-      body: "Em chọn REST cho hệ thống CRUD vì dễ cache và theo dõi.",
-      status: "VISIBLE",
-      attachmentIds: [],
-      mentionedUserIds: [],
-      createdAt: now(),
-    },
-  ];
-
-  private readonly notifications: LearningNotification[] = [];
-
-  private readonly sessions: LiveSession[] = [
-    {
-      id: "session-web-01",
-      classId: "class-web-01",
-      hostId: "usr-instructor",
-      title: "Thiết kế API có version",
-      startsAt: "2026-08-26T02:00:00.000Z",
-      endsAt: "2026-08-26T03:30:00.000Z",
-      provider: "JITSI",
-      requestedProvider: "JITSI",
-      fallbackUsed: false,
-      provisioningAttempts: 1,
-      status: "SCHEDULED",
-      timezone: "Asia/Bangkok",
-      hostUrl: "https://meet.jit.si/wind-web-01-host",
-      attendeeUrl: "https://meet.jit.si/wind-web-01",
-    },
-  ];
-
-  private readonly tickets: SupportTicket[] = [];
-
-  private readonly ticketComments: TicketComment[] = [];
-
-  private readonly supportAttachmentFiles = new Map<string, string>();
-
-  private readonly materialFiles = new Map<
-    string,
-    { objectKey: string; checksum: string }
-  >();
-
-  private readonly progressInterventions: ProgressIntervention[] = [];
-
-  private readonly instructorRoles = new Map<string, InstructorRole>([
-    ["class-web-01:usr-instructor", "PRIMARY"],
-  ]);
+  private readonly runtime: LearningRuntimeService;
+  private readonly courseClass: CourseClassService;
+  private readonly operationContext: LearningServiceContext;
 
   constructor(
     @Optional() private readonly prisma?: PrismaService,
-    @Optional() private readonly config?: ConfigService<Environment, true>,
-    @Optional() private readonly objectStorage?: ObjectStorageService,
-    @Optional() private readonly antivirus?: AntivirusService,
-    @Optional() private readonly system?: SystemService,
-  ) {}
-
-  private readonly operationContext: LearningServiceContext =
-    LearningService.createOperationContext(this);
-
-  /** Cấp quyền truy cập có kiểu cho thao tác nội bộ, giữ nguyên trạng thái và điểm chặn kiểm thử của service. */
-  private static createOperationContext(
-    owner: LearningService,
-  ): LearningServiceContext {
-    return {
-      get courses(): LearningServiceContext["courses"] {
-        return owner.courses;
-      },
-      get courseVersions(): LearningServiceContext["courseVersions"] {
-        return owner.courseVersions;
-      },
-      get classes(): LearningServiceContext["classes"] {
-        return owner.classes;
-      },
-      folderRegistry: owner.folderRegistry,
-      get materials(): LearningServiceContext["materials"] {
-        return owner.materials;
-      },
-      get questions(): LearningServiceContext["questions"] {
-        return owner.questions;
-      },
-      get questionImages(): LearningServiceContext["questionImages"] {
-        return owner.questionImages;
-      },
-      get exams(): LearningServiceContext["exams"] {
-        return owner.exams;
-      },
-      get attempts(): LearningServiceContext["attempts"] {
-        return owner.attempts;
-      },
-      get regradeRequests(): LearningServiceContext["regradeRequests"] {
-        return owner.regradeRequests;
-      },
-      get topics(): LearningServiceContext["topics"] {
-        return owner.topics;
-      },
-      get posts(): LearningServiceContext["posts"] {
-        return owner.posts;
-      },
-      get notifications(): LearningServiceContext["notifications"] {
-        return owner.notifications;
-      },
-      get sessions(): LearningServiceContext["sessions"] {
-        return owner.sessions;
-      },
-      get tickets(): LearningServiceContext["tickets"] {
-        return owner.tickets;
-      },
-      get ticketComments(): LearningServiceContext["ticketComments"] {
-        return owner.ticketComments;
-      },
-      get supportAttachmentFiles(): LearningServiceContext["supportAttachmentFiles"] {
-        return owner.supportAttachmentFiles;
-      },
-      get materialFiles(): LearningServiceContext["materialFiles"] {
-        return owner.materialFiles;
-      },
-      get progressInterventions(): LearningServiceContext["progressInterventions"] {
-        return owner.progressInterventions;
-      },
-      get instructorRoles(): LearningServiceContext["instructorRoles"] {
-        return owner.instructorRoles;
-      },
-      get prisma(): LearningServiceContext["prisma"] {
-        return owner.prisma;
-      },
-      get config(): LearningServiceContext["config"] {
-        return owner.config;
-      },
-      get objectStorage(): LearningServiceContext["objectStorage"] {
-        return owner.objectStorage;
-      },
-      get antivirus(): LearningServiceContext["antivirus"] {
-        return owner.antivirus;
-      },
-      get system(): LearningServiceContext["system"] {
-        return owner.system;
-      },
-      enrollLearner: (...args) => owner.enrollLearner(...args),
-      getClassClosureReadiness: (...args) =>
-        owner.getClassClosureReadiness(...args),
-      databaseClassClosureReadiness: (...args) =>
-        owner.databaseClassClosureReadiness(...args),
-      getMaterialSummary: (...args) => owner.getMaterialSummary(...args),
-      searchAccessibleMaterials: (...args) =>
-        owner.searchAccessibleMaterials(...args),
-      resolveMaterialDownload: (...args) =>
-        owner.resolveMaterialDownload(...args),
-      createQuestion: (...args) => owner.createQuestion(...args),
-      submitAttempt: (...args) => owner.submitAttempt(...args),
-      listLearnerResults: (...args) => owner.listLearnerResults(...args),
-      gradeAttempt: (...args) => owner.gradeAttempt(...args),
-      listNotifications: (...args) => owner.listNotifications(...args),
-      markNotificationRead: (...args) => owner.markNotificationRead(...args),
-      isRecordingAvailable: (...args) => owner.isRecordingAvailable(...args),
-      database: (...args) => owner.database(...args),
-      mapCourse: (...args) => owner.mapCourse(...args),
-      mapClass: (...args) => owner.mapClass(...args),
-      mapMaterial: (...args) => owner.mapMaterial(...args),
-      mapQuestion: (...args) => owner.mapQuestion(...args),
-      getExamAnalytics: (...args) => owner.getExamAnalytics(...args),
-      cloneQuestion: (...args) => owner.cloneQuestion(...args),
-      latestQuestionVersions: (...args) =>
-        owner.latestQuestionVersions(...args),
-      sameGeneratedQuestion: (...args) => owner.sameGeneratedQuestion(...args),
-      questionContentHash: (...args) => owner.questionContentHash(...args),
-      validateQuestionInput: (...args) => owner.validateQuestionInput(...args),
-      validateSubmittedAnswers: (...args) =>
-        owner.validateSubmittedAnswers(...args),
-      isQuestionAnswerCorrect: (...args) =>
-        owner.isQuestionAnswerCorrect(...args),
-      mapExam: (...args) => owner.mapExam(...args),
-      mapAttempt: (...args) => owner.mapAttempt(...args),
-      submissionReceipt: (...args) => owner.submissionReceipt(...args),
-      mapRegradeRequest: (...args) => owner.mapRegradeRequest(...args),
-      mapTopic: (...args) => owner.mapTopic(...args),
-      mapPost: (...args) => owner.mapPost(...args),
-      mapProgressIntervention: (...args) =>
-        owner.mapProgressIntervention(...args),
-      progressInterventionHistory: (...args) =>
-        owner.progressInterventionHistory(...args),
-      reportingPeriod: (...args) => owner.reportingPeriod(...args),
-      validateRiskThresholds: (...args) =>
-        owner.validateRiskThresholds(...args),
-      validateTimezone: (...args) => owner.validateTimezone(...args),
-      percentage: (...args) => owner.percentage(...args),
-      latestDate: (...args) => owner.latestDate(...args),
-      buildLearnerProgress: (...args) => owner.buildLearnerProgress(...args),
-      buildProviderUrls: (...args) => owner.buildProviderUrls(...args),
-      seededOrder: (...args) => owner.seededOrder(...args),
-      resolveExamScoreAllocations: (...args) =>
-        owner.resolveExamScoreAllocations(...args),
-      examQuestionScore: (...args) => owner.examQuestionScore(...args),
-      provisionProviderMeeting: (...args) =>
-        owner.provisionProviderMeeting(...args),
-      userIdsForRole: (...args) => owner.userIdsForRole(...args),
-      notifyClassMembers: (...args) => owner.notifyClassMembers(...args),
-      mapSession: (...args) => owner.mapSession(...args),
-      mapTicket: (...args) => owner.mapTicket(...args),
-      isLiveProvider: (value: string): value is LiveSession["provider"] =>
-        owner.isLiveProvider(value),
-      buildClassClosureReadiness: (...args) =>
-        owner.buildClassClosureReadiness(...args),
-      getDatabaseClass: (...args) => owner.getDatabaseClass(...args),
-      getDatabaseExam: (...args) => owner.getDatabaseExam(...args),
-      getDatabaseAttempt: (...args) => owner.getDatabaseAttempt(...args),
-      requireUserRole: (...args) => owner.requireUserRole(...args),
-      getStoragePolicy: (...args) => owner.getStoragePolicy(...args),
-      storeUpload: (...args) => owner.storeUpload(...args),
-      writeStoredFile: (...args) => owner.writeStoredFile(...args),
-      removeStoredFile: (...args) => owner.removeStoredFile(...args),
-      removeQuestionObjectIfUnreferenced: (...args) =>
-        owner.removeQuestionObjectIfUnreferenced(...args),
-      resolveObjectPath: (...args) => owner.resolveObjectPath(...args),
-      signMaterialAccess: (...args) => owner.signMaterialAccess(...args),
-      signRecordingAccess: (...args) => owner.signRecordingAccess(...args),
-      verifyExpiringSignature: (...args) =>
-        owner.verifyExpiringSignature(...args),
-      verifyMaterialAccess: (...args) => owner.verifyMaterialAccess(...args),
-      userIdForRole: (...args) => owner.userIdForRole(...args),
-      readStoredFile: (...args) => owner.readStoredFile(...args),
-      isMaterialObjectKey: (...args) => owner.isMaterialObjectKey(...args),
-      canManageSupport: (...args) => owner.canManageSupport(...args),
-      canAccessMemoryMaterial: (...args) =>
-        owner.canAccessMemoryMaterial(...args),
-      examAvailability: (...args) => owner.examAvailability(...args),
-      attemptDeadline: (...args) => owner.attemptDeadline(...args),
-      isMemoryAnswerCorrect: (...args) => owner.isMemoryAnswerCorrect(...args),
-      validateForumContent: (...args) => owner.validateForumContent(...args),
-      validateSupportText: (...args) => owner.validateSupportText(...args),
-      validateSupportUpload: (...args) => owner.validateSupportUpload(...args),
-      detectMaliciousUpload: (...args) => owner.detectMaliciousUpload(...args),
-      validateQuestionImage: (...args) => owner.validateQuestionImage(...args),
-      scanUpload: (...args) => owner.scanUpload(...args),
-      assertForumClassAccess: (...args) =>
-        owner.assertForumClassAccess(...args),
-      assertMemoryForumClassAccess: (...args) =>
-        owner.assertMemoryForumClassAccess(...args),
-      toStringArray: (...args) => owner.toStringArray(...args),
-      findCourse: (...args) => owner.findCourse(...args),
-      findClass: (...args) => owner.findClass(...args),
-      findExam: (...args) => owner.findExam(...args),
-      findAttempt: (...args) => owner.findAttempt(...args),
-      findTopic: (...args) => owner.findTopic(...args),
-      findPost: (...args) => owner.findPost(...args),
-      findSession: (...args) => owner.findSession(...args),
-    };
+    @Optional() config?: ConfigService<Environment, true>,
+    @Optional() objectStorage?: ObjectStorageService,
+    @Optional() antivirus?: AntivirusService,
+    @Optional() system?: SystemService,
+    @Optional() runtime?: LearningRuntimeService,
+    @Optional() courseClass?: CourseClassService,
+  ) {
+    this.runtime =
+      runtime ??
+      new LearningRuntimeService(prisma, config, objectStorage, antivirus, system);
+    this.operationContext = this.runtime.context;
+    this.courseClass = courseClass ?? new CourseClassService(this.runtime);
   }
 
-  /** Liệt kê khóa học từ DB hoặc trả bản sao dữ liệu nhớ để tránh mutation ngoài service. */
+  /** Liệt kê khóa học từ DB hoặc bộ nhớ kiểm thử. */
   async listCourses(): Promise<LearningCourse[]> {
-    return await courses_ops.listCourses(this.operationContext);
+    return await this.courseClass.listCourses();
   }
 
   /** Phân trang danh mục khóa học kèm tổng số bản ghi được lọc trực tiếp từ DB. */
   async listCoursesPage(
     filters: courses_ops.CoursePageFilters = {},
   ): Promise<PaginatedResult<LearningCourse>> {
-    return await courses_ops.listCoursesPage(this.operationContext, filters);
+    return await this.courseClass.listCoursesPage(filters);
   }
 
   /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
@@ -506,11 +83,7 @@ export class LearningService {
       Partial<Pick<LearningCourse, "grade" | "subject">>,
     actorId: string,
   ): Promise<LearningCourse> {
-    return await courses_ops.createCourse(
-      this.operationContext,
-      input,
-      actorId,
-    );
+    return await this.courseClass.createCourse(input, actorId);
   }
 
   /** Cập nhật nội dung khóa học; khóa học đã xuất bản sẽ tăng version theo quy tắc lưu lịch sử. */
@@ -519,20 +92,12 @@ export class LearningService {
     input: Pick<LearningCourse, "name" | "description" | "outcomes">,
     actorId: string,
   ): Promise<LearningCourse> {
-    return await courses_ops.updateCourse(
-      this.operationContext,
-      courseId,
-      input,
-      actorId,
-    );
+    return await this.courseClass.updateCourse(courseId, input, actorId);
   }
 
   /** Liệt kê snapshot xuất bản của khóa học theo thứ tự phiên bản. */
   async listCourseVersions(courseId: string): Promise<CourseVersionSnapshot[]> {
-    return await courses_ops.listCourseVersions(
-      this.operationContext,
-      courseId,
-    );
+    return await this.courseClass.listCourseVersions(courseId);
   }
 
   /** Xuất bản khóa học và chụp snapshot bất biến của phiên bản hiện tại trong transaction. */
@@ -540,11 +105,7 @@ export class LearningService {
     courseId: string,
     actorId: string,
   ): Promise<LearningCourse> {
-    return await courses_ops.publishCourse(
-      this.operationContext,
-      courseId,
-      actorId,
-    );
+    return await this.courseClass.publishCourse(courseId, actorId);
   }
 
   /** Chuyển khóa học sang ARCHIVED sau khi kiểm tra ràng buộc sử dụng và lưu lý do audit. */
@@ -553,12 +114,7 @@ export class LearningService {
     reason: string,
     actorId: string,
   ): Promise<LearningCourse> {
-    return await courses_ops.archiveCourse(
-      this.operationContext,
-      courseId,
-      reason,
-      actorId,
-    );
+    return await this.courseClass.archiveCourse(courseId, reason, actorId);
   }
 
   /** Lọc lớp theo vai trò: quản trị xem tất cả, giảng viên/học viên theo quan hệ thành viên. */
@@ -566,7 +122,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<LearningClass[]> {
-    return await classes_ops.listClasses(this.operationContext, role, actorId);
+    return await this.courseClass.listClasses(role, actorId);
   }
 
   /** Đọc chi tiết đúng một lớp học theo quyền và quan hệ thành viên của phiên hiện tại. */
@@ -575,7 +131,7 @@ export class LearningService {
     role: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await classes_ops.getClassById(this.operationContext, classId, role, actorId);
+    return await this.courseClass.getClassById(classId, role, actorId);
   }
 
   /** Phân trang danh sách lớp học theo vai trò và bộ lọc trực tiếp ở DB. */
@@ -584,12 +140,7 @@ export class LearningService {
     actorId: string,
     filters: classes_ops.ClassPageFilters = {},
   ): Promise<PaginatedResult<LearningClass>> {
-    return await classes_ops.listClassesPage(
-      this.operationContext,
-      role,
-      actorId,
-      filters,
-    );
+    return await this.courseClass.listClassesPage(role, actorId, filters);
   }
 
   /** Tính capability tại máy chủ từ quyền phiên, quan hệ lớp và trạng thái thay vì tên vai trò đơn lẻ. */
@@ -597,11 +148,7 @@ export class LearningService {
     classId: string,
     session: AuthenticatedSession,
   ): Promise<ClassCapabilities> {
-    return await classes_ops.getClassCapabilities(
-      this.operationContext,
-      classId,
-      session,
-    );
+    return await this.courseClass.getClassCapabilities(classId, session);
   }
 
   /** Tạo lớp nháp từ phiên bản khóa học hợp lệ và kiểm tra lịch, sức chứa, múi giờ. */
@@ -613,7 +160,7 @@ export class LearningService {
       Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
     actorId: string,
   ): Promise<LearningClass> {
-    return await classes_ops.createClass(this.operationContext, input, actorId);
+    return await this.courseClass.createClass(input, actorId);
   }
 
   /** Cập nhật thông tin và cài đặt lớp học. */
@@ -622,7 +169,7 @@ export class LearningService {
     input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
     actorId: string,
   ): Promise<LearningClass> {
-    return await classes_ops.updateClass(this.operationContext, classId, input, actorId);
+    return await this.courseClass.updateClass(classId, input, actorId);
   }
 
   /** Gán giảng viên đúng role, bảo đảm người dùng có vai trò INSTRUCTOR và ghi lịch sử thành viên. */
@@ -632,8 +179,7 @@ export class LearningService {
     requestedRole: InstructorRole | undefined,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_instructors_ops.assignInstructor(
-      this.operationContext,
+    return await this.courseClass.assignInstructor(
       classId,
       instructorId,
       requestedRole,
@@ -649,8 +195,7 @@ export class LearningService {
     rawReason: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_instructors_ops.transferPrimaryInstructor(
-      this.operationContext,
+    return await this.courseClass.transferPrimaryInstructor(
       classId,
       expectedPrimaryId,
       newPrimaryId,
@@ -666,8 +211,7 @@ export class LearningService {
     reason: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_instructors_ops.removeInstructor(
-      this.operationContext,
+    return await this.courseClass.removeInstructor(
       classId,
       instructorId,
       reason,
@@ -681,12 +225,7 @@ export class LearningService {
     learnerId: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_enrollments_ops.enrollLearner(
-      this.operationContext,
-      classId,
-      learnerId,
-      actorId,
-    );
+    return await this.courseClass.enrollLearner(classId, learnerId, actorId);
   }
 
   /** Ghi danh lần lượt danh sách userId và cô lập lỗi để trả kết quả trên từng học viên. */
@@ -695,12 +234,7 @@ export class LearningService {
     userIds: string[],
     actorId: string,
   ): Promise<EnrollmentImportResult[]> {
-    return await class_enrollments_ops.importEnrollments(
-      this.operationContext,
-      classId,
-      userIds,
-      actorId,
-    );
+    return await this.courseClass.importEnrollments(classId, userIds, actorId);
   }
 
   /** Hủy ghi danh và ghi nhận lý do trực tiếp trên bản ghi ghi danh lớp. */
@@ -710,8 +244,7 @@ export class LearningService {
     reason: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_enrollments_ops.removeEnrollment(
-      this.operationContext,
+    return await this.courseClass.removeEnrollment(
       classId,
       learnerId,
       reason,
@@ -721,10 +254,7 @@ export class LearningService {
 
   /** Tổng hợp giảng viên, ghi danh đang/cũ và lịch sử thao tác thành roster chi tiết. */
   async getClassRoster(classId: string): Promise<ClassRoster> {
-    return await class_enrollments_ops.getClassRoster(
-      this.operationContext,
-      classId,
-    );
+    return await this.courseClass.getClassRoster(classId);
   }
 
   /** Kích hoạt lớp khi khóa học đã xuất bản, lịch hợp lệ và có giảng viên chính. */
@@ -732,33 +262,14 @@ export class LearningService {
     classId: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_lifecycle_ops.activateClass(
-      this.operationContext,
-      classId,
-      actorId,
-    );
+    return await this.courseClass.activateClass(classId, actorId);
   }
 
   /** Đếm các nghiệp vụ còn mở để xác định lớp có thể đóng hay chưa. */
   async getClassClosureReadiness(
     classId: string,
   ): Promise<ClassClosureReadiness> {
-    return await class_lifecycle_ops.getClassClosureReadiness(
-      this.operationContext,
-      classId,
-    );
-  }
-
-  /** Tính lại mọi blocker trong chính transaction đóng lớp để loại cửa sổ cạnh tranh với lệnh tạo/nộp. */
-  private async databaseClassClosureReadiness(
-    database: Prisma.TransactionClient,
-    classId: string,
-  ): Promise<ClassClosureReadiness> {
-    return await class_lifecycle_ops.databaseClassClosureReadiness(
-      this.operationContext,
-      database,
-      classId,
-    );
+    return await this.courseClass.getClassClosureReadiness(classId);
   }
 
   /** Đóng lớp chỉ khi readiness không còn blocker và lưu chính sách lưu trữ. */
@@ -768,8 +279,7 @@ export class LearningService {
     archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_lifecycle_ops.closeClass(
-      this.operationContext,
+    return await this.courseClass.closeClass(
       classId,
       closeReason,
       archivePolicy,
@@ -783,12 +293,7 @@ export class LearningService {
     rawReason: string,
     actorId: string,
   ): Promise<LearningClass> {
-    return await class_lifecycle_ops.reopenClass(
-      this.operationContext,
-      classId,
-      rawReason,
-      actorId,
-    );
+    return await this.courseClass.reopenClass(classId, rawReason, actorId);
   }
 
   /** Đọc hoặc tạo thư mục trong lớp được phân công. */
@@ -901,11 +406,21 @@ export class LearningService {
 
   /** Giữ API đọc bộ đệm cho tác vụ nội bộ và kiểm thử với xác minh checksum. */
   async readMaterialDownload(
-    ...args: Parameters<LearningService["resolveMaterialDownload"]>
+    materialId: string,
+    expires: number,
+    signature: string,
+    role: string,
+    action: MaterialAccessAction = "DOWNLOAD",
+    actorId: string,
   ): Promise<MaterialDownload> {
     return await material_downloads_ops.readMaterialDownload(
       this.operationContext,
-      ...args,
+      materialId,
+      expires,
+      signature,
+      role,
+      action,
+      actorId,
     );
   }
 
@@ -952,31 +467,6 @@ export class LearningService {
     );
   }
 
-  /** Xác minh chữ ký/quyền và lấy vị trí object, không nạp toàn bộ nội dung vào RAM. */
-  private async resolveMaterialDownload(
-    materialId: string,
-    expires: number,
-    signature: string,
-    role: string,
-    action: MaterialAccessAction = "DOWNLOAD",
-    actorId: string,
-  ): Promise<{
-    fileName: string;
-    mimeType: string;
-    objectKey: string;
-    checksum?: string;
-  }> {
-    return await material_downloads_ops.resolveMaterialDownload(
-      this.operationContext,
-      materialId,
-      expires,
-      signature,
-      role,
-      action,
-      actorId,
-    );
-  }
-
   /** Cập nhật metadata/visibility của học liệu và ghi audit thay đổi. */
   async updateMaterial(
     materialId: string,
@@ -1011,8 +501,7 @@ export class LearningService {
     classId: string,
     instructorId: string,
   ): Promise<DirectoryUser[]> {
-    return await directory_ops.listInstructorClassLearners(
-      this.operationContext,
+    return await this.courseClass.listInstructorClassLearners(
       classId,
       instructorId,
     );
@@ -1024,12 +513,7 @@ export class LearningService {
     query = "",
     classId?: string,
   ): Promise<DirectoryUser[]> {
-    return await directory_ops.searchDirectory(
-      this.operationContext,
-      roleCode,
-      query,
-      classId,
-    );
+    return await this.courseClass.searchDirectory(roleCode, query, classId);
   }
 
   /** Quét và thay trực tiếp tệp hiện tại của học liệu, xóa ngay tệp cũ sau khi lưu xong. */
@@ -1837,16 +1321,6 @@ export class LearningService {
     );
   }
 
-  /** Kiểm tra bản ghi READY, có URL và chưa vượt thời hạn lưu giữ. */
-  private isRecordingAvailable(
-    session: Pick<
-      LiveSession,
-      "recordingUrl" | "recordingStatus" | "recordingExpiresAt"
-    >,
-  ): boolean {
-    return recordings_ops.isRecordingAvailable(session);
-  }
-
   /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
   async getSessionSummary(
     sessionId: string,
@@ -2138,38 +1612,6 @@ export class LearningService {
     );
   }
 
-  /** Chọn Prisma khi DB được bật; nếu không các public method dùng dữ liệu nhớ demo. */
-  private database(): PrismaService | undefined {
-    return mapping_ops.database(this.operationContext);
-  }
-
-
-  /** Ánh xạ Course Prisma, bao gồm JSON outcomes, sang hợp đồng API. */
-  private mapCourse(
-    row: Prisma.CourseGetPayload<Record<string, never>>,
-  ): LearningCourse {
-    return mapping_ops.mapCourse(this.operationContext, row);
-  }
-
-  /** Ánh xạ lớp cùng thành viên hoạt động và metadata vòng đời. */
-  private mapClass(row: ClassWithMembers): LearningClass {
-    return mapping_ops.mapClass(row);
-  }
-
-  /** Ánh xạ học liệu và chỉ công bố metadata cần thiết, không lộ object key. */
-  private mapMaterial(
-    row: Prisma.MaterialGetPayload<Record<string, never>>,
-  ): LearningMaterial {
-    return mapping_ops.mapMaterial(this.operationContext, row);
-  }
-
-  /** Thu hẹp JSON options/answers/tags và ánh xạ version family của câu hỏi. */
-  private mapQuestion(
-    row: Prisma.QuestionGetPayload<Record<string, never>>,
-  ): LearningQuestion {
-    return mapping_ops.mapQuestion(this.operationContext, row);
-  }
-
   /** Phân tích phân bố điểm, tỷ lệ hoàn thành và hiệu suất câu hỏi trong phạm vi giảng viên. */
   async getExamAnalytics(
     input: { classId?: string; examId?: string; from?: string; to?: string },
@@ -2194,616 +1636,11 @@ export class LearningService {
     );
   }
 
-  /** Sao chép sâu các mảng câu hỏi in-memory để caller không sửa state nội bộ. */
-  private cloneQuestion(item: LearningQuestion): LearningQuestion {
-    return question_rules_ops.cloneQuestion(item);
-  }
-
-  /** Chọn version cao nhất trong mỗi family câu hỏi. */
-  private latestQuestionVersions(
-    items: LearningQuestion[],
-  ): LearningQuestion[] {
-    return question_rules_ops.latestQuestionVersions(items);
-  }
-
-  /** Chỉ tái dùng câu ngân hàng khi nội dung, loại, lựa chọn, đáp án và độ khó khớp hoàn toàn. */
-  private sameGeneratedQuestion(
-    existing: {
-      content: string;
-      type: string;
-      difficulty: number;
-      options: unknown;
-      correctAnswers: unknown;
-    },
-    generated: {
-      content: string;
-      type: string;
-      difficulty: number;
-      options: string[];
-      correctAnswers: string[];
-    },
-  ): boolean {
-    return question_rules_ops.sameGeneratedQuestion(existing, generated);
-  }
-
-  /** Chuẩn hóa nội dung rồi băm để phát hiện câu hỏi trùng. */
-  private questionContentHash(content: string): string {
-    return question_rules_ops.questionContentHash(content);
-  }
-
-  /** Chuẩn hóa rich text/đáp án/tag và kiểm tra quy tắc riêng cho từng loại câu hỏi. */
-  private validateQuestionInput(
-    input: Omit<LearningQuestion, "id" | "status" | "version">,
-  ): Omit<
-    LearningQuestion,
-    "id" | "status" | "version" | "familyId" | "supersedesId"
-  > {
-    return question_rules_ops.validateQuestionInput(input);
-  }
-
-  /** Chuẩn hóa đáp án nộp và chặn lựa chọn không thuộc options của câu hỏi. */
-  private validateSubmittedAnswers(
-    question: LearningQuestion,
-    answers: string[],
-  ): string[] {
-    return question_rules_ops.validateSubmittedAnswers(question, answers);
-  }
-
-  /** So sánh đáp án khách quan không phụ thuộc thứ tự lựa chọn. */
-  private isQuestionAnswerCorrect(
-    question: LearningQuestion,
-    submitted: string[],
-  ): boolean {
-    return question_rules_ops.isQuestionAnswerCorrect(question, submitted);
-  }
-
-  /** Ánh xạ đề và giữ thứ tự câu hỏi theo trường order trong bảng nối. */
-  private mapExam(row: ExamWithQuestions): LearningExam {
-    return result_mapping_ops.mapExam(row);
-  }
-
-  /** Ánh xạ lượt thi cùng câu trả lời và receipt sang hợp đồng API. */
-  private mapAttempt(row: AttemptWithAnswers): ExamAttempt {
-    return result_mapping_ops.mapAttempt(this.operationContext, row);
-  }
-
-  /** Tạo mã biên nhận HMAC bằng khóa bí mật máy chủ; chế độ bộ nhớ dùng khóa ngẫu nhiên theo tiến trình. */
-  private submissionReceipt(attempt: { id: string; examId: string; learnerId: string }, submittedAt: string): string {
-    return result_mapping_ops.submissionReceipt(attempt, submittedAt, this.config?.get("AUTH_ENCRYPTION_SECRET", { infer: true }) || this.receiptFallbackSecret);
-  }
-
-  /** Ánh xạ yêu cầu phúc khảo và các mốc xử lý. */
-  private mapRegradeRequest(
-    row: Prisma.RegradeRequestGetPayload<Record<string, never>>,
-  ): RegradeRequest {
-    return result_mapping_ops.mapRegradeRequest(row);
-  }
-
-  /** Ánh xạ chủ đề diễn đàn và trạng thái điều phối. */
-  private mapTopic(
-    row: Prisma.ForumTopicGetPayload<Record<string, never>>,
-  ): ForumTopic {
-    return engagement_mapping_ops.mapTopic(this.operationContext, row);
-  }
-
-  /** Ánh xạ bài viết, mentions và tệp đính kèm nếu relation đã được include. */
-  private mapPost(
-    row:
-      | Prisma.ForumPostGetPayload<Record<string, never>>
-      | ForumPostWithRelations,
-  ): ForumPost {
-    return engagement_mapping_ops.mapPost(row);
-  }
-
-  /** Ánh xạ biện pháp can thiệp tiến độ sang kiểu ngày ISO. */
-  private mapProgressIntervention(
-    row: Prisma.ProgressInterventionGetPayload<Record<string, never>>,
-  ): ProgressIntervention {
-    return engagement_mapping_ops.mapProgressIntervention(
-      this.operationContext,
-      row,
-    );
-  }
-
-  /** Chuẩn hóa lịch sử bàn giao JSON trước khi đưa ra API hoặc ghi nối tiếp. */
-  private progressInterventionHistory(
-    value: Prisma.JsonValue,
-  ): ProgressIntervention["history"] {
-    return engagement_mapping_ops.progressInterventionHistory(value);
-  }
-
-  /** Parse khoảng báo cáo, áp dụng mặc định và từ chối ngày đảo ngược/không hợp lệ. */
-  private reportingPeriod(
-    fromInput?: string,
-    toInput?: string,
-  ): { from: Date; to: Date } {
-    return report_rules_ops.reportingPeriod(fromInput, toInput);
-  }
-
-  /** Bảo đảm các ngưỡng rủi ro nằm trong miền phần trăm hợp lệ. */
-  private validateRiskThresholds(thresholds: RiskThresholds): void {
-    return report_rules_ops.validateRiskThresholds(thresholds);
-  }
-
-  /** Dùng Intl kiểm tra tên múi giờ IANA trước khi lưu lớp. */
-  private validateTimezone(timezone: string): void {
-    return report_rules_ops.validateTimezone(timezone);
-  }
-
-  /** Tính phần trăm làm tròn và tránh chia cho zero. */
-  private percentage(numerator: number, denominator: number): number {
-    return report_rules_ops.percentage(numerator, denominator);
-  }
-
-  /** Trả mốc ISO mới nhất hoặc undefined khi không có dữ liệu. */
-  private latestDate(values: Date[]): string | undefined {
-    return report_rules_ops.latestDate(values);
-  }
-
-  /** So sánh chỉ số học viên với ngưỡng để sinh mức và lý do rủi ro. */
-  private buildLearnerProgress(
-    input: Omit<LearnerProgress, "riskLevel" | "riskReasons"> & {
-      thresholds: RiskThresholds; scoredItems?: number; totalAssessments?: number;
-    },
-  ): LearnerProgress {
-    return report_rules_ops.buildLearnerProgress(input);
-  }
-
-  /** Dựng URL chủ phòng/người học cho provider demo bằng token phòng ngẫu nhiên. */
-  private buildProviderUrls(
-    provider: LiveSession["provider"],
-    token: string,
-  ): { hostUrl: string; attendeeUrl: string } {
-    return providers_ops.buildProviderUrls(provider, token);
-  }
-
-  /** Xáo trộn xác định theo seed để một học viên nhận thứ tự ổn định trong lượt thi. */
-  private seededOrder(values: string[], seed: string): string[] {
-    return providers_ops.seededOrder(values, seed);
-  }
-
-  /** Chuẩn hóa phân bổ điểm từng câu, đối chiếu đủ câu và tổng điểm với sai số hai chữ số thập phân. */
-  private resolveExamScoreAllocations(
-    questionIds: string[],
-    totalScore: number,
-    allocations?: Array<{ questionId: string; score: number }>,
-  ): Record<string, number> {
-    return providers_ops.resolveExamScoreAllocations(
-      questionIds,
-      totalScore,
-      allocations,
-    );
-  }
-
-  /** Lấy thang điểm một câu trong fallback in-memory, hỗ trợ dữ liệu cũ chia đều. */
-  private examQuestionScore(exam: LearningExam, questionId: string): number {
-    return providers_ops.examQuestionScore(exam, questionId);
-  }
-
-  /** Thử cấp phòng provider yêu cầu và chuyển sang fallback khi provider không khả dụng. */
-  private async provisionProviderMeeting(
-    requested: LiveSession["provider"],
-  ): Promise<{
-    provider: LiveSession["provider"];
-    hostUrl: string;
-    attendeeUrl: string;
-    fallbackUsed: boolean;
-    attempts: number;
-  }> {
-    return await providers_ops.provisionProviderMeeting(
-      this.operationContext,
-      requested,
-    );
-  }
-
-  /** Truy vấn danh sách userId đang có một vai trò cụ thể để phát thông báo. */
-  private async userIdsForRole(
-    database: PrismaService | Prisma.TransactionClient,
-    roleCode: string,
-  ): Promise<string[]> {
-    return await providers_ops.userIdsForRole(database, roleCode);
-  }
-
-  /** Tạo notification hàng loạt cho giảng viên và học viên hoạt động của lớp. */
-  private async notifyClassMembers(
-    database: PrismaService | Prisma.TransactionClient,
-    classId: string,
-    type: string,
-    title: string,
-    entityId: string,
-    templateEventCode?: string,
-    templateVariables: Record<string, string> = {},
-  ): Promise<void> {
-    return await providers_ops.notifyClassMembers(
-      this.operationContext,
-      database,
-      classId,
-      type,
-      title,
-      entityId,
-      templateEventCode,
-      templateVariables,
-    );
-  }
-
-  /** Ánh xạ buổi học trực tuyến và metadata provider/recording sang API. */
-  private mapSession(
-    row: Prisma.LiveSessionGetPayload<Record<string, never>>,
-  ): LiveSession {
-    return session_mapping_ops.mapSession(this.operationContext, row);
-  }
-
-  /** Ánh xạ phiếu hỗ trợ và tệp đính kèm khi relation đã được tải. */
-  private mapTicket(
-    row:
-      | Prisma.SupportTicketGetPayload<Record<string, never>>
-      | SupportTicketWithAttachments,
-  ): SupportTicket {
-    return session_mapping_ops.mapTicket(row);
-  }
-
-  /** Type guard giới hạn provider vào danh mục phòng họp được hỗ trợ. */
-  private isLiveProvider(value: string): value is LiveSession["provider"] {
-    return providers_ops.isLiveProvider(value);
-  }
-
-  /** Chuyển các bộ đếm nghiệp vụ còn mở thành danh sách blocker đóng lớp. */
-  private buildClassClosureReadiness(
-    status: LearningClass["status"],
-    endAt: Date,
-    counts: Omit<ClassClosureReadiness, "eligible" | "blockers">,
-  ): ClassClosureReadiness {
-    return class_rules_ops.buildClassClosureReadiness(status, endAt, counts);
-  }
-
-  /** Tải lớp cùng thành viên và ném 404 nhất quán nếu không tồn tại. */
-  private async getDatabaseClass(
-    database: PrismaService | Prisma.TransactionClient,
-    classId: string,
-  ): Promise<LearningClass> {
-    return await class_rules_ops.getDatabaseClass(
-      this.operationContext,
-      database,
-      classId,
-    );
-  }
-
-  /** Tải đề cùng câu hỏi theo thứ tự để dùng chung giữa các luồng thi. */
-  private async getDatabaseExam(
-    database: PrismaService | Prisma.TransactionClient,
-    examId: string,
-  ): Promise<LearningExam> {
-    return await class_rules_ops.getDatabaseExam(
-      this.operationContext,
-      database,
-      examId,
-    );
-  }
-
-  /** Tải lượt thi cùng đáp án và ném 404 nhất quán. */
-  private async getDatabaseAttempt(
-    database: PrismaService | Prisma.TransactionClient,
-    attemptId: string,
-  ): Promise<ExamAttempt> {
-    return await class_rules_ops.getDatabaseAttempt(
-      this.operationContext,
-      database,
-      attemptId,
-    );
-  }
-
-  /** Bắt buộc user tồn tại, đang hoạt động hoặc vừa được cấp, và có vai trò yêu cầu trước mutation thành viên. */
-  private async requireUserRole(
-    database: PrismaService,
-    userId: string,
-    roleCode: "INSTRUCTOR" | "LEARNER",
-    message: string,
-  ): Promise<void> {
-    return await class_rules_ops.requireUserRole(
-      database,
-      userId,
-      roleCode,
-      message,
-    );
-  }
-
-  /** Đọc chính sách storage từ cấu hình hệ thống và áp dụng mặc định an toàn. */
-  private async getStoragePolicy(database: PrismaService): Promise<{
-    maxFileSizeMb: number;
-    storageQuotaMb: number;
-    allowedMimeTypes: string[];
-  }> {
-    return await storage_ops.getStoragePolicy(database);
-  }
-
   /** Cung cấp giới hạn tệp hiện hành cho trình chọn học liệu của giảng viên. */
   async getMaterialUploadPolicy(): Promise<{ maxFileSizeMb: number; allowedMimeTypes: string[] }> {
     const policy = this.prisma
-      ? await this.getStoragePolicy(this.prisma)
+      ? await this.operationContext.getStoragePolicy(this.prisma)
       : { maxFileSizeMb: 50, allowedMimeTypes: [...DEFAULT_MATERIAL_MIME_TYPES] };
     return { maxFileSizeMb: policy.maxFileSizeMb, allowedMimeTypes: policy.allowedMimeTypes };
-  }
-
-  /** Kiểm tra quota/chính sách, quét virus rồi ghi upload vào namespace material/quarantine. */
-  private async storeUpload(
-    classId: string,
-    materialId: string,
-    upload: UploadedMaterialFile,
-    quarantined = false,
-  ): Promise<{ objectKey: string; checksum: string }> {
-    return await storage_ops.storeUpload(
-      this.operationContext,
-      classId,
-      materialId,
-      upload,
-      quarantined,
-    );
-  }
-
-  /** Ghi object qua storage service hoặc filesystem fallback đã chặn path traversal. */
-  private async writeStoredFile(
-    objectKey: string,
-    buffer: Buffer,
-  ): Promise<StoredObject> {
-    return await storage_ops.writeStoredFile(
-      this.operationContext,
-      objectKey,
-      buffer,
-    );
-  }
-
-  /** Xóa object theo best-effort ở provider chính hoặc filesystem fallback. */
-  private async removeStoredFile(objectKey: string): Promise<void> {
-    return await storage_ops.removeStoredFile(this.operationContext, objectKey);
-  }
-
-  /** Chỉ xóa ảnh câu hỏi khi không còn version nào tham chiếu cùng object key. */
-  private async removeQuestionObjectIfUnreferenced(
-    objectKey: string,
-  ): Promise<void> {
-    return await storage_ops.removeQuestionObjectIfUnreferenced(
-      this.operationContext,
-      objectKey,
-    );
-  }
-
-  /** Resolve đường dẫn fallback và từ chối object key thoát khỏi storage root. */
-  private resolveObjectPath(objectKey: string): string {
-    return storage_ops.resolveObjectPath(this.operationContext, objectKey);
-  }
-
-  /** Ký HMAC liên kết học liệu, ràng buộc id, hạn và loại hành động. */
-  private signMaterialAccess(
-    materialId: string,
-    expires: number,
-    action: MaterialAccessAction,
-  ): string {
-    return storage_ops.signMaterialAccess(
-      this.operationContext,
-      materialId,
-      expires,
-      action,
-    );
-  }
-
-  /** Ký liên kết bản ghi gắn riêng với buổi học và học viên. */
-  private signRecordingAccess(
-    sessionId: string,
-    expires: number,
-    learnerId: string,
-  ): string {
-    return storage_ops.signRecordingAccess(
-      this.operationContext,
-      sessionId,
-      expires,
-      learnerId,
-    );
-  }
-
-  /** Kiểm tra hạn và so sánh chữ ký constant-time, trả thông báo nghiệp vụ tương ứng. */
-  private verifyExpiringSignature(
-    expectedSignature: string,
-    expires: number,
-    signature: string,
-    message: string,
-  ): void {
-    return storage_ops.verifyExpiringSignature(
-      expectedSignature,
-      expires,
-      signature,
-      message,
-    );
-  }
-
-  /** Dựng lại chữ ký học liệu mong đợi và dùng bộ kiểm tra liên kết hết hạn. */
-  private verifyMaterialAccess(
-    materialId: string,
-    expires: number,
-    signature: string,
-    action: MaterialAccessAction,
-  ): void {
-    return storage_ops.verifyMaterialAccess(
-      this.operationContext,
-      materialId,
-      expires,
-      signature,
-      action,
-    );
-  }
-
-  /** Ánh xạ vai trò sang tài khoản seed tương ứng chỉ cho fallback/demo. */
-  private userIdForRole(role: string): string {
-    return access_ops.userIdForRole(role);
-  }
-
-  /** Đọc object qua storage service hoặc filesystem fallback. */
-  private readStoredFile(objectKey: string): Promise<Buffer> {
-    return access_ops.readStoredFile(this.operationContext, objectKey);
-  }
-
-  /** Xác định object key thuộc namespace học liệu mà service cho phép phục vụ. */
-  private isMaterialObjectKey(objectKey: string): boolean {
-    return access_ops.isMaterialObjectKey(objectKey);
-  }
-
-  /** Cho phép vai trò quản trị/điều hành truy cập hàng đợi hỗ trợ. */
-  private canManageSupport(role: string): boolean {
-    return access_ops.canManageSupport(role);
-  }
-
-  /** Áp dụng quyền lớp và visibility cho học liệu fallback in-memory. */
-  private canAccessMemoryMaterial(
-    material: LearningMaterial,
-    role: string,
-    actorId: string,
-  ): boolean {
-    return access_ops.canAccessMemoryMaterial(
-      this.operationContext,
-      material,
-      role,
-      actorId,
-    );
-  }
-
-
-
-  /** Tính trạng thái đề từ công bố, cửa sổ thời gian, lượt đang làm và giới hạn số lượt. */
-  private examAvailability(
-    exam: LearningExam,
-    attemptCount: number,
-    active: boolean,
-    timestamp: Date,
-  ): LearnerExamSummary["availabilityStatus"] {
-    return access_ops.examAvailability(exam, attemptCount, active, timestamp);
-  }
-
-  /** Chọn hạn sớm hơn giữa thời lượng lượt thi và giờ đóng đề. */
-  private attemptDeadline(
-    startedAt: Date,
-    durationMinutes: number,
-    examCloseAt: Date,
-  ): Date {
-    return access_ops.attemptDeadline(startedAt, durationMinutes, examCloseAt);
-  }
-
-  /** Tìm câu hỏi fallback và dùng chung logic so sánh đáp án khách quan. */
-  private isMemoryAnswerCorrect(
-    questionId: string,
-    submitted: string[],
-  ): boolean {
-    return access_ops.isMemoryAnswerCorrect(
-      this.operationContext,
-      questionId,
-      submitted,
-    );
-  }
-
-  /** Chuẩn hóa văn bản diễn đàn và áp dụng giới hạn độ dài/nội dung rỗng. */
-  private validateForumContent(value: string, label: string): string {
-    return content_rules_ops.validateForumContent(value, label);
-  }
-
-  /** Chuẩn hóa văn bản phiếu hỗ trợ và chặn nội dung rỗng/quá dài. */
-  private validateSupportText(value: string, label: string): string {
-    return content_rules_ops.validateSupportText(
-      this.operationContext,
-      value,
-      label,
-    );
-  }
-
-  /** Kiểm tra kích thước, MIME và chữ ký tệp bằng chứng hỗ trợ. */
-  private validateSupportUpload(upload: UploadedMaterialFile): void {
-    return content_rules_ops.validateSupportUpload(
-      this.operationContext,
-      upload,
-    );
-  }
-
-  /** Phát hiện mẫu tệp thực thi/script nguy hiểm khi antivirus ngoài không khả dụng. */
-  private detectMaliciousUpload(
-    upload: UploadedMaterialFile,
-  ): string | undefined {
-    return file_rules_ops.detectMaliciousUpload(upload);
-  }
-
-  /** Kiểm tra giới hạn, MIME, magic bytes và quét virus cho ảnh câu hỏi. */
-  private async validateQuestionImage(
-    upload: UploadedMaterialFile,
-  ): Promise<void> {
-    return await file_rules_ops.validateQuestionImage(
-      this.operationContext,
-      upload,
-    );
-  }
-
-  /** Gọi antivirus service và trả lý do cách ly thay vì ném lỗi khi phát hiện malware. */
-  private async scanUpload(
-    upload: UploadedMaterialFile,
-  ): Promise<string | undefined> {
-    return await file_rules_ops.scanUpload(this.operationContext, upload);
-  }
-
-  /** Xác minh vai trò quản trị hoặc thành viên lớp trước thao tác diễn đàn Prisma. */
-  private assertForumClassAccess(
-    classItem: ClassWithMembers,
-    role: string,
-    actorId: string,
-  ): void {
-    return forum_rules_ops.assertForumClassAccess(classItem, role, actorId);
-  }
-
-  /** Xác minh quyền diễn đàn tương đương trên dữ liệu lớp in-memory. */
-  private assertMemoryForumClassAccess(
-    classId: string,
-    role: string,
-    actorId: string,
-  ): void {
-    return forum_rules_ops.assertMemoryForumClassAccess(
-      this.operationContext,
-      classId,
-      role,
-      actorId,
-    );
-  }
-
-  /** Thu hẹp JSON thành mảng chuỗi, loại mọi phần tử không đúng kiểu. */
-  private toStringArray(value: Prisma.JsonValue): string[] {
-    return lookups_ops.toStringArray(value);
-  }
-
-  /** Tìm khóa học trong fallback và chuẩn hóa lỗi 404. */
-  private findCourse(courseId: string): LearningCourse {
-    return lookups_ops.findCourse(this.operationContext, courseId);
-  }
-
-  /** Tìm lớp trong fallback và chuẩn hóa lỗi 404. */
-  private findClass(classId: string): LearningClass {
-    return lookups_ops.findClass(this.operationContext, classId);
-  }
-
-  /** Tìm đề thi trong fallback và chuẩn hóa lỗi 404. */
-  private findExam(examId: string): LearningExam {
-    return lookups_ops.findExam(this.operationContext, examId);
-  }
-
-  /** Tìm lượt thi trong fallback và chuẩn hóa lỗi 404. */
-  private findAttempt(attemptId: string): ExamAttempt {
-    return lookups_ops.findAttempt(this.operationContext, attemptId);
-  }
-
-  /** Tìm chủ đề trong fallback và chuẩn hóa lỗi 404. */
-  private findTopic(topicId: string): ForumTopic {
-    return lookups_ops.findTopic(this.operationContext, topicId);
-  }
-
-  /** Tìm bài viết trong fallback và chuẩn hóa lỗi 404. */
-  private findPost(postId: string): ForumPost {
-    return lookups_ops.findPost(this.operationContext, postId);
-  }
-
-  /** Tìm buổi học trong fallback và chuẩn hóa lỗi 404. */
-  private findSession(sessionId: string): LiveSession {
-    return lookups_ops.findSession(this.operationContext, sessionId);
   }
 }

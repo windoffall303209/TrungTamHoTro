@@ -5,7 +5,7 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateClassDto, UpdateCourseDto } from "../core/learning.dto.js";
-import { LearningService } from "../core/learning.service.js";
+import { CourseClassService } from "./course-class.service.js";
 import type { ClassCapabilities, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "../core/learning.types.js";
 
 /** Chuẩn hóa tham số status tùy chọn theo tập giá trị hợp lệ của khóa học hoặc lớp học. */
@@ -22,7 +22,7 @@ function parseStatusFilter<T extends string>(rawValue: unknown, allowed: readonl
 @Controller()
 /** API quản lý vòng đời khóa học, lớp, giảng viên và ghi danh học viên. */
 export class CourseController {
-  constructor(private readonly learning: LearningService) {}
+  constructor(private readonly learning: CourseClassService) {}
 
   @Get("manager/courses") @RequirePermissions("course:view")
   /** Liệt kê danh mục khóa học; người không có course:manage chỉ thấy khóa học đã xuất bản. */
