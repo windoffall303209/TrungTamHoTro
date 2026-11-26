@@ -342,6 +342,7 @@ export function useClassDetailModel() {
     session,
     allowed,
     item,
+    setItem,
     course,
     roster,
     readiness,

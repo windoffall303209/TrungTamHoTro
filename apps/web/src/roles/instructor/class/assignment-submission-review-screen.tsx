@@ -524,14 +524,19 @@ export function AssignmentSubmissionReviewScreen({
   classId,
   assignmentId,
   initialSubmissionId,
+  returnTab,
+  initialMode,
 }: {
   classId: string;
   assignmentId: string;
   initialSubmissionId?: string | null;
+  returnTab?: string | null;
+  initialMode?: string | null;
 }) {
   const router = useRouter();
   const { session, notify } = useApp();
   const { locale } = useI18n();
+  const backTab = returnTab === "gradebook" ? "gradebook" : "assignments";
   const canAccess = ["INSTRUCTOR", "CENTER_MANAGER", "SYSTEM_ADMIN"].includes(session.roleCode);
   const canGrade =
     session.roleCode === "INSTRUCTOR" && session.permissions.includes("exam:manage");
@@ -545,7 +550,9 @@ export function AssignmentSubmissionReviewScreen({
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(
     () => initialSubmissionId ?? "",
   );
-  const [layoutMode, setLayoutMode] = useState<ReviewLayoutMode>("FULL");
+  const [layoutMode, setLayoutMode] = useState<ReviewLayoutMode>(
+    () => (initialMode === "view" ? "READ_ONLY" : "FULL"),
+  );
   const [showSourceMaterialViewer, setShowSourceMaterialViewer] = useState(false);
   const loadSeqRef = useRef(0);
 
@@ -644,7 +651,7 @@ export function AssignmentSubmissionReviewScreen({
           <div className="flex flex-wrap items-center gap-3 min-w-0">
             <button
               type="button"
-              onClick={() => router.push(`/courses/classes/${encodeURIComponent(classId)}?tab=assignments`)}
+              onClick={() => router.push(`/courses/classes/${encodeURIComponent(classId)}?tab=${backTab}`)}
               className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 cursor-pointer shrink-0"
             >
               <ArrowLeft size={14} />
@@ -778,7 +785,7 @@ export function AssignmentSubmissionReviewScreen({
           <Button
             type="button"
             variant="secondary"
-            onClick={() => router.push(`/courses/classes/${encodeURIComponent(classId)}?tab=assignments`)}
+            onClick={() => router.push(`/courses/classes/${encodeURIComponent(classId)}?tab=${backTab}`)}
           >
             Quay lại lớp học
           </Button>

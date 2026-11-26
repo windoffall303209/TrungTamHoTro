@@ -5,6 +5,7 @@ import { SubmissionFile } from "@/features/academic/submission-file";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
+import { ClassAvatar } from "@/shared/ui/class-avatar";
 import { canLearnerJoinSession } from "@/features/class-detail/live-session-utils";
 import { LectureSidebarNavigation } from "@/features/class-detail/lecture-sidebar-navigation";
 import { ClassFolderEntry } from "@/features/class-detail/class-folder-entry";
@@ -1203,12 +1204,22 @@ export function LearnerClassWorkspace({
 
             {/* Thông tin lớp học */}
             <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
-                {item.name || item.code}
-              </h1>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
-              </p>
+              <div className="flex items-center gap-2.5">
+                <ClassAvatar
+                  avatarUrl={item.avatarUrl}
+                  name={item.name || item.code}
+                  sizeClass="size-10"
+                  iconSize={18}
+                />
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
+                    {item.name || item.code}
+                  </h1>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
+                  </p>
+                </div>
+              </div>
 
               {/* Danh sách giáo viên phụ trách (hỗ trợ hiển thị 2 giáo viên kèm avatar thật) */}
               <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60 space-y-2">

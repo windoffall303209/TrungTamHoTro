@@ -10,6 +10,7 @@ import {
   EyeOff,
   FileText,
   Folder,
+  ImagePlus,
   LayoutDashboard,
   Lock,
   MessageCircle,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
 import type { usePagination } from "@/shared/ui/ui";
+import { ClassAvatar } from "@/shared/ui/class-avatar";
 import { UserPicker } from "@/shared/ui/user-picker";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 import { ClassFeedView } from "@/features/class-feed/class-feed-view";
@@ -74,6 +76,7 @@ export interface ManagerClassWorkspaceProps {
   readiness: ClassClosureReadiness | null;
   saving: boolean;
   onBack: () => void;
+  onClassUpdated?: (updated: LearningClass) => void;
   instructorForm: { userId: string; role: InstructorRole };
   setInstructorForm: React.Dispatch<React.SetStateAction<{ userId: string; role: InstructorRole }>>;
   learnerId: string;
@@ -144,6 +147,7 @@ export function ManagerClassWorkspace({
   readiness,
   saving,
   onBack,
+  onClassUpdated,
   instructorForm,
   setInstructorForm,
   learnerId,
@@ -192,13 +196,17 @@ export function ManagerClassWorkspace({
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   // Trạng thái cài đặt lớp học
   const [settingsForm, setSettingsForm] = useState({
     name: item.name,
     capacity: item.capacity ?? 40,
     description: "description" in item && typeof item.description === "string" ? item.description : "",
+    allowLateEnrollment: item.allowLateEnrollment ?? false,
     allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
+    allowLearnerFeedPosting: item.allowLearnerFeedPosting ?? true,
   });
 
   // Trạng thái xác nhận kích hoạt/đóng lớp học
@@ -238,7 +246,9 @@ export function ManagerClassWorkspace({
       name: item.name,
       capacity: item.capacity ?? 40,
       description: "description" in item && typeof item.description === "string" ? item.description : "",
+      allowLateEnrollment: item.allowLateEnrollment ?? false,
       allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
+      allowLearnerFeedPosting: item.allowLearnerFeedPosting ?? true,
     });
   }, [item]);
 
@@ -435,27 +445,72 @@ export function ManagerClassWorkspace({
     e.preventDefault();
     setSavingSettings(true);
     try {
-      const updated = await apiRequest<LearningClass>(`/manager/classes/${item.id}`, {
+      const updated = await apiRequest<LearningClass>(`/classes/${encodeURIComponent(item.id)}/settings`, {
         method: "PATCH",
+        roleCode: session.roleCode,
         body: JSON.stringify({
           name: settingsForm.name.trim(),
           capacity: Number(settingsForm.capacity),
+          allowLateEnrollment: settingsForm.allowLateEnrollment,
           allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
+          allowLearnerFeedPosting: settingsForm.allowLearnerFeedPosting,
         }),
       });
-      setCurrentClass((prev) => ({
-        ...prev,
-        ...updated,
-        name: settingsForm.name.trim(),
-        capacity: Number(settingsForm.capacity),
-        allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
-      } as LearningClass));
+      setCurrentClass(updated);
+      onClassUpdated?.(updated);
       notify("Đã cập nhật cài đặt lớp học thành công.", "success");
       setSettingsModalOpen(false);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không lưu được cài đặt lớp.", "error");
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  /** Tải ảnh đại diện lớp học thay cho icon mặc định từ màn hình quản lý. */
+  const handleSelectClassAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || uploadingAvatar) return;
+    if (file.size <= 0 || file.size > 3 * 1024 * 1024) {
+      notify("Ảnh đại diện lớp học phải có kích thước từ 1 byte đến 3 MB.", "error");
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      const updated = await apiRequest<LearningClass>(`/classes/${encodeURIComponent(item.id)}/avatar`, {
+        method: "POST",
+        roleCode: session.roleCode,
+        body: formData,
+      });
+      setCurrentClass(updated);
+      onClassUpdated?.(updated);
+      notify("Đã cập nhật ảnh đại diện lớp học.", "success");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không tải được ảnh đại diện lớp học.", "error");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  /** Gỡ ảnh đại diện lớp học để quay về icon mặc định. */
+  const handleRemoveClassAvatar = async () => {
+    if (!currentClass.avatarUrl || uploadingAvatar) return;
+    setUploadingAvatar(true);
+    try {
+      const updated = await apiRequest<LearningClass>(`/classes/${encodeURIComponent(item.id)}/avatar`, {
+        method: "DELETE",
+        roleCode: session.roleCode,
+      });
+      setCurrentClass(updated);
+      onClassUpdated?.(updated);
+      notify("Đã chuyển lớp học về icon mặc định.", "info");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không gỡ được ảnh đại diện lớp học.", "error");
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -501,6 +556,12 @@ export function ManagerClassWorkspace({
             <span>Danh sách lớp</span>
           </button>
           <span className="text-slate-300 dark:text-slate-700">/</span>
+          <ClassAvatar
+            avatarUrl={currentClass.avatarUrl}
+            name={currentClass.name}
+            sizeClass="size-8"
+            iconSize={15}
+          />
           <span className="px-2.5 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-xs font-mono font-bold tracking-wider uppercase">
             {item.code}
           </span>
@@ -1552,6 +1613,52 @@ export function ManagerClassWorkspace({
         description="Chỉnh sửa các thông số vận hành và thiết lập của lớp học này."
       >
         <form onSubmit={(e) => void handleSaveSettings(e)} className="space-y-4">
+          <Field label="Ảnh đại diện lớp học">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-3">
+              <ClassAvatar
+                avatarUrl={currentClass.avatarUrl}
+                name={currentClass.name}
+                sizeClass="size-12"
+                iconSize={22}
+              />
+              <div className="flex-1 min-w-44 space-y-1.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Chọn ảnh PNG, JPEG hoặc WebP (tối đa 3 MB) để thay icon mặc định.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label="Chọn ảnh đại diện lớp học"
+                    className="hidden"
+                    onChange={(event) => void handleSelectClassAvatar(event)}
+                  />
+                  <button
+                    type="button"
+                    disabled={uploadingAvatar}
+                    onClick={() => avatarInputRef.current?.click()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+                  >
+                    <ImagePlus size={13} />
+                    <span>Chọn ảnh đại diện</span>
+                  </button>
+                  {currentClass.avatarUrl && (
+                    <button
+                      type="button"
+                      disabled={uploadingAvatar}
+                      onClick={() => void handleRemoveClassAvatar()}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-50 cursor-pointer"
+                    >
+                      <Trash2 size={13} />
+                      <span>Dùng icon mặc định</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Field>
+
           <Field label="Tên lớp học">
             <input
               className={inputClass}
@@ -1566,14 +1673,13 @@ export function ManagerClassWorkspace({
             <input
               type="number"
               min={1}
-              max={500}
+              max={1000}
               className={inputClass}
               required
               value={settingsForm.capacity}
               onChange={(e) => setSettingsForm({ ...settingsForm, capacity: Number(e.target.value) })}
             />
           </Field>
-
 
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
             <input
@@ -1583,8 +1689,34 @@ export function ManagerClassWorkspace({
               onChange={(event) => setSettingsForm((current) => ({ ...current, allowPeerGradeViewing: event.target.checked }))}
             />
             <span className="space-y-1">
-              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép học sinh xem điểm của nhau</span>
-              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Học sinh trong lớp có thể xem bảng điểm chung. Chỉ giáo viên được cập nhật điểm.</span>
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép học sinh xem bảng điểm</span>
+              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Học sinh trong lớp có thể xem bảng điểm ở chế độ chỉ xem, không có thao tác chấm bài hay xem chi tiết bài làm.</span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-sky-600"
+              checked={settingsForm.allowLearnerFeedPosting}
+              onChange={(event) => setSettingsForm((current) => ({ ...current, allowLearnerFeedPosting: event.target.checked }))}
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép học sinh đăng bài trên bảng tin</span>
+              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Khi bật, học sinh được đăng bài mới trên bảng tin lớp; khi tắt chỉ giảng viên và quản lý được đăng bài.</span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 accent-sky-600"
+              checked={settingsForm.allowLateEnrollment}
+              onChange={(event) => setSettingsForm((current) => ({ ...current, allowLateEnrollment: event.target.checked }))}
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép ghi danh muộn</span>
+              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Cho phép thêm học viên mới sau khi lớp đã bắt đầu diễn ra.</span>
             </span>
           </label>
 

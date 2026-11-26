@@ -17,6 +17,7 @@ import * as class_enrollments_ops from "../operations/classes/learning-class-enr
 import * as class_instructors_ops from "../operations/classes/learning-class-instructors.js";
 import * as class_lifecycle_ops from "../operations/classes/learning-class-lifecycle.js";
 import * as classes_ops from "../operations/classes/learning-classes.js";
+import * as class_avatar_ops from "../operations/classes/learning-class-avatar.js";
 import * as courses_ops from "../operations/courses/learning-courses.js";
 import * as directory_ops from "../operations/directory/learning-directory.js";
 
@@ -115,7 +116,17 @@ export class CourseClassService {
       LearningClass,
       "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
     > &
-      Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
+      Partial<
+        Pick<
+          LearningClass,
+          | "timezone"
+          | "allowLateEnrollment"
+          | "allowPeerGradeViewing"
+          | "allowLearnerFeedPosting"
+          | "grade"
+          | "subject"
+        >
+      >,
     actorId: string,
   ): Promise<LearningClass> {
     return await classes_ops.createClass(this.runtime.context, input, actorId);
@@ -129,10 +140,48 @@ export class CourseClassService {
       capacity?: number;
       allowLateEnrollment?: boolean;
       allowPeerGradeViewing?: boolean;
+      allowLearnerFeedPosting?: boolean;
     },
     actorId: string,
   ): Promise<LearningClass> {
     return await classes_ops.updateClass(this.runtime.context, classId, input, actorId);
+  }
+
+  /** Cho phép giảng viên phụ trách hoặc quản lý cập nhật toàn bộ cài đặt lớp học. */
+  async updateClassSettings(
+    classId: string,
+    input: {
+      name?: string;
+      capacity?: number;
+      allowLateEnrollment?: boolean;
+      allowPeerGradeViewing?: boolean;
+      allowLearnerFeedPosting?: boolean;
+    },
+    session: AuthenticatedSession,
+  ): Promise<LearningClass> {
+    return await class_avatar_ops.updateClassSettings(this.runtime.context, classId, input, session);
+  }
+
+  /** Tải ảnh đại diện mới cho lớp học sau khi xác thực quyền, chữ ký ảnh và quét mã độc. */
+  async updateClassAvatar(
+    classId: string,
+    upload: class_avatar_ops.ClassAvatarUpload,
+    session: AuthenticatedSession,
+  ): Promise<LearningClass> {
+    return await class_avatar_ops.updateClassAvatar(this.runtime.context, classId, upload, session);
+  }
+
+  /** Xóa ảnh đại diện tùy chỉnh của lớp học để quay về icon mặc định. */
+  async removeClassAvatar(
+    classId: string,
+    session: AuthenticatedSession,
+  ): Promise<LearningClass> {
+    return await class_avatar_ops.removeClassAvatar(this.runtime.context, classId, session);
+  }
+
+  /** Đọc nội dung ảnh đại diện của lớp học từ object storage. */
+  async readClassAvatar(classId: string): Promise<{ buffer: Buffer; mimeType: string }> {
+    return await class_avatar_ops.readClassAvatar(this.runtime.context, classId);
   }
 
   /** Gán giảng viên đúng role, bảo đảm người dùng có vai trò INSTRUCTOR và ghi lịch sử thành viên. */

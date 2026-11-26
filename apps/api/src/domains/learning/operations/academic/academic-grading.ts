@@ -177,10 +177,10 @@ export async function gradebook(
           closeAt: true,
           hidden: true,
           status: true,
-          // Chỉ chọn trạng thái và điểm, không kéo JSON câu trả lời chi tiết lên RAM.
+          // Chỉ chọn trạng thái, điểm và mã lượt dùng cho thao tác xem/chấm của giảng viên; không kéo JSON câu trả lời lên RAM.
           attempts: {
             where: selfLearnerFilter,
-            select: { learnerId: true, status: true, score: true },
+            select: { id: true, learnerId: true, status: true, score: true, submittedAt: true },
           },
         },
       },
@@ -194,10 +194,10 @@ export async function gradebook(
           createdAt: true,
           hidden: true,
           status: true,
-          // Sổ điểm chỉ cần trạng thái và điểm; không kéo nội dung bài luận/nhận xét (tới 20 KB mỗi bài) của cả lớp lên RAM.
+          // Sổ điểm chỉ cần trạng thái, điểm và mã bài nộp; không kéo nội dung bài luận/nhận xét lên RAM.
           submissions: {
             where: selfLearnerFilter,
-            select: { learnerId: true, status: true, score: true },
+            select: { id: true, learnerId: true, status: true, score: true },
           },
         },
       },
@@ -209,7 +209,7 @@ export async function gradebook(
     ...classItem.exams.map((exam) => {
       const attemptsByLearner = new Map<
         string,
-        Array<{ learnerId: string; status: string; score: unknown }>
+        Array<{ id: string; learnerId: string; status: string; score: unknown; submittedAt: Date | null }>
       >();
       for (const attempt of exam.attempts) {
         const list = attemptsByLearner.get(attempt.learnerId);
@@ -232,7 +232,7 @@ export async function gradebook(
     ...classItem.assignments.map((assignment) => {
       const submissionsByLearner = new Map<
         string,
-        { learnerId: string; status: string; score: unknown }
+        { id: string; learnerId: string; status: string; score: unknown }
       >();
       for (const submission of assignment.submissions) {
         submissionsByLearner.set(submission.learnerId, submission);
@@ -295,6 +295,7 @@ export async function gradebook(
               : best,
           undefined,
         );
+        const includeWorkRefs = session.roleCode !== "LEARNER";
         if (highestAttempt) {
           const score = Number(highestAttempt.score ?? 0);
           if (counts) {
@@ -308,13 +309,18 @@ export async function gradebook(
             score,
             status: "GRADED",
             ...(attempts.length > 1 ? { attemptCount: attempts.length } : {}),
+            ...(includeWorkRefs ? { attemptId: highestAttempt.id } : {}),
           });
         } else if (attempts.some((attempt) => attempt.status === "SUBMITTED")) {
+          const latestSubmitted = attempts
+            .filter((attempt) => attempt.status === "SUBMITTED")
+            .sort((left, right) => (right.submittedAt?.getTime() ?? 0) - (left.submittedAt?.getTime() ?? 0))[0];
           awaitingGrade += 1;
           cells.push({
             assessmentId: exam.id,
             status: "AWAITING_GRADE",
             ...(attempts.length > 1 ? { attemptCount: attempts.length } : {}),
+            ...(includeWorkRefs && latestSubmitted ? { attemptId: latestSubmitted.id } : {}),
           });
         } else if (attempts.some((attempt) => attempt.status === "IN_PROGRESS")) {
           awaitingGrade += 1;
@@ -332,6 +338,7 @@ export async function gradebook(
         const assignment = work.assignment;
         const counts = !assignment.hidden;
         const submission = work.submissionsByLearner.get(learnerId);
+        const includeWorkRefs = session.roleCode !== "LEARNER";
         if (submission?.status === "GRADED") {
           const score = Number(submission.score ?? 0);
           if (counts) {
@@ -344,12 +351,14 @@ export async function gradebook(
             assessmentId: assignment.id,
             score,
             status: "GRADED",
+            ...(includeWorkRefs ? { submissionId: submission.id } : {}),
           });
         } else if (submission) {
           awaitingGrade += 1;
           cells.push({
             assessmentId: assignment.id,
             status: "AWAITING_GRADE",
+            ...(includeWorkRefs ? { submissionId: submission.id } : {}),
           });
         } else if (counts && (assignment.status === "CLOSED" || assignment.dueAt <= now)) {
           assignmentPossible += Number(assignment.maxScore);

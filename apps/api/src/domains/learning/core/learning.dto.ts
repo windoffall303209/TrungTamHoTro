@@ -136,6 +136,8 @@ export class CreateClassDto {
   @IsInt() @Min(1) @Max(1000) capacity!: number;
   @IsOptional() @IsString() timezone = "Asia/Bangkok";
   @IsOptional() @IsBoolean() allowLateEnrollment = false;
+  @IsOptional() @IsBoolean() allowPeerGradeViewing = false;
+  @IsOptional() @IsBoolean() allowLearnerFeedPosting = true;
 }
 
 /** Dữ liệu cập nhật thông tin và cài đặt lớp học. */
@@ -144,6 +146,7 @@ export class UpdateClassDto {
   @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
   @IsOptional() @IsBoolean() allowLateEnrollment?: boolean;
   @IsOptional() @IsBoolean() allowPeerGradeViewing?: boolean;
+  @IsOptional() @IsBoolean() allowLearnerFeedPosting?: boolean;
 }
 
 export class AssignUserDto {

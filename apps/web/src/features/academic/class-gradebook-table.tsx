@@ -1,8 +1,19 @@
 "use client";
 
-import type { GradebookAssessmentColumn, GradebookResponse, GradebookRow } from "@/lib/learning-types";
+import type {
+  GradebookAssessmentCell,
+  GradebookAssessmentColumn,
+  GradebookResponse,
+  GradebookRow,
+} from "@/lib/learning-types";
 import { getScoreColorClass } from "@/roles/instructor/class/instructor-class-workspace.helpers";
 import { UserAvatar } from "@/shared/ui/user-avatar";
+
+export interface GradebookCellSelection {
+  row: GradebookRow;
+  assessment: GradebookAssessmentColumn;
+  cell: GradebookAssessmentCell;
+}
 
 /** Gom danh sách cột bài kiểm tra từ dữ liệu bảng điểm để hiển thị cố định 20/15/65 (tối đa 7 cột nhìn thấy). */
 export function resolveAssessmentColumns(rows: GradebookRow[]): GradebookAssessmentColumn[] {
@@ -50,11 +61,13 @@ export function ClassGradebookTable({
   assessments: assessmentsProp,
   loading = false,
   emptyMessage = "Chưa có dữ liệu bảng điểm.",
+  onSelectCell,
 }: {
   rows: GradebookRow[];
   assessments?: GradebookAssessmentColumn[];
   loading?: boolean;
   emptyMessage?: string;
+  onSelectCell?: (selection: GradebookCellSelection) => void;
 }) {
   const assessments =
     assessmentsProp && assessmentsProp.length > 0
@@ -217,22 +230,42 @@ export function ClassGradebookTable({
                         );
                       }
                       if (cell.status === "GRADED" && typeof cell.score === "number") {
+                        const clickable = Boolean(
+                          onSelectCell && (cell.submissionId || cell.attemptId),
+                        );
+                        const scoreTitle = [
+                          (cell.attemptCount ?? 0) > 1
+                            ? `Điểm cao nhất trong ${cell.attemptCount} lần làm bài`
+                            : "",
+                          clickable ? "Nhấn để xem chi tiết bài làm" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ");
                         return (
                           <td
                             key={col.id}
                             className="px-2.5 py-3 text-center border-r last:border-r-0 border-slate-100 dark:border-slate-800/60"
                             style={assessmentColStyle}
-                            title={
-                              (cell.attemptCount ?? 0) > 1
-                                ? `Điểm cao nhất trong ${cell.attemptCount} lần làm bài`
-                                : undefined
-                            }
+                            title={scoreTitle || undefined}
                           >
-                            <span
-                              className={`inline-flex rounded-full px-2 py-0.5 border font-bold tabular-nums ${getScoreColorClass(cell.score, cell.maxScore ?? col.maxScore)}`}
-                            >
-                              {cell.score}
-                            </span>
+                            {clickable ? (
+                              <button
+                                type="button"
+                                aria-label={`Xem chi tiết ${col.title} của ${row.learnerName}`}
+                                onClick={() =>
+                                  onSelectCell?.({ row, assessment: col, cell })
+                                }
+                                className={`inline-flex rounded-full px-2.5 py-0.5 border font-bold tabular-nums transition-all cursor-pointer hover:scale-105 hover:ring-2 hover:ring-blue-400/60 ${getScoreColorClass(cell.score, cell.maxScore ?? col.maxScore)}`}
+                              >
+                                {cell.score}
+                              </button>
+                            ) : (
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 border font-bold tabular-nums ${getScoreColorClass(cell.score, cell.maxScore ?? col.maxScore)}`}
+                              >
+                                {cell.score}
+                              </span>
+                            )}
                             {(cell.attemptCount ?? 0) > 1 && (
                               <span className="mt-0.5 block text-[9px] font-medium text-slate-400">
                                 Cao nhất ({cell.attemptCount} lượt)
@@ -242,15 +275,32 @@ export function ClassGradebookTable({
                         );
                       }
                       if (cell.status === "AWAITING_GRADE") {
+                        const clickable = Boolean(
+                          onSelectCell && (cell.submissionId || cell.attemptId),
+                        );
                         return (
                           <td
                             key={col.id}
                             className="px-2.5 py-3 text-center border-r last:border-r-0 border-slate-100 dark:border-slate-800/60"
                             style={assessmentColStyle}
+                            title={clickable ? "Nhấn để chấm bài đang chờ chấm" : undefined}
                           >
-                            <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
-                              Chờ chấm
-                            </span>
+                            {clickable ? (
+                              <button
+                                type="button"
+                                aria-label={`Chấm bài ${col.title} của ${row.learnerName}`}
+                                onClick={() =>
+                                  onSelectCell?.({ row, assessment: col, cell })
+                                }
+                                className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-700 ring-1 ring-amber-200/80 transition-all cursor-pointer hover:bg-amber-100 hover:ring-2 hover:ring-amber-400 dark:bg-amber-950/50 dark:text-amber-300 dark:ring-amber-800"
+                              >
+                                Chờ chấm
+                              </button>
+                            ) : (
+                              <span className="inline-flex rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
+                                Chờ chấm
+                              </span>
+                            )}
                           </td>
                         );
                       }

@@ -49,6 +49,8 @@ export interface LearningClass {
   timezone: string;
   allowLateEnrollment: boolean;
   allowPeerGradeViewing?: boolean;
+  allowLearnerFeedPosting?: boolean;
+  avatarUrl?: string | null;
   status: ClassStatus;
   instructorIds: string[];
   learnerIds: string[];

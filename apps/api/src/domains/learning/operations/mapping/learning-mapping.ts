@@ -58,6 +58,10 @@ export function mapClass(row: ClassWithMembers): LearningClass {
     timezone: row.timezone,
     allowLateEnrollment: row.allowLateEnrollment,
     allowPeerGradeViewing: row.allowPeerGradeViewing,
+    allowLearnerFeedPosting: row.allowLearnerFeedPosting,
+    avatarUrl: row.avatarObjectKey
+      ? `/classes/${encodeURIComponent(row.id)}/avatar?v=${row.avatarUpdatedAt?.getTime() ?? 0}`
+      : null,
     status: row.status,
     instructorIds: row.instructors.map(({ instructorId }) => instructorId),
     learnerIds: row.enrollments.map(({ learnerId }) => learnerId),

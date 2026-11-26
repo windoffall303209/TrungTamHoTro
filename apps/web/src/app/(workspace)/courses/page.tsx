@@ -2,10 +2,11 @@
 
 import { activeLocale } from "@/i18n/runtime";
 
-import { Archive, ArrowRight, BookOpen, GraduationCap, History, Pencil, Plus, Rocket, Search, UserCheck, Users, X } from "lucide-react";
+import { Archive, ArrowRight, BookOpen, GraduationCap, History, ImagePlus, Pencil, Plus, Rocket, Search, Trash2, UserCheck, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
+import { ClassAvatar } from "@/shared/ui/class-avatar";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
@@ -18,7 +19,23 @@ import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
 const blankCourse = { code: "", name: "", description: "", outcomes: "", grade: "", subject: "" };
-const blankClass = { courseId: "", code: "", name: "", term: "2026-2027", grade: "", subject: "", startAt: "", endAt: "", capacity: 40, timezone: "Asia/Bangkok", allowLateEnrollment: false, description: "" };
+const blankClass = {
+  courseId: "",
+  code: "",
+  name: "",
+  term: "2026-2027",
+  grade: "",
+  subject: "",
+  startAt: "",
+  endAt: "",
+  capacity: 40,
+  timezone: "Asia/Bangkok",
+  allowLateEnrollment: false,
+  allowPeerGradeViewing: false,
+  allowLearnerFeedPosting: true,
+  description: "",
+};
+const MAX_CLASS_AVATAR_BYTES = 3 * 1024 * 1024;
 
 /** Màu sắc banner card lớp học ngẫu nhiên theo chỉ số */
 const GRADIENTS = [
@@ -43,6 +60,9 @@ export default function CoursesPage() {
   const [mode, setMode] = useState<"course" | "class" | null>(null);
   const [courseForm, setCourseForm] = useState(blankCourse);
   const [classForm, setClassForm] = useState(blankClass);
+  const [newClassAvatarFile, setNewClassAvatarFile] = useState<File | null>(null);
+  const [newClassAvatarPreview, setNewClassAvatarPreview] = useState<string | null>(null);
+  const newClassAvatarInputRef = useRef<HTMLInputElement>(null);
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [versionTarget, setVersionTarget] = useState<Course | null>(null);
   const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
@@ -68,11 +88,43 @@ export default function CoursesPage() {
     setMode("course");
   };
 
+  /** Dọn ảnh đại diện lớp đang chờ tải lên để tránh rò rỉ object URL. */
+  const clearNewClassAvatar = useCallback(() => {
+    setNewClassAvatarFile(null);
+    setNewClassAvatarPreview((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (newClassAvatarPreview) URL.revokeObjectURL(newClassAvatarPreview);
+    };
+  }, [newClassAvatarPreview]);
+
+  /** Chọn ảnh đại diện tùy chọn khi mở lớp mới (PNG/JPEG/WebP tối đa 3 MB). */
+  const handleSelectNewClassAvatar = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size <= 0 || file.size > MAX_CLASS_AVATAR_BYTES) {
+      notify("Ảnh đại diện lớp học phải có kích thước từ 1 byte đến 3 MB.", "error");
+      return;
+    }
+    setNewClassAvatarFile(file);
+    setNewClassAvatarPreview((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return URL.createObjectURL(file);
+    });
+  };
+
   /** Mở modal tạo lớp học mới với mã và các thông số mặc định */
   const openCreateClassModal = () => {
     const autoCode = `LOP-${Math.floor(1000 + Math.random() * 9000)}`;
     const now = new Date();
     const future = new Date(Date.now() + 180 * 86400000);
+    clearNewClassAvatar();
     setClassForm({
       ...blankClass,
       code: autoCode,
@@ -253,7 +305,7 @@ export default function CoursesPage() {
       const startAt = classForm.startAt ? localDateTimeToIso(classForm.startAt) : now.toISOString();
       const endAt = classForm.endAt ? localDateTimeToIso(classForm.endAt) : future.toISOString();
 
-      await apiRequest("/manager/classes", {
+      const created = await apiRequest<LearningClass>("/manager/classes", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
@@ -263,12 +315,33 @@ export default function CoursesPage() {
           timezone: classForm.timezone || "Asia/Bangkok",
           grade: classForm.grade ? Number(classForm.grade) : undefined,
           subject: classForm.subject?.trim() || undefined,
+          allowPeerGradeViewing: classForm.allowPeerGradeViewing,
+          allowLearnerFeedPosting: classForm.allowLearnerFeedPosting,
           startAt,
           endAt,
         }),
       });
+      if (newClassAvatarFile && created?.id) {
+        try {
+          const avatarForm = new FormData();
+          avatarForm.append("file", newClassAvatarFile, newClassAvatarFile.name);
+          await apiRequest(`/classes/${encodeURIComponent(created.id)}/avatar`, {
+            method: "POST",
+            roleCode: session.roleCode,
+            body: avatarForm,
+          });
+        } catch (avatarError) {
+          notify(
+            avatarError instanceof Error
+              ? `Đã mở lớp nhưng chưa tải được ảnh đại diện: ${avatarError.message}`
+              : "Đã mở lớp nhưng chưa tải được ảnh đại diện.",
+            "error",
+          );
+        }
+      }
       notify("Đã mở lớp học mới.");
       setMode(null);
+      clearNewClassAvatar();
       setClassForm(blankClass);
       await load();
     } catch (error) {
@@ -692,11 +765,16 @@ export default function CoursesPage() {
                             onClick={() => router.push(`/courses/classes/${item.id}`)}
                             className="group relative cursor-pointer rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-blue-500 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4"
                           >
-                            {/* Cột thông tin chính: Icon gradient + Tên lớp + Mã lớp + Môn học + Khối */}
+                            {/* Cột thông tin chính: Avatar lớp hoặc icon gradient + Tên lớp + Mã lớp + Môn học + Khối */}
                             <div className="flex items-center gap-3.5 min-w-0">
-                              <div className={`size-12 rounded-xl bg-gradient-to-tr ${gradient} grid place-items-center text-white shrink-0 shadow-xs group-hover:scale-105 transition-transform`}>
-                                <GraduationCap size={22} />
-                              </div>
+                              <ClassAvatar
+                                avatarUrl={item.avatarUrl}
+                                name={item.name || item.code}
+                                gradient={gradient}
+                                sizeClass="size-12"
+                                iconSize={22}
+                                className="group-hover:scale-105 transition-transform"
+                              />
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 border border-blue-200/80 dark:border-blue-800/60 text-blue-700 dark:text-blue-300 text-[11px] font-extrabold uppercase tracking-wide">
@@ -919,6 +997,96 @@ export default function CoursesPage() {
               onChange={(e) => setClassForm({ ...classForm, description: e.target.value })}
             />
           </Field>
+
+          <Field label="Ảnh đại diện lớp học (không bắt buộc)">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-3">
+              <ClassAvatar
+                avatarUrl={newClassAvatarPreview}
+                name={classForm.name || classForm.code || "Lớp học"}
+                sizeClass="size-12"
+                iconSize={22}
+              />
+              <div className="flex-1 min-w-44 space-y-1.5">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Không chọn ảnh sẽ dùng icon mặc định. Hỗ trợ PNG, JPEG, WebP tối đa 3 MB.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={newClassAvatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    aria-label="Chọn ảnh đại diện khi tạo lớp"
+                    className="hidden"
+                    onChange={handleSelectNewClassAvatar}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => newClassAvatarInputRef.current?.click()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <ImagePlus size={13} />
+                    <span>Chọn ảnh đại diện</span>
+                  </button>
+                  {newClassAvatarPreview && (
+                    <button
+                      type="button"
+                      onClick={clearNewClassAvatar}
+                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+                    >
+                      <Trash2 size={13} />
+                      <span>Dùng icon mặc định</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </Field>
+
+          <div className="space-y-2">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/40">
+              <input
+                type="checkbox"
+                checked={classForm.allowPeerGradeViewing}
+                onChange={(event) =>
+                  setClassForm((current) => ({
+                    ...current,
+                    allowPeerGradeViewing: event.target.checked,
+                  }))
+                }
+                className="mt-0.5 h-4 w-4 accent-blue-600"
+              />
+              <span>
+                <strong className="block text-slate-900 dark:text-slate-100">
+                  Cho phép học sinh xem bảng điểm
+                </strong>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Học sinh chỉ xem bảng điểm, không có thao tác chấm bài hay xem chi tiết bài làm.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs dark:border-slate-700 dark:bg-slate-800/40">
+              <input
+                type="checkbox"
+                checked={classForm.allowLearnerFeedPosting}
+                onChange={(event) =>
+                  setClassForm((current) => ({
+                    ...current,
+                    allowLearnerFeedPosting: event.target.checked,
+                  }))
+                }
+                className="mt-0.5 h-4 w-4 accent-blue-600"
+              />
+              <span>
+                <strong className="block text-slate-900 dark:text-slate-100">
+                  Cho phép học sinh đăng bài trên bảng tin
+                </strong>
+                <span className="text-slate-500 dark:text-slate-400">
+                  Học sinh có thể tạo bài viết mới kèm ảnh/tệp trên bảng tin lớp học.
+                </span>
+              </span>
+            </label>
+          </div>
 
           <Button disabled={!classForm.courseId} loading={saving} type="submit">Mở lớp</Button>
         </form>

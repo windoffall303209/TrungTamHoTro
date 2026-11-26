@@ -107,6 +107,9 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
   const { t, locale } = useI18n();
   const roleCode = session?.roleCode;
   const isClassClosed = classItem.status === "CLOSED";
+  const canCreatePost =
+    !isClassClosed &&
+    (roleCode !== "LEARNER" || classItem.allowLearnerFeedPosting !== false);
 
   const currentUserName = useMemo(() => {
     return (
@@ -277,7 +280,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
   /** Gửi bài viết mới kèm tệp đính kèm lên PostgreSQL và chỉ cập nhật danh sách khi máy chủ đã lưu. */
   const handleCreatePost = async () => {
     const trimmed = newPostContent.trim();
-    if ((!trimmed && pendingFiles.length === 0) || posting || isClassClosed) return;
+    if ((!trimmed && pendingFiles.length === 0) || posting || !canCreatePost) return;
 
     setPosting(true);
     try {
@@ -641,10 +644,14 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
 
   return (
     <div className="space-y-4">
-      {/* ================= KHUNG ĐĂNG BÀI VIẾT MỚI (MỌI THÀNH VIÊN TRONG LỚP ĐỀU ĐĂNG ĐƯỢC) ================= */}
+      {/* ================= KHUNG ĐĂNG BÀI VIẾT MỚI ================= */}
       {isClassClosed ? (
         <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 px-4 py-3 text-xs font-semibold text-amber-800 dark:text-amber-300">
           Lớp đã lưu trữ và chỉ cho phép đọc.
+        </div>
+      ) : !canCreatePost ? (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/70 px-4 py-3 text-xs font-medium text-slate-600 dark:text-slate-300">
+          Giảng viên hiện tắt quyền đăng bài của học sinh trên bảng tin.
         </div>
       ) : (
         <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs space-y-3">

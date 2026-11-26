@@ -1,9 +1,11 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
-import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
+import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
+import { USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 import { ArchiveCourseDto, AssignInstructorDto, AssignUserDto, BulkEnrollmentDto, CloseClassDto, CreateClassDto, CreateCourseDto, DirectoryQueryDto, RemoveMemberDto, ReopenClassDto, TransferPrimaryInstructorDto, UpdateClassDto, UpdateCourseDto } from "../core/learning.dto.js";
 import { CourseClassService } from "./course-class.service.js";
 import type { ClassCapabilities, ClassRoster, CourseVersionSnapshot, DirectoryUser, EnrollmentImportResult, LearningClass, LearningCourse } from "../core/learning.types.js";
@@ -123,6 +125,46 @@ export class CourseController {
   @Patch("manager/classes/:classId") @RequirePermissions("class:manage")
   /** Cập nhật thông tin và cài đặt lớp học. */
   updateClass(@Param("classId") classId: string, @Body() input: UpdateClassDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> { return this.learning.updateClass(classId, input, session.user.id); }
+
+  @Patch("classes/:classId/settings") @RequireAuthentication()
+  /** Cho phép giảng viên phụ trách hoặc quản lý cập nhật toàn bộ cài đặt lớp học. */
+  updateClassSettings(@Param("classId") classId: string, @Body() input: UpdateClassDto, @CurrentSession() session: AuthenticatedSession): Promise<LearningClass> {
+    return this.learning.updateClassSettings(classId, input, session);
+  }
+
+  @Post("classes/:classId/avatar")
+  @RequireAuthentication()
+  @UseInterceptors(FileInterceptor("file", { limits: { files: 1, fileSize: 3 * 1024 * 1024 } }))
+  /** Tải ảnh đại diện tùy chỉnh cho lớp học (giảng viên phụ trách hoặc quản lý). */
+  uploadClassAvatar(
+    @Param("classId") classId: string,
+    @UploadedFile() file: { mimetype: string; size: number; buffer?: Buffer } | undefined,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<LearningClass> {
+    if (!file?.buffer) throw new BadRequestException("Vui lòng chọn tệp ảnh đại diện lớp học.");
+    return this.learning.updateClassAvatar(classId, { mimeType: file.mimetype, size: file.size, buffer: file.buffer }, session);
+  }
+
+  @Delete("classes/:classId/avatar")
+  @RequireAuthentication()
+  /** Gỡ ảnh đại diện tùy chỉnh của lớp học để quay về icon mặc định. */
+  removeClassAvatar(
+    @Param("classId") classId: string,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<LearningClass> {
+    return this.learning.removeClassAvatar(classId, session);
+  }
+
+  @Get("classes/:classId/avatar")
+  @RequireAuthentication()
+  @Header("Content-Security-Policy", USER_FILE_CSP)
+  @Header("Cross-Origin-Resource-Policy", "cross-origin")
+  @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
+  /** Phát ảnh đại diện lớp học theo luồng inline có xác thực phiên. */
+  async classAvatar(@Param("classId") classId: string): Promise<StreamableFile> {
+    const avatar = await this.learning.readClassAvatar(classId);
+    return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
+  }
 
   @Post("manager/classes/:classId/instructors") @RequirePermissions("class:manage")
   /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR. */

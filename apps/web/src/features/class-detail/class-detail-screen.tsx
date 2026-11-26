@@ -29,6 +29,7 @@ export default function ClassDetailScreen() {
     session,
     allowed,
     item,
+    setItem,
     course,
     roster,
     readiness,
@@ -81,6 +82,7 @@ export default function ClassDetailScreen() {
               course={course}
               instructors={instructors}
               onBack={() => router.push("/courses")}
+              onClassUpdated={setItem}
             />
           ) : (
             <LazyManagerClassWorkspace
@@ -90,6 +92,7 @@ export default function ClassDetailScreen() {
               readiness={readiness}
               saving={saving}
               onBack={() => router.push("/courses")}
+              onClassUpdated={setItem}
               instructorForm={instructorForm}
               setInstructorForm={setInstructorForm}
               learnerId={learnerId}

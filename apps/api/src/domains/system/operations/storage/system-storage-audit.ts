@@ -151,13 +151,14 @@ export async function runPaginatedStorageAudit(
   await scanTableById(
     (cursor) =>
       prisma.learningClass.findMany({
-        select: { id: true, courseId: true, courseVersion: true },
+        select: { id: true, courseId: true, courseVersion: true, avatarObjectKey: true },
         take: dbPageSize,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         orderBy: { id: "asc" },
       }),
     (item) => {
       classes.push(item);
+      if (item.avatarObjectKey) add(item.avatarObjectKey, `class-avatar:${item.id}`);
     },
     dbPageSize,
   );

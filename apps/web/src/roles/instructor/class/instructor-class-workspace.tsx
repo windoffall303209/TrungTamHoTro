@@ -108,6 +108,7 @@ import {
   ClassExamPreviewModal,
 } from "./class-work-modals";
 import { detachOpener } from "@/lib/safe-content";
+import { ClassAvatar } from "@/shared/ui/class-avatar";
 
 export interface InstructorClassWorkspaceProps {
   item: LearningClass;
@@ -120,6 +121,7 @@ export interface InstructorClassWorkspaceProps {
     avatarUrl?: string;
   }>;
   onBack?: () => void;
+  onClassUpdated?: (updated: LearningClass) => void;
 }
 
 export type InstructorSubTab =
@@ -150,6 +152,7 @@ export function InstructorClassWorkspace({
   course,
   instructors = [],
   onBack,
+  onClassUpdated,
 }: InstructorClassWorkspaceProps) {
   const router = useRouter();
   const { session, notify } = useApp();
@@ -2474,12 +2477,22 @@ export function InstructorClassWorkspace({
 
             {/* Thông tin lớp học */}
             <div className="border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-              <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
-                {item.name || item.code}
-              </h1>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
-              </p>
+              <div className="flex items-center gap-2.5">
+                <ClassAvatar
+                  avatarUrl={item.avatarUrl}
+                  name={item.name || item.code}
+                  sizeClass="size-10"
+                  iconSize={18}
+                />
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-sm font-bold text-slate-900 dark:text-slate-100 line-clamp-1" title={item.name || item.code}>
+                    {item.name || item.code}
+                  </h1>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                    Mã lớp: <strong className="text-blue-600 dark:text-blue-400">{item.code}</strong>
+                  </p>
+                </div>
+              </div>
 
               {/* Chia sẻ lớp học */}
               <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -2934,9 +2947,12 @@ export function InstructorClassWorkspace({
         {/* Bảng điểm theo dữ liệu thật từ API lớp học. */}
         {activeTab === "gradebook" && (
           <InstructorGradebookTab
+            classId={item.id}
+            roleCode={session.roleCode}
             className={item.name}
             gradebook={gradebook}
             assessments={gradebookAssessments}
+            onRefreshGradebook={() => void loadClassGradebookTab(true)}
           />
         )}
         {/* TAB 7: BÀI GIẢNG */}
@@ -3031,7 +3047,12 @@ export function InstructorClassWorkspace({
 
         {/* TAB 10: CÀI ĐẶT LỚP HỌC (TÁCH BIỆT) */}
         {activeTab === "settings" && (
-          <InstructorSettingsTab item={item} course={course} />
+          <InstructorSettingsTab
+            item={item}
+            course={course}
+            roleCode={session.roleCode}
+            onClassUpdated={onClassUpdated}
+          />
         )}
       </main>
       </div>

@@ -347,7 +347,17 @@ export async function createClass(
     LearningClass,
     "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
   > &
-    Partial<Pick<LearningClass, "timezone" | "allowLateEnrollment" | "grade" | "subject">>,
+    Partial<
+      Pick<
+        LearningClass,
+        | "timezone"
+        | "allowLateEnrollment"
+        | "allowPeerGradeViewing"
+        | "allowLearnerFeedPosting"
+        | "grade"
+        | "subject"
+      >
+    >,
   actorId: string,
 ): Promise<LearningClass> {
   const code = input.code.trim().toUpperCase();
@@ -381,6 +391,8 @@ export async function createClass(
           capacity: input.capacity,
           timezone,
           allowLateEnrollment: input.allowLateEnrollment ?? false,
+          allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
+          allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
         },
         include: { instructors: true, enrollments: true },
       });
@@ -435,6 +447,9 @@ export async function createClass(
     subject: input.subject?.trim() || course.subject,
     timezone,
     allowLateEnrollment: input.allowLateEnrollment ?? false,
+    allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
+    allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
+    avatarUrl: null,
     id: id("class"),
     status: "DRAFT",
     instructorIds: [],
@@ -449,7 +464,13 @@ export async function createClass(
 export async function updateClass(
   serviceContext: LearningServiceContext,
   classId: string,
-  input: { name?: string; capacity?: number; allowLateEnrollment?: boolean; allowPeerGradeViewing?: boolean },
+  input: {
+    name?: string;
+    capacity?: number;
+    allowLateEnrollment?: boolean;
+    allowPeerGradeViewing?: boolean;
+    allowLearnerFeedPosting?: boolean;
+  },
   actorId: string,
 ): Promise<LearningClass> {
   const prisma = serviceContext.database();
@@ -466,6 +487,7 @@ export async function updateClass(
     if (input.capacity !== undefined) dataToUpdate.capacity = input.capacity;
     if (input.allowLateEnrollment !== undefined) dataToUpdate.allowLateEnrollment = input.allowLateEnrollment;
     if (input.allowPeerGradeViewing !== undefined) dataToUpdate.allowPeerGradeViewing = input.allowPeerGradeViewing;
+    if (input.allowLearnerFeedPosting !== undefined) dataToUpdate.allowLearnerFeedPosting = input.allowLearnerFeedPosting;
 
     const row = await prisma.learningClass.update({
       where: { id: classId },
@@ -490,5 +512,6 @@ export async function updateClass(
   if (input.capacity !== undefined) item.capacity = input.capacity;
   if (input.allowLateEnrollment !== undefined) item.allowLateEnrollment = input.allowLateEnrollment;
   if (input.allowPeerGradeViewing !== undefined) item.allowPeerGradeViewing = input.allowPeerGradeViewing;
+  if (input.allowLearnerFeedPosting !== undefined) item.allowLearnerFeedPosting = input.allowLearnerFeedPosting;
   return item;
 }

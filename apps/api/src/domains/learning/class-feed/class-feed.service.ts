@@ -181,7 +181,12 @@ export class ClassFeedService {
     files: UploadedFeedFile[],
     session: AuthenticatedSession,
   ): Promise<ClassFeedPostView> {
-    await this.requireClassAccess(classId, session, true);
+    const classRow = await this.requireClassAccess(classId, session, true);
+    if (session.roleCode === "LEARNER" && !classRow.allowLearnerFeedPosting) {
+      throw new ForbiddenException(
+        "Lớp học hiện không cho phép học sinh đăng bài trên bảng tin.",
+      );
+    }
     const normalizedContent = (content ?? "").trim();
     if (!normalizedContent && files.length === 0) {
       throw new BadRequestException(
@@ -612,7 +617,7 @@ export class ClassFeedService {
     classId: string,
     session: AuthenticatedSession,
     requireWritable: boolean,
-  ): Promise<{ id: string; code: string; status: string }> {
+  ): Promise<{ id: string; code: string; status: string; allowLearnerFeedPosting: boolean }> {
     const where: Prisma.LearningClassWhereInput =
       session.roleCode === "SYSTEM_ADMIN" ||
       session.roleCode === "CENTER_MANAGER"
@@ -631,7 +636,7 @@ export class ClassFeedService {
 
     const classRow = await this.prisma.learningClass.findFirst({
       where,
-      select: { id: true, code: true, status: true },
+      select: { id: true, code: true, status: true, allowLearnerFeedPosting: true },
     });
     if (!classRow) {
       throw new NotFoundException(

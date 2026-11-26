@@ -182,6 +182,8 @@ export interface GradebookAssessmentCell {
   maxScore?: DecimalNumber;
   status: "GRADED" | "AWAITING_GRADE" | "IN_PROGRESS" | "NOT_SUBMITTED";
   attemptCount?: number;
+  submissionId?: string;
+  attemptId?: string;
 }
 
 export interface GradebookRow {

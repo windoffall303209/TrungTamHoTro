@@ -12,6 +12,8 @@ export default function AssignmentSubmissionsReviewPage() {
       classId={params.classId}
       assignmentId={params.assignmentId}
       initialSubmissionId={searchParams.get("submissionId")}
+      returnTab={searchParams.get("from")}
+      initialMode={searchParams.get("mode")}
     />
   );
 }

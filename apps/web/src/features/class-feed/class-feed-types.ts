@@ -24,6 +24,7 @@ export interface ClassFeedViewProps {
     name?: string;
     code: string;
     status?: string;
+    allowLearnerFeedPosting?: boolean;
   };
   courseName?: string;
   teacherName?: string;
