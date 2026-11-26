@@ -116,6 +116,21 @@ export async function startAttempt(
   return { ...item, answers: {} };
 }
 
+/** So sánh hai danh sách đáp án đã chuẩn hóa theo đúng loại câu hỏi (không phụ thuộc thứ tự với câu nhiều lựa chọn). */
+function sameNormalizedAnswers(
+  questionType: string,
+  left: string[],
+  right: string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  if (questionType === "MULTIPLE_CHOICE") {
+    const sortedLeft = [...left].sort();
+    const sortedRight = [...right].sort();
+    return sortedLeft.every((value, index) => value === sortedRight[index]);
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
 /** Validate đáp án thuộc đề và upsert câu trả lời khi lượt thi còn trong hạn. */
 export async function saveAnswer(
   serviceContext: LearningServiceContext,
@@ -131,19 +146,9 @@ export async function saveAnswer(
       // Hậu kiểm mỗi lần lưu: học viên bị đình chỉ, đề bị thu hồi hoặc lớp đã đóng thì không ghi tiếp.
       const attempt = await transaction.examAttempt.findFirst({
         where: { id: attemptId, learnerId, exam: activeExamForLearner(learnerId) },
-        include: { exam: true },
+        include: { exam: true, answers: { where: { questionId } } },
       });
       if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
-      if (attempt.status !== "IN_PROGRESS")
-        throw new BadRequestException("Bài làm đã khóa.");
-      if (
-        serviceContext.attemptDeadline(
-          attempt.startedAt,
-          attempt.exam.durationMinutes,
-          attempt.exam.closeAt,
-        ) <= new Date()
-      )
-        throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
       const examQuestion = await transaction.examQuestion.findUnique({
         where: { examId_questionId: { examId: attempt.examId, questionId } },
         include: { question: true },
@@ -154,6 +159,31 @@ export async function saveAnswer(
         serviceContext.mapQuestion(examQuestion.question),
         answers,
       );
+      if (attempt.status !== "IN_PROGRESS") {
+        const storedAnswers = serviceContext.toStringArray(
+          attempt.answers[0]?.answerData ?? [],
+        );
+        if (
+          sameNormalizedAnswers(
+            examQuestion.question.type,
+            storedAnswers,
+            normalizedAnswers,
+          )
+        ) {
+          return redactAttemptForLearner(
+            await serviceContext.getDatabaseAttempt(transaction, attemptId),
+          );
+        }
+        throw new BadRequestException("Bài làm đã khóa.");
+      }
+      if (
+        serviceContext.attemptDeadline(
+          attempt.startedAt,
+          attempt.exam.durationMinutes,
+          attempt.exam.closeAt,
+        ) <= new Date()
+      )
+        throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
       await transaction.attemptAnswer.upsert({
         where: { attemptId_questionId: { attemptId, questionId } },
         update: { answerData: normalizedAnswers },
@@ -166,10 +196,30 @@ export async function saveAnswer(
     (attempt) => attempt.id === attemptId && attempt.learnerId === learnerId,
   );
   if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
-  if (item.status !== "IN_PROGRESS")
-    throw new BadRequestException("Bài làm đã khóa.");
   const exam = serviceContext.findExam(item.examId);
   assertMemoryExamActiveForLearner(serviceContext, exam, learnerId);
+  if (!exam.questionIds.includes(questionId))
+    throw new BadRequestException("Câu hỏi không thuộc đề.");
+  const question = serviceContext.questions.find(
+    (candidate) => candidate.id === questionId,
+  );
+  if (!question) throw new BadRequestException("Câu hỏi không tồn tại.");
+  const normalizedAnswers = serviceContext.validateSubmittedAnswers(
+    question,
+    answers,
+  );
+  if (item.status !== "IN_PROGRESS") {
+    if (
+      sameNormalizedAnswers(
+        question.type,
+        item.answers[questionId] ?? [],
+        normalizedAnswers,
+      )
+    ) {
+      return redactAttemptForLearner({ ...item, answers: { ...item.answers } });
+    }
+    throw new BadRequestException("Bài làm đã khóa.");
+  }
   if (
     serviceContext.attemptDeadline(
       new Date(item.startedAt),
@@ -178,16 +228,7 @@ export async function saveAnswer(
     ) <= new Date()
   )
     throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
-  if (!exam.questionIds.includes(questionId))
-    throw new BadRequestException("Câu hỏi không thuộc đề.");
-  const question = serviceContext.questions.find(
-    (candidate) => candidate.id === questionId,
-  );
-  if (!question) throw new BadRequestException("Câu hỏi không tồn tại.");
-  item.answers[questionId] = serviceContext.validateSubmittedAnswers(
-    question,
-    answers,
-  );
+  item.answers[questionId] = normalizedAnswers;
   item.lastSavedAt = now();
   return redactAttemptForLearner({ ...item, answers: { ...item.answers }, serverTime: now() });
 }
@@ -205,36 +246,105 @@ export async function saveAnswers(
   if (!entries.length) return;
   const prisma = serviceContext.database();
   if (!prisma) {
-    for (const entry of entries) await saveAnswer(serviceContext, attemptId, entry.questionId, entry.answers, learnerId);
+    const item = serviceContext.attempts.find(
+      (attempt) => attempt.id === attemptId && attempt.learnerId === learnerId,
+    );
+    if (!item) throw new NotFoundException("Không tìm thấy lượt làm bài.");
+    const exam = serviceContext.findExam(item.examId);
+    assertMemoryExamActiveForLearner(serviceContext, exam, learnerId);
+    const deduplicated = new Map<string, { answers: string[]; type: string }>();
+    for (const entry of entries) {
+      if (!exam.questionIds.includes(entry.questionId))
+        throw new BadRequestException("Câu hỏi không thuộc đề.");
+      const question = serviceContext.questions.find(
+        (candidate) => candidate.id === entry.questionId,
+      );
+      if (!question) throw new BadRequestException("Câu hỏi không tồn tại.");
+      const normalizedAnswers = serviceContext.validateSubmittedAnswers(
+        question,
+        entry.answers,
+      );
+      deduplicated.set(entry.questionId, {
+        answers: normalizedAnswers,
+        type: question.type,
+      });
+    }
+    if (item.status !== "IN_PROGRESS") {
+      for (const [questionId, entry] of deduplicated) {
+        if (
+          !sameNormalizedAnswers(
+            entry.type,
+            item.answers[questionId] ?? [],
+            entry.answers,
+          )
+        ) {
+          throw new BadRequestException("Bài làm đã khóa.");
+        }
+      }
+      return;
+    }
+    if (
+      serviceContext.attemptDeadline(
+        new Date(item.startedAt),
+        exam.durationMinutes,
+        new Date(exam.closeAt),
+      ) <= new Date()
+    )
+      throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
+    for (const [questionId, entry] of deduplicated) {
+      item.answers[questionId] = entry.answers;
+    }
+    item.lastSavedAt = now();
     return;
   }
   await prisma.$transaction(async (transaction) => {
     await transaction.$queryRaw`SELECT id FROM exam_attempts WHERE id = ${attemptId} FOR UPDATE`;
     const attempt = await transaction.examAttempt.findFirst({
       where: { id: attemptId, learnerId, exam: activeExamForLearner(learnerId) },
-      include: { exam: true },
+      include: { exam: true, answers: true },
     });
     if (!attempt) throw new NotFoundException("Không tìm thấy lượt làm bài.");
-    if (attempt.status !== "IN_PROGRESS")
-      throw new BadRequestException("Bài làm đã khóa.");
-    if (serviceContext.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date())
-      throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
     const examQuestions = await transaction.examQuestion.findMany({
       where: { examId: attempt.examId, questionId: { in: entries.map((entry) => entry.questionId) } },
       include: { question: true },
     });
     const byId = new Map(examQuestions.map((item) => [item.questionId, item]));
     // Kiểm tra hợp lệ toàn bộ đáp án và khử trùng questionId (giữ giá trị cuối cùng) trước khi ghi lô nguyên tử.
-    const deduplicated = new Map<string, string[]>();
+    const deduplicated = new Map<string, { answers: string[]; type: string }>();
     for (const entry of entries) {
       const examQuestion = byId.get(entry.questionId);
       if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
       const normalizedAnswers = serviceContext.validateSubmittedAnswers(serviceContext.mapQuestion(examQuestion.question), entry.answers);
-      deduplicated.set(entry.questionId, normalizedAnswers);
+      deduplicated.set(entry.questionId, {
+        answers: normalizedAnswers,
+        type: examQuestion.question.type,
+      });
     }
+    if (attempt.status !== "IN_PROGRESS") {
+      const storedByQuestion = new Map(
+        attempt.answers.map((row) => [
+          row.questionId,
+          serviceContext.toStringArray(row.answerData ?? []),
+        ]),
+      );
+      for (const [questionId, entry] of deduplicated) {
+        if (
+          !sameNormalizedAnswers(
+            entry.type,
+            storedByQuestion.get(questionId) ?? [],
+            entry.answers,
+          )
+        ) {
+          throw new BadRequestException("Bài làm đã khóa.");
+        }
+      }
+      return;
+    }
+    if (serviceContext.attemptDeadline(attempt.startedAt, attempt.exam.durationMinutes, attempt.exam.closeAt) <= new Date())
+      throw new BadRequestException("Đã hết thời gian lưu câu trả lời.");
     const questionIds = [...deduplicated.keys()];
     if (typeof transaction.$executeRaw === "function") {
-      const answerJsons = questionIds.map((questionId) => JSON.stringify(deduplicated.get(questionId) ?? []));
+      const answerJsons = questionIds.map((questionId) => JSON.stringify(deduplicated.get(questionId)?.answers ?? []));
       const updatedAt = new Date();
       // Ghi gộp toàn bộ N đáp án bằng đúng 1 lệnh INSERT ... ON CONFLICT thay vì N upsert tuần tự trong khi giữ khóa FOR UPDATE.
       await transaction.$executeRaw`
@@ -246,7 +356,7 @@ export async function saveAnswers(
       `;
     } else {
       for (const questionId of questionIds) {
-        const normalizedAnswers = deduplicated.get(questionId) ?? [];
+        const normalizedAnswers = deduplicated.get(questionId)?.answers ?? [];
         await transaction.attemptAnswer.upsert({
           where: { attemptId_questionId: { attemptId, questionId } },
           update: { answerData: normalizedAnswers },

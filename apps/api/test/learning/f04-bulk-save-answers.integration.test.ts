@@ -177,5 +177,20 @@ describe("F04 Ghi lô đáp án (bulk saveAnswers) và đối chiếu điểm 5 
     expect(Number(byQ.get(questionIds[4]!)?.score)).toBe(1.5);
     expect(byQ.get(questionIds[8]!)?.score).toBeNull();
     expect(byQ.get(questionIds[9]!)?.score).toBeNull();
+
+    // Thử lại nộp bài với cùng tập đáp án (kể cả khác thứ tự lựa chọn câu MULTIPLE_CHOICE) trả lại cùng biên nhận.
+    const retrySame = await exams.submitAttemptWithAnswers(started.id, learnerId, [
+      ...bulkPayload.slice(0, 6),
+      { questionId: questionIds[4]!, answers: ["A", "C"] },
+      ...bulkPayload.slice(6),
+    ]);
+    expect(retrySame.submissionReceipt).toBe(run.result.submissionReceipt);
+
+    // Thử lại nộp bài với đáp án thay đổi phải bị từ chối 400 Bài làm đã khóa.
+    await expect(
+      exams.submitAttemptWithAnswers(started.id, learnerId, [
+        { questionId: questionIds[1]!, answers: ["D"] },
+      ]),
+    ).rejects.toThrow("Bài làm đã khóa.");
   });
 });
