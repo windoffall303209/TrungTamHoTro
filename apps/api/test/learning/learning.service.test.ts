@@ -2182,14 +2182,12 @@ describe("LearningService", () => {
     const attempt = await service.startAttempt("exam-mid-web", "usr-learner");
     await service.saveAnswer(attempt.id, "q-rest-01", ["PATCH"], "usr-learner");
     await service.submitAttempt(attempt.id, "usr-learner");
-    await expect(
-      service.gradeAttempt(attempt.id, 8, "Điều chỉnh sau phúc khảo", undefined, "usr-instructor"),
-    ).rejects.toThrow("lý do");
     await service.gradeAttempt(
       attempt.id,
       8,
       "Điều chỉnh sau phúc khảo",
-      "Chấp nhận đáp án tương đương", "usr-instructor",
+      undefined,
+      "usr-instructor",
     );
     expect((await service.getAttempt(attempt.id)).score).toBe(8);
   });
@@ -2238,7 +2236,7 @@ describe("LearningService", () => {
     ).toMatchObject({ status: "GRADED", score: 9 });
     await expect(
       service.gradeAttempt(attempt.id, 8, "Sửa lại điểm", undefined, "usr-instructor"),
-    ).rejects.toThrow("lý do");
+    ).resolves.toMatchObject({ status: "GRADED", score: 8 });
   });
 
   it("không nhận autosave sau khi thời lượng làm bài kết thúc", async () => {

@@ -36,13 +36,6 @@ import { UserAvatar } from "@/shared/ui/user-avatar";
 
 type ReviewLayoutMode = "FULL" | "DOCUMENT_FOCUS" | "READ_ONLY";
 
-const QUICK_CORRECTION_REASONS = [
-  "Sửa lỗi nhập điểm",
-  "Chấm lại theo phản hồi học viên",
-  "Cộng điểm khuyến khích / bổ sung",
-  "Hiệu chỉnh thang đo tiêu chí",
-] as const;
-
 /** Trả nhãn định dạng ngắn cho từng tệp bài nộp ở thanh chuyển tab. */
 function shortFileTag(mimeType: string, fileName: string): string {
   if (mimeType.startsWith("image/") || /\.(?:png|jpe?g|webp|gif)$/i.test(fileName)) return "IMG";
@@ -227,7 +220,6 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
     ),
   );
   const [feedback, setFeedback] = useState(() => submission.feedback ?? "");
-  const [correctionReason, setCorrectionReason] = useState("");
   const [saving, setSaving] = useState(false);
 
   const computedTotal = useMemo(
@@ -249,10 +241,6 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
       notify("Vui lòng nhập nhận xét tối thiểu 3 ký tự.", "error");
       return;
     }
-    if (submission.status === "GRADED" && correctionReason.trim().length < 3) {
-      notify("Sửa điểm đã công bố phải ghi rõ lý do tối thiểu 3 ký tự.", "error");
-      return;
-    }
     setSaving(true);
     try {
       const updated = await apiRequest<AssignmentSubmission>(
@@ -267,7 +255,6 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
             })),
             feedback: trimmedFeedback,
             expectedSubmissionRevision: submission.revision,
-            correctionReason: submission.status === "GRADED" ? correctionReason.trim() : undefined,
           }),
         },
       );
@@ -392,35 +379,6 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
             onChange={(event) => setFeedback(event.target.value)}
           />
         </Field>
-
-        {submission.status === "GRADED" && (
-          <Field label="Lý do sửa điểm đã công bố">
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {QUICK_CORRECTION_REASONS.map((reason) => (
-                <button
-                  key={reason}
-                  type="button"
-                  disabled={!canGrade || saving}
-                  onClick={() => setCorrectionReason(reason)}
-                  className="rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[11px] font-medium hover:border-sky-400 hover:text-sky-600 cursor-pointer"
-                >
-                  {reason}
-                </button>
-              ))}
-            </div>
-            <textarea
-              aria-label="Lý do sửa điểm"
-              className={inputClass}
-              minLength={3}
-              placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
-              required
-              rows={2}
-              disabled={!canGrade || saving}
-              value={correctionReason}
-              onChange={(event) => setCorrectionReason(event.target.value)}
-            />
-          </Field>
-        )}
 
         {canGrade && (
           <div className="flex flex-col gap-2 pt-1">

@@ -21,8 +21,7 @@ export default function ClassLifecyclePage() {
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(null);
-  const [closeForm, setCloseForm] = useState({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
-  const [reopenReason, setReopenReason] = useState("");
+  const [closeForm, setCloseForm] = useState({ archivePolicy: "STANDARD_RETENTION" });
   const [saving, setSaving] = useState(false);
   const [readinessRefresh, setReadinessRefresh] = useState(0);
   const readinessRequestVersion = useRef(0);
@@ -70,7 +69,7 @@ export default function ClassLifecyclePage() {
     return () => { window.clearTimeout(timer); controller.abort(); readinessRequestVersion.current += 1; };
   }, [loadReadiness, readinessRefresh, selectedId]);
 
-  /** Đóng lớp với lý do nghiệp vụ sau khi máy chủ xác nhận đủ điều kiện. */
+  /** Đóng lớp sau khi máy chủ xác nhận đủ điều kiện. */
   const closeClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -79,10 +78,10 @@ export default function ClassLifecyclePage() {
       await apiRequest(`/manager/classes/${selected.id}/close`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify(closeForm),
+        body: JSON.stringify({ archivePolicy: closeForm.archivePolicy }),
       });
       notify("Đã đóng, lưu trữ và chuyển lớp sang chỉ đọc.");
-      setCloseForm({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
+      setCloseForm({ archivePolicy: "STANDARD_RETENTION" });
       await load();
       setReadinessRefresh((current) => current + 1);
     } catch (error) {
@@ -92,7 +91,7 @@ export default function ClassLifecyclePage() {
     }
   };
 
-  /** Mở lại một lớp đã đóng và ghi nhận lý do vào lịch sử vòng đời. */
+  /** Mở lại một lớp đã đóng và ghi nhận vào nhật ký kiểm toán. */
   const reopenClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -101,10 +100,9 @@ export default function ClassLifecyclePage() {
       await apiRequest(`/manager/classes/${selected.id}/reopen`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({ reason: reopenReason }),
+        body: JSON.stringify({}),
       });
       notify("Đã mở lại lớp và ghi lịch sử kiểm toán.");
-      setReopenReason("");
       await load();
       setReadinessRefresh((current) => current + 1);
     } catch (error) {
@@ -128,7 +126,7 @@ export default function ClassLifecyclePage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8 space-y-4">
-      <PageHeader title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được kiểm toán minh bạch." />
+      <PageHeader title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại được kiểm toán minh bạch." />
 
       <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <Field label="Lớp cần quản lý">
@@ -191,11 +189,8 @@ export default function ClassLifecyclePage() {
                 <RotateCcw className="text-sky-600" />
                 <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Mở lại lớp học</h2>
               </div>
-              <p className="mt-2 text-xs text-slate-500">Lý do mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.</p>
+              <p className="mt-2 text-xs text-slate-500">Thao tác mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.</p>
               <form className="mt-4 space-y-4" onSubmit={(event) => void reopenClass(event)}>
-                <Field label="Lý do mở lại">
-                  <textarea className={inputClass} minLength={5} required rows={4} value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} placeholder="Nhập lý do chi tiết để kiểm toán…" />
-                </Field>
                 <Button loading={saving} type="submit"><RotateCcw size={16} />Mở lại lớp học</Button>
               </form>
             </>
@@ -206,11 +201,8 @@ export default function ClassLifecyclePage() {
                 <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Đóng và lưu trữ lớp</h2>
               </div>
               <form className="mt-4 space-y-4" onSubmit={(event) => void closeClass(event)}>
-                <Field label="Lý do đóng lớp">
-                  <textarea className={inputClass} minLength={5} required rows={3} value={closeForm.closeReason} onChange={(event) => setCloseForm({ ...closeForm, closeReason: event.target.value })} placeholder="Ghi chú lý do đóng khóa học…" />
-                </Field>
                 <Field label="Chính sách lưu trữ">
-                  <select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ ...closeForm, archivePolicy: event.target.value })}>
+                  <select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ archivePolicy: event.target.value })}>
                     <option value="STANDARD_RETENTION">Tiêu chuẩn theo quy chế (1 năm)</option>
                     <option value="LONG_TERM_RETENTION">Lưu trữ dài hạn (Vĩnh viễn)</option>
                   </select>

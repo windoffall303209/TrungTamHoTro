@@ -415,18 +415,6 @@ export default function OperationsScreen() {
               />
             </Field>
           ) : null}
-          <Field label="Lý do">
-            <textarea
-              className={inputClass}
-              minLength={10}
-              required
-              rows={3}
-              value={restoreForm.reason}
-              onChange={(event) =>
-                setRestoreForm({ ...restoreForm, reason: event.target.value })
-              }
-            />
-          </Field>
           <p className="text-xs leading-5 text-[var(--ink-soft)]">
             Người tạo yêu cầu không thể tự phê duyệt. Chế độ vận hành chỉ chạy
             khi hệ thống đang bảo trì và không ghi đè database hiện tại.

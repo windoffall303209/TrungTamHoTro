@@ -104,13 +104,12 @@ export default function ClassOperationsPage() {
 
   /** Gỡ thành viên khỏi đúng nhóm nhân sự của lớp rồi tải lại danh sách. */
   const removeMember = async (kind: "instructors" | "enrollments", userId: string) => {
-    const reason = window.prompt(kind === "instructors" ? "Lý do gỡ phân công giảng viên" : "Lý do gỡ học viên khỏi lớp");
-    if (!reason) return;
+    if (!window.confirm(kind === "instructors" ? "Gỡ phân công giảng viên?" : "Gỡ học viên khỏi lớp?")) return;
     try {
       await apiRequest(`/manager/classes/${member.classId}/${kind}/${userId}/remove`, {
         method: "PATCH",
         roleCode: session.roleCode,
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({}),
       });
       await Promise.all([load(), loadRoster(member.classId)]);
       notify("Đã cập nhật thành viên và lưu lịch sử.");

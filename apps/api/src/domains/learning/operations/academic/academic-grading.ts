@@ -42,8 +42,6 @@ export async function gradeSubmission(
       "Học viên đã nộp phiên bản mới. Hãy tải lại bài trước khi chấm.",
     );
   const correction = submission.status === "GRADED";
-  if (correction && !correctionReason?.trim())
-    throw new BadRequestException("Sửa điểm đã công bố phải ghi rõ lý do.");
   const rubric = serviceContext.rubric(submission.assignment.rubric, Number(submission.assignment.maxScore));
   if (
     rubricScores.length !== rubric.length ||
@@ -93,7 +91,7 @@ export async function gradeSubmission(
         },
       },
     });
-    // Ghi đầy đủ dấu vết chấm lần đầu và sửa điểm đã công bố (điểm trước/sau, người chấm và lý do).
+    // Ghi đầy đủ dấu vết chấm lần đầu và cập nhật điểm đã công bố (điểm trước/sau và người chấm).
     await transaction.auditLog.create({
       data: {
         actorId: session.user.id,
@@ -105,7 +103,7 @@ export async function gradeSubmission(
           learnerId: submission.learnerId,
           previousScore: submission.score === null ? null : Number(submission.score),
           newScore: total,
-          reason: correction ? correctionReason!.trim() : "Chấm lần đầu",
+          reason: correction ? (correctionReason?.trim() || "Cập nhật điểm") : "Chấm lần đầu",
         },
       },
     });

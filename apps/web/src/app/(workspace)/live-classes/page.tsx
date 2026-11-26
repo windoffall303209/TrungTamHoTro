@@ -307,7 +307,7 @@ export default function LiveClassesPage() {
     });
     setOpen(true);
   };
-  /** Đổi lịch buổi học, ghi nhận lý do và để máy chủ phát thông báo cho lớp. */
+  /** Đổi lịch buổi học và để máy chủ phát thông báo cho lớp. */
   const update = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editing) return;
@@ -330,7 +330,6 @@ export default function LiveClassesPage() {
             endsAt: localDateTimeToIso(form.endsAt),
             provider: form.provider,
             ...(normalizedMeetUrl ? { meetingUrl: normalizedMeetUrl } : {}),
-            reason: form.reason,
           }),
         },
       );
@@ -345,10 +344,9 @@ export default function LiveClassesPage() {
       );
     }
   };
-  /** Hủy buổi học với lý do bắt buộc và làm mới lịch sau khi API gửi thông báo. */
+  /** Hủy buổi học và làm mới lịch sau khi API gửi thông báo. */
   const cancel = async (item: LiveSession) => {
-    const reason = window.prompt("Lý do hủy buổi học");
-    if (!reason) return;
+    if (!window.confirm(`${t("Hủy buổi học")}?`)) return;
     try {
       await apiRequest(
         manager
@@ -357,7 +355,7 @@ export default function LiveClassesPage() {
         {
           method: "POST",
           roleCode: session.roleCode,
-          body: JSON.stringify({ reason }),
+          body: JSON.stringify({}),
         },
       );
       notify("Đã hủy buổi học và gửi thông báo.");
@@ -967,18 +965,6 @@ export default function LiveClassesPage() {
               onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })}
             />
           </Field>
-          {editing ? (
-            <Field label="Lý do đổi lịch">
-              <textarea
-                className={inputClass}
-                minLength={5}
-                required
-                rows={3}
-                value={form.reason}
-                onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              />
-            </Field>
-          ) : null}
           <Button disabled={!editing && !form.classId} type="submit">
             Xác nhận lịch
           </Button>

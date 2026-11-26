@@ -320,7 +320,7 @@ export class SystemService {
     input: {
       backupId: string;
       mode: "DRILL" | "OPERATIONAL";
-      reason: string;
+      reason?: string;
       targetDatabase?: string;
     },
     actorId: string,

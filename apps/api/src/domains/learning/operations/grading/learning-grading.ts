@@ -186,9 +186,7 @@ export async function gradeAttempt(
       attempt.status === "SUBMITTED" && attempt.gradePublishedAt === null;
     const reason = isFirstPublishedGrade
       ? "Chấm lần đầu"
-      : correctionReason?.trim();
-    if (!isFirstPublishedGrade && (!reason || reason.length < 5))
-      throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
+      : (correctionReason?.trim() || "Cập nhật điểm");
     return prisma.$transaction(async (transaction) => {
       if (questionScores?.length) {
         // Gộp điểm trên cùng transaction; khi xung đột chỉ đổi điểm, giữ nguyên bài làm.
@@ -281,13 +279,6 @@ export async function gradeAttempt(
   }
   if (score > exam.totalScore)
     throw new BadRequestException("Điểm không được vượt tổng điểm của đề.");
-  const isFirstPublishedGrade =
-    item.status === "SUBMITTED" && !item.gradePublishedAt;
-  const reason = isFirstPublishedGrade
-    ? "Chấm lần đầu"
-    : correctionReason?.trim();
-  if (!isFirstPublishedGrade && (!reason || reason.length < 5))
-    throw new BadRequestException("Sửa điểm cần lý do ít nhất 5 ký tự.");
   item.score = score;
   item.feedback = feedback.trim();
   item.status = "GRADED";

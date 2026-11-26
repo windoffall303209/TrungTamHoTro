@@ -44,12 +44,8 @@ export default function ClassDetailScreen() {
     importResults,
     removeTarget,
     setRemoveTarget,
-    removeReason,
-    setRemoveReason,
     transferTarget,
     setTransferTarget,
-    transferReason,
-    setTransferReason,
     activeEnrollments,
     instructors,
     primaryInstructor,
@@ -102,12 +98,8 @@ export default function ClassDetailScreen() {
               importResults={importResults}
               removeTarget={removeTarget}
               setRemoveTarget={setRemoveTarget}
-              removeReason={removeReason}
-              setRemoveReason={setRemoveReason}
               transferTarget={transferTarget}
               setTransferTarget={setTransferTarget}
-              transferReason={transferReason}
-              setTransferReason={setTransferReason}
               activeEnrollments={activeEnrollments}
               instructors={instructors}
               primaryInstructor={primaryInstructor}

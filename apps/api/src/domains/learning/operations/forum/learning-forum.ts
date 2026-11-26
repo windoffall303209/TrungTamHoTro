@@ -307,16 +307,14 @@ export async function createTopic(
   return { ...item, tags: [...item.tags] };
 }
 
-/** Ghim hoặc khóa chủ đề với lý do bắt buộc và ghi audit người điều phối. */
+/** Ghim hoặc khóa chủ đề và ghi audit người điều phối. */
 export async function moderateTopic(
   serviceContext: LearningServiceContext,
   topicId: string,
-  input: { isLocked?: boolean; isPinned?: boolean; reason: string },
+  input: { isLocked?: boolean; isPinned?: boolean; reason?: string },
   actorId: string,
 ): Promise<ForumTopic> {
-  const reason = input.reason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do điều phối cần ít nhất 5 ký tự.");
+  const reason = input.reason?.trim() || "Điều phối chủ đề";
   if (input.isLocked === undefined && input.isPinned === undefined)
     throw new BadRequestException(
       "Cần chọn trạng thái khóa hoặc ghim cần thay đổi.",

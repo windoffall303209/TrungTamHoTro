@@ -154,12 +154,8 @@ function ManagerWorkspaceHarness() {
       importResults={[]}
       removeTarget={null}
       setRemoveTarget={vi.fn()}
-      removeReason=""
-      setRemoveReason={vi.fn()}
       transferTarget={null}
       setTransferTarget={vi.fn()}
-      transferReason=""
-      setTransferReason={vi.fn()}
       activeEnrollments={[]}
       instructors={[]}
       primaryInstructor={{ instructorId: "ins-1", displayName: "Cô Lan" }}

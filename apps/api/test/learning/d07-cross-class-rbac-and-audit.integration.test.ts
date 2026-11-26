@@ -270,8 +270,7 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu v�
     // Chấm lần đầu ghi audit ASSIGNMENT_GRADED.
     const graded = await academic.gradeSubmission(submitted.id, [{ criterionId, score: 8 }], "Đạt yêu cầu", submitted.revision, undefined, instA);
     expect(graded.score).toBe(8);
-    // Sửa điểm thiếu lý do -> 400; sửa điểm sai revision -> 409; có lý do -> ghi ASSIGNMENT_GRADE_CORRECTED trước/sau.
-    await expect(academic.gradeSubmission(submitted.id, [{ criterionId, score: 9.5 }], "Chấm lại", submitted.revision, "   ", instA)).rejects.toMatchObject({ status: 400 });
+    // Sửa điểm sai revision -> 409; đúng revision -> ghi ASSIGNMENT_GRADE_CORRECTED trước/sau.
     await expect(academic.gradeSubmission(submitted.id, [{ criterionId, score: 9.5 }], "Chấm lại", submitted.revision + 1, "Bổ sung ý đúng", instA)).rejects.toMatchObject({ status: 409 });
     const corrected = await academic.gradeSubmission(submitted.id, [{ criterionId, score: 9.5 }], "Cập nhật sau rà soát", submitted.revision, "Cộng thêm điểm phần phân tích", instA);
     expect(corrected.score).toBe(9.5);
@@ -287,7 +286,6 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu v�
     // 2. Đề thi & phúc khảo: chấm lần đầu -> sửa điểm -> phúc khảo chấp thuận ghi đủ trước/sau; giảng viên lớp B bị chặn 404.
     await expect(learning.gradeAttempt(ids.attemptA, 6, "Ngoài lớp", undefined, ids.instructorB)).rejects.toMatchObject({ status: 404 });
     await learning.gradeAttempt(ids.attemptA, 6, "Chấm lần đầu", undefined, ids.instructorA);
-    await expect(learning.gradeAttempt(ids.attemptA, 7.5, "Sửa điểm", "ngắn", ids.instructorA)).rejects.toMatchObject({ status: 400 });
     await learning.gradeAttempt(ids.attemptA, 7.5, "Đã rà soát lại", "Bổ sung điểm câu tự luận", ids.instructorA);
 
     const req = await learning.requestRegrade(ids.attemptA, "Đề nghị xem lại câu 2 bài thi", ids.learnerA);

@@ -418,12 +418,9 @@ export class IdentityService {
           throw new ConflictException(
             "Ảnh hưởng công việc đã thay đổi hoặc chưa được xác nhận. Hãy xem trước lại.",
           );
-        if (
-          impact?.requiresHandoff &&
-          (!input.handoffUserId || !input.handoffReason?.trim())
-        )
+        if (impact?.requiresHandoff && !input.handoffUserId)
           throw new BadRequestException(
-            "Cần chọn người nhận bàn giao và ghi lý do trước khi đổi quyền tài khoản.",
+            "Cần chọn người nhận bàn giao trước khi đổi quyền tài khoản.",
           );
         const currentRoleCodes = current.roles.map(({ role }) => role.code as RoleCode);
         if (this.removesActiveAdmin(currentRoleCodes, current.status, input, nextRoleCodes)) {

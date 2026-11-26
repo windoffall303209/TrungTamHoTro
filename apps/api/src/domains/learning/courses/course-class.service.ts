@@ -73,7 +73,7 @@ export class CourseClassService {
   /** Chuyển khóa học sang ARCHIVED sau khi kiểm tra ràng buộc sử dụng và lưu lý do audit. */
   async archiveCourse(
     courseId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningCourse> {
     return await courses_ops.archiveCourse(this.runtime.context, courseId, reason, actorId);
@@ -208,7 +208,7 @@ export class CourseClassService {
     classId: string,
     expectedPrimaryId: string,
     newPrimaryId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await class_instructors_ops.transferPrimaryInstructor(
@@ -225,7 +225,7 @@ export class CourseClassService {
   async removeInstructor(
     classId: string,
     instructorId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await class_instructors_ops.removeInstructor(
@@ -269,7 +269,7 @@ export class CourseClassService {
   async removeEnrollment(
     classId: string,
     learnerId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await class_enrollments_ops.removeEnrollment(
@@ -299,7 +299,7 @@ export class CourseClassService {
   /** Đóng lớp chỉ khi readiness không còn blocker và lưu chính sách lưu trữ. */
   async closeClass(
     classId: string,
-    closeReason: string,
+    closeReason: string | undefined,
     archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
     actorId: string,
   ): Promise<LearningClass> {
@@ -315,7 +315,7 @@ export class CourseClassService {
   /** Mở lại lớp đã đóng, xóa thông tin đóng và ghi lý do vào audit. */
   async reopenClass(
     classId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await class_lifecycle_ops.reopenClass(

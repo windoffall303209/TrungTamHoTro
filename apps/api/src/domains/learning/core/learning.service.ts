@@ -105,7 +105,7 @@ export class LearningService {
   /** Chuyển khóa học sang ARCHIVED sau khi kiểm tra ràng buộc sử dụng và lưu lý do audit. */
   async archiveCourse(
     courseId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningCourse> {
     return await this.courseClass.archiveCourse(courseId, reason, actorId);
@@ -202,7 +202,7 @@ export class LearningService {
     classId: string,
     expectedPrimaryId: string,
     newPrimaryId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await this.courseClass.transferPrimaryInstructor(
@@ -218,7 +218,7 @@ export class LearningService {
   async removeInstructor(
     classId: string,
     instructorId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await this.courseClass.removeInstructor(
@@ -251,7 +251,7 @@ export class LearningService {
   async removeEnrollment(
     classId: string,
     learnerId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await this.courseClass.removeEnrollment(
@@ -285,7 +285,7 @@ export class LearningService {
   /** Đóng lớp chỉ khi readiness không còn blocker và lưu chính sách lưu trữ. */
   async closeClass(
     classId: string,
-    closeReason: string,
+    closeReason: string | undefined,
     archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
     actorId: string,
   ): Promise<LearningClass> {
@@ -300,7 +300,7 @@ export class LearningService {
   /** Mở lại lớp đã đóng, xóa thông tin đóng và ghi lý do vào audit. */
   async reopenClass(
     classId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
   ): Promise<LearningClass> {
     return await this.courseClass.reopenClass(classId, rawReason, actorId);
@@ -848,10 +848,10 @@ export class LearningService {
     return await this.engagementSupport.createTopic(classId, input, authorId, authorRole);
   }
 
-  /** Ghim hoặc khóa chủ đề với lý do bắt buộc và ghi audit người điều phối. */
+  /** Ghim hoặc khóa chủ đề và ghi audit người điều phối. */
   async moderateTopic(
     topicId: string,
-    input: { isLocked?: boolean; isPinned?: boolean; reason: string },
+    input: { isLocked?: boolean; isPinned?: boolean; reason?: string },
     actorId: string,
   ): Promise<ForumTopic> {
     return await this.engagementSupport.moderateTopic(topicId, input, actorId);
@@ -949,7 +949,7 @@ export class LearningService {
   async updateSession(
     sessionId: string,
     input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
-      reason: string;
+      reason?: string;
       meetingUrl?: string;
     },
     actorId: string,
@@ -961,7 +961,7 @@ export class LearningService {
   /** Hủy buổi chưa hoàn tất, ghi lý do và gửi thông báo tới lớp. */
   async cancelSession(
     sessionId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
     actorRole: string,
   ): Promise<LiveSession> {
@@ -1215,7 +1215,7 @@ export class LearningService {
   async transferProgressIntervention(
     interventionId: string,
     assigneeId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
     actorRole: string,
   ): Promise<ProgressIntervention> {

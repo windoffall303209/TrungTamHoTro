@@ -387,14 +387,9 @@ export async function updateProgressIntervention(
   actorRole: string,
 ): Promise<ProgressIntervention> {
   const outcome = input.outcome?.trim();
-  const cancellationReason = input.cancellationReason?.trim();
+  const cancellationReason = input.cancellationReason?.trim() || "Hủy hành động hỗ trợ";
   if (input.status === "DONE" && (!outcome || outcome.length < 5))
     throw new BadRequestException("Kết quả hỗ trợ cần ít nhất 5 ký tự.");
-  if (
-    input.status === "CANCELLED" &&
-    (!cancellationReason || cancellationReason.length < 5)
-  )
-    throw new BadRequestException("Lý do hủy cần ít nhất 5 ký tự.");
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.progressIntervention.findUnique({
@@ -472,7 +467,7 @@ export async function updateProgressIntervention(
             previousStatus: current.status,
             nextStatus: input.status,
             outcome,
-            cancellationReason,
+            cancellationReason: input.status === "CANCELLED" ? cancellationReason : null,
           },
         },
       });
@@ -517,16 +512,14 @@ export async function transferProgressIntervention(
   serviceContext: LearningServiceContext,
   interventionId: string,
   assigneeId: string,
-  rawReason: string,
+  rawReason: string | undefined,
   actorId: string,
   actorRole: string,
 ): Promise<ProgressIntervention> {
   if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
     throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép bàn giao hành động hỗ trợ.");
   }
-  const reason = rawReason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do bàn giao cần ít nhất 5 ký tự.");
+  const reason = rawReason?.trim() || "Bàn giao hỗ trợ";
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.progressIntervention.findUnique({

@@ -844,4 +844,5 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Thời gian buổi học không hợp lệ.": "Invalid session schedule timestamps.",
   "Tệp đính kèm cần giữ lại không hợp lệ.": "The attachments selected to retain are invalid.",
   "Bạn không có quyền xem lớp học này.": "You do not have permission to view this class.",
+  "Cần chọn người nhận bàn giao trước khi đổi quyền tài khoản.": "Need to select a handover recipient before changing account permissions.",
 });

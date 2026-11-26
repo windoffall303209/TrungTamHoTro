@@ -381,15 +381,16 @@ export async function updateAssignment(
   });
 }
 
-/** Gia hạn bài đã công bố, ghi lý do và thông báo cho toàn bộ học viên đang học. */
+/** Gia hạn bài đã công bố, ghi dấu vết và thông báo cho toàn bộ học viên đang học. */
 export async function extendAssignment(
   serviceContext: AcademicServiceContext,
   assignmentId: string,
   dueAtValue: string,
-  reason: string,
+  reason: string | undefined,
   expectedVersion: number,
   session: AuthenticatedSession,
 ): Promise<AssignmentView> {
+  const normalizedReason = reason?.trim() || "Gia hạn bài tập";
   const current = await serviceContext.prisma.assignment.findUnique({
     where: { id: assignmentId },
     include: { class: { select: { code: true, endAt: true } } },
@@ -431,7 +432,7 @@ export async function extendAssignment(
     await transaction.auditLog.create({
       data: {
         actorId: session.user.id, action: "ASSIGNMENT_EXTENDED", entityType: "assignment", entityId: assignmentId,
-        context: { reason, dueAt: dueAt.toISOString() },
+        context: { reason: normalizedReason, dueAt: dueAt.toISOString() },
       },
     });
     const learners = await transaction.classEnrollment.findMany({
@@ -454,11 +455,11 @@ export async function extendAssignment(
   });
 }
 
-/** Đóng bài sớm bằng cập nhật có điều kiện và lưu lý do đóng. */
+/** Đóng bài sớm bằng cập nhật có điều kiện. */
 export async function closeAssignment(
   serviceContext: AcademicServiceContext,
   assignmentId: string,
-  reason: string,
+  reason: string | undefined,
   expectedVersion: number,
   session: AuthenticatedSession,
 ): Promise<AssignmentView> {
@@ -481,7 +482,7 @@ export async function closeAssignment(
         status: "CLOSED",
         closedAt,
         closedById: session.user.id,
-        closeReason: reason.trim(),
+        closeReason: reason?.trim() || null,
         version: { increment: 1 },
       },
     });

@@ -81,13 +81,12 @@ export async function requestRestore(
   input: {
     backupId: string;
     mode: "DRILL" | "OPERATIONAL";
-    reason: string;
+    reason?: string;
     targetDatabase?: string;
   },
   actorId: string,
 ): Promise<RestoreRun> {
-  if (input.reason.trim().length < 10)
-    throw new BadRequestException("Cần lý do khôi phục ít nhất 10 ký tự.");
+  const normalizedReason = input.reason?.trim() || "Yêu cầu khôi phục bản sao lưu";
   if (
     input.mode === "OPERATIONAL" &&
     !/^[a-zA-Z0-9_]+$/.test(input.targetDatabase ?? "")
@@ -120,7 +119,7 @@ export async function requestRestore(
       backupId: input.backupId,
       mode: input.mode,
       requestedBy: actorId,
-      reason: input.reason.trim(),
+      reason: normalizedReason,
       targetDatabase: input.targetDatabase?.trim(),
       status: "PENDING",
     },
@@ -130,7 +129,7 @@ export async function requestRestore(
     actorId,
     "RESTORE_REQUESTED",
     row.id,
-    `${input.mode} · ${input.reason.trim()}`,
+    `${input.mode} · ${normalizedReason}`,
   );
   return serviceContext.mapRestore(row);
 }

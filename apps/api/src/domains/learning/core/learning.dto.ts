@@ -120,7 +120,7 @@ export class UpdateCourseDto {
 }
 
 export class ArchiveCourseDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 /** Dữ liệu mở lớp từ một phiên bản khóa học cùng quy mô và lịch vận hành. */
@@ -165,15 +165,15 @@ export class AssignInstructorDto extends AssignUserDto {
     | "CO_INSTRUCTOR";
 }
 
-/** Bàn giao giảng viên chính với người nguồn kỳ vọng và lý do bắt buộc. */
+/** Bàn giao giảng viên chính với người nguồn kỳ vọng. */
 export class TransferPrimaryInstructorDto {
   @IsString() @IsNotEmpty() newPrimaryId!: string;
   @IsString() @IsNotEmpty() expectedPrimaryId!: string;
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class RemoveMemberDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class BulkEnrollmentDto {
@@ -185,14 +185,14 @@ export class BulkEnrollmentDto {
 }
 
 export class CloseClassDto {
-  @IsString() @MinLength(5) @MaxLength(500) closeReason!: string;
+  @IsOptional() @IsString() @MaxLength(500) closeReason?: string;
   @IsIn(["STANDARD_RETENTION", "LONG_TERM_RETENTION"]) archivePolicy!:
     | "STANDARD_RETENTION"
     | "LONG_TERM_RETENTION";
 }
 
 export class ReopenClassDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class CreateMaterialDto {
@@ -366,7 +366,6 @@ export class GradeAttemptDto {
   @IsString() @MinLength(3) feedback!: string;
   @IsOptional()
   @IsString()
-  @MinLength(5)
   @MaxLength(500)
   correctionReason?: string;
   @IsOptional()
@@ -420,7 +419,7 @@ export class UpdatePostDto {
 export class ModerateTopicDto {
   @IsOptional() @IsBoolean() isLocked?: boolean;
   @IsOptional() @IsBoolean() isPinned?: boolean;
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 /** Dữ liệu lên lịch buổi học trực tuyến và gắn liên kết Google Meet. */
@@ -457,17 +456,17 @@ export class CreateSessionDto {
 }
 
 export class UpdateSessionDto extends CreateSessionDto {
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === "string" ? value.trim() : value,
   )
   @IsString()
-  @MinLength(5, { message: "Lý do đổi lịch cần ít nhất 5 ký tự." })
   @MaxLength(500)
-  reason!: string;
+  reason?: string;
 }
 
 export class CancelSessionDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 export class TransitionSessionDto {
@@ -513,14 +512,13 @@ export class UpdateProgressInterventionDto {
   @IsOptional() @IsString() @MinLength(5) @MaxLength(2000) outcome?: string;
   @IsOptional()
   @IsString()
-  @MinLength(5)
   @MaxLength(1000)
   cancellationReason?: string;
 }
 
 export class TransferProgressInterventionDto {
   @IsString() @IsNotEmpty() assigneeId!: string;
-  @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
 }
 
 /** Nội dung phiếu hỗ trợ và mức ưu tiên do người dùng gửi. */

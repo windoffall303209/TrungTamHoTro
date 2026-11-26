@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
-import { Button, Field, inputClass, Modal, Pagination } from "@/shared/ui/ui";
+import { Button, inputClass, Modal, Pagination } from "@/shared/ui/ui";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -94,7 +94,6 @@ export default function ForumPage() {
   const [editingPost, setEditingPost] = useState<ForumPost | null>(null);
   const [editBody, setEditBody] = useState("");
   const [topicAction, setTopicAction] = useState<{ isLocked?: boolean; isPinned?: boolean; label: string } | null>(null);
-  const [topicReason, setTopicReason] = useState("");
 
   // Form tạo bài viết / chủ đề mới
   const [form, setForm] = useState({
@@ -412,12 +411,14 @@ export default function ForumPage() {
       const updated = await apiRequest<ForumTopic>(`/instructor/forum/topics/${selected.id}`, {
         method: "PATCH",
         roleCode: session.roleCode,
-        body: JSON.stringify({ ...topicAction, label: undefined, reason: topicReason }),
+        body: JSON.stringify({
+          isLocked: topicAction.isLocked,
+          isPinned: topicAction.isPinned,
+        }),
       });
       setSelected(updated);
       setTopics((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setTopicAction(null);
-      setTopicReason("");
       notify("Đã cập nhật trạng thái bài viết.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không điều phối được bài viết.", "error");
@@ -1317,15 +1318,6 @@ export default function ForumPage() {
           description="Hành động này sẽ được ghi nhận vào nhật ký hoạt động."
         >
           <form onSubmit={moderateTopic} className="space-y-4">
-            <Field label="Lý do giải trình *">
-              <input
-                className={inputClass}
-                placeholder="Nhập lý do cập nhật chủ đề..."
-                value={topicReason}
-                onChange={(e) => setTopicReason(e.target.value)}
-                required
-              />
-            </Field>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <Button variant="ghost" onClick={() => setTopicAction(null)}>
                 Hủy

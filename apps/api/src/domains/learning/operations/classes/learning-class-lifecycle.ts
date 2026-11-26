@@ -198,13 +198,11 @@ export async function databaseClassClosureReadiness(
 export async function closeClass(
   serviceContext: LearningServiceContext,
   classId: string,
-  closeReason: string,
+  closeReason: string | undefined,
   archivePolicy: "STANDARD_RETENTION" | "LONG_TERM_RETENTION",
   actorId: string,
 ): Promise<LearningClass> {
-  const reason = closeReason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do đóng lớp cần ít nhất 5 ký tự.");
+  const reason = closeReason?.trim() || "Đóng và lưu trữ lớp học";
   const prisma = serviceContext.database();
   if (prisma) {
     await prisma.$transaction(
@@ -292,12 +290,10 @@ export async function closeClass(
 export async function reopenClass(
   serviceContext: LearningServiceContext,
   classId: string,
-  rawReason: string,
+  rawReason: string | undefined,
   actorId: string,
 ): Promise<LearningClass> {
-  const reason = rawReason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do mở lại lớp cần ít nhất 5 ký tự.");
+  const reason = rawReason?.trim() || "Mở lại lớp học";
   const prisma = serviceContext.database();
   if (prisma) {
     await prisma.$transaction(async (transaction) => {

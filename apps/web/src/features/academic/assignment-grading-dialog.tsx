@@ -4,7 +4,7 @@ import { AssignmentAiGrading } from "@/features/academic/assignment-ai-grading";
 import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import type { useAcademicModel } from "./use-academic-model";
 
-/** Chấm bài tập theo tiêu chí và ghi nhận lý do sửa điểm. */
+/** Chấm bài tập theo tiêu chí rubric và phản hồi giảng viên. */
 export function AssignmentGradingDialog({
   model,
 }: {
@@ -17,8 +17,6 @@ export function AssignmentGradingDialog({
     | "setRubricScores"
     | "feedback"
     | "setFeedback"
-    | "correctionReason"
-    | "setCorrectionReason"
     | "canTeach"
     | "grade"
   >;
@@ -31,8 +29,6 @@ export function AssignmentGradingDialog({
     setRubricScores,
     feedback,
     setFeedback,
-    correctionReason,
-    setCorrectionReason,
     canTeach,
     grade,
   } = model;
@@ -101,36 +97,6 @@ export function AssignmentGradingDialog({
             onChange={(event) => setFeedback(event.target.value)}
           />
         </Field>
-        {grading?.status === "GRADED" ? (
-          <Field label="Lý do sửa điểm đã công bố">
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {[
-                "Sửa lỗi nhập điểm",
-                "Chấm lại theo phản hồi học viên",
-                "Cộng điểm khuyến khích / bổ sung",
-                "Hiệu chỉnh thang đo tiêu chí",
-              ].map((reason) => (
-                <button
-                  key={reason}
-                  type="button"
-                  onClick={() => setCorrectionReason(reason)}
-                  className="rounded-full border border-[var(--rule)] bg-[var(--surface-muted)] px-2.5 py-1 text-xs font-medium text-[var(--ink)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
-                >
-                  {reason}
-                </button>
-              ))}
-            </div>
-            <textarea
-              className={inputClass}
-              minLength={3}
-              placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
-              required
-              rows={3}
-              value={correctionReason}
-              onChange={(event) => setCorrectionReason(event.target.value)}
-            />
-          </Field>
-        ) : null}
         <Button type="submit">Lưu điểm rubric</Button>
       </form>
     </Modal>

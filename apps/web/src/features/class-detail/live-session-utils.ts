@@ -196,10 +196,6 @@ export function validateSessionFormInput(
     errors.meetingUrl = GOOGLE_MEET_URL_ERROR;
   }
 
-  if (input.requireReason && (input.reason ?? "").trim().length < 5) {
-    errors.reason = "Lý do đổi lịch cần ít nhất 5 ký tự.";
-  }
-
   const firstError =
     errors.title ?? errors.time ?? errors.meetingUrl ?? errors.reason ?? "";
   return {

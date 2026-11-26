@@ -426,7 +426,7 @@ describe("AcademicService", () => {
     expect(closed.status).toBe("CLOSED");
   });
 
-  it("yêu cầu lý do khi sửa điểm đã công bố và trả điểm mới nhất", async () => {
+  it("cho phép sửa điểm đã công bố không cần nhập lý do và trả điểm mới nhất", async () => {
     const submission = await prisma.assignmentSubmission.findUniqueOrThrow({
       where: {
         assignmentId_learnerId: { assignmentId, learnerId: learner.user.id },
@@ -439,22 +439,12 @@ describe("AcademicService", () => {
       criterionId: criterion.id,
       score: criterion.maxPoints,
     }));
-    await expect(
-      service.gradeSubmission(
-        submission.id,
-        rubricScores,
-        "Điều chỉnh điểm theo đối soát.",
-        submission.revision,
-        undefined,
-        instructor,
-      ),
-    ).rejects.toThrow("ghi rõ lý do");
     const corrected = await service.gradeSubmission(
       submission.id,
       rubricScores,
       "Điều chỉnh điểm theo đối soát.",
       submission.revision,
-      "Chấm lại sau khi đối chiếu rubric.",
+      undefined,
       instructor,
     );
     expect(corrected.score).toBe(rubricScores.reduce((sum, entry) => sum + entry.score, 0));

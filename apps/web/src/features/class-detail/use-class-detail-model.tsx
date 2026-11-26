@@ -66,14 +66,10 @@ export function useClassDetailModel() {
 
   const [removeTarget, setRemoveTarget] = useState<RemoveTarget | null>(null);
 
-  const [removeReason, setRemoveReason] = useState("");
-
   const [transferTarget, setTransferTarget] = useState<{
     id: string;
     name: string;
   } | null>(null);
-
-  const [transferReason, setTransferReason] = useState("");
 
   const activeEnrollments = useMemo(
     () =>
@@ -207,13 +203,11 @@ export function useClassDetailModel() {
           body: JSON.stringify({
             expectedPrimaryId: primaryInstructor.instructorId,
             newPrimaryId: transferTarget.id,
-            reason: transferReason.trim(),
           }),
         },
       );
       notify("Đã bàn giao giảng viên chính và lưu lịch sử hai bên.");
       setTransferTarget(null);
-      setTransferReason("");
       await load();
     } catch (error) {
       notify(
@@ -300,12 +294,11 @@ export function useClassDetailModel() {
         {
           method: "PATCH",
           roleCode: session.roleCode,
-          body: JSON.stringify({ reason: removeReason.trim() }),
+          body: JSON.stringify({}),
         },
       );
       notify("Đã cập nhật thành viên và lưu lịch sử thay đổi.");
       setRemoveTarget(null);
-      setRemoveReason("");
       await load();
     } catch (error) {
       notify(
@@ -357,12 +350,8 @@ export function useClassDetailModel() {
     importResults,
     removeTarget,
     setRemoveTarget,
-    removeReason,
-    setRemoveReason,
     transferTarget,
     setTransferTarget,
-    transferReason,
-    setTransferReason,
     activeEnrollments,
     instructors,
     primaryInstructor,

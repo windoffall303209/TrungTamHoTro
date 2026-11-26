@@ -1548,6 +1548,11 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Tỷ lệ lấy mẫu checksum phải nằm trong khoảng từ 0 đến 1.": "Checksum sample rate must be between 0 and 1.",
   "Không tìm thấy tác vụ đối soát lưu trữ.": "Storage audit job not found.",
   "Bạn không có quyền xem lớp học này.": "You do not have permission to view this class.",
+  "Cần chọn người nhận bàn giao trước khi đổi quyền tài khoản.": "Need to select a handover recipient before changing account permissions.",
+  "Gỡ học viên khỏi lớp?": "Remove learner from class?",
+  "Gỡ phân công giảng viên?": "Remove instructor assignment?",
+  "Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại được kiểm toán minh bạch.": "Verify readiness, close classes without data loss, and reopen with transparent audit trails.",
+  "Thao tác mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.": "Reopening will be recorded in the system audit log. Archived data remains preserved.",
 };
 
 

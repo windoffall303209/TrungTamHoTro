@@ -360,12 +360,10 @@ export async function publishCourse(
 export async function archiveCourse(
   serviceContext: LearningServiceContext,
   courseId: string,
-  reason: string,
+  reason: string | undefined,
   actorId: string,
 ): Promise<LearningCourse> {
-  const normalizedReason = reason.trim();
-  if (normalizedReason.length < 5)
-    throw new BadRequestException("Lý do ngừng sử dụng cần ít nhất 5 ký tự.");
+  const normalizedReason = reason?.trim() || "Ngừng sử dụng khóa học";
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.course.findUnique({

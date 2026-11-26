@@ -86,13 +86,13 @@ export class AssignmentVisibilityDto extends WorkVersionDto {
 
 export class ExtendAssignmentDto {
   @IsDateString() dueAt!: string;
-  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
   @IsInt() @Min(1) expectedVersion!: number;
 }
 
-/** Hợp đồng đóng bài sớm có lý do và khóa phiên bản. */
+/** Hợp đồng đóng bài sớm kèm khóa phiên bản. */
 export class CloseAssignmentDto {
-  @IsString() @MinLength(3) @MaxLength(1000) reason!: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
   @IsInt() @Min(1) expectedVersion!: number;
 }
 
@@ -121,7 +121,6 @@ export class GradeAssignmentDto {
   @IsInt() @Min(1) expectedSubmissionRevision!: number;
   @IsOptional()
   @IsString()
-  @MinLength(3)
   @MaxLength(1000)
   correctionReason?: string;
 }

@@ -42,7 +42,7 @@ class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOpti
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
 class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() @MaxLength(150) credentialReference?: string; @IsOptional() @IsString() @MaxLength(2048) webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }
-class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsString() @MinLength(10) @MaxLength(500) reason!: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
+class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsOptional() @IsString() @MaxLength(500) reason?: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
 class QueueStorageAuditDto { @IsOptional() @IsNumber() @Min(0) @Max(1) sampleRate?: number }
 class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType; @IsOptional() @IsString() @MaxLength(100) name?: string; @IsString() @MinLength(1) @MaxLength(200) model!: string; @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string; @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string; @IsOptional() @IsBoolean() enabled?: boolean; @IsOptional() @IsBoolean() isDefault?: boolean }

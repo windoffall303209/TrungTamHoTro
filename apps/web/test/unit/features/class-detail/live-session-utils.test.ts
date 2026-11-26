@@ -67,21 +67,17 @@ describe("live-session-utils", () => {
     expect(outOfClass.valid).toBe(false);
     expect(outOfClass.errors.time).toBe("Buổi học phải nằm trong thời gian của lớp.");
 
-    const editMissingReason = validateSessionFormInput({
+    const editWithoutMandatoryReason = validateSessionFormInput({
       title: "Buổi đổi lịch",
       date: "2026-11-20",
       startTime: "19:30",
       endTime: "21:00",
       meetingUrl: "https://meet.google.com/abc-defg-hij",
-      reason: "abc",
-      requireReason: true,
       classItem: sampleClass,
       now,
     });
-    expect(editMissingReason.valid).toBe(false);
-    expect(editMissingReason.errors.reason).toBe(
-      "Lý do đổi lịch cần ít nhất 5 ký tự.",
-    );
+    expect(editWithoutMandatoryReason.valid).toBe(true);
+    expect(editWithoutMandatoryReason.errors.reason).toBeUndefined();
 
     const draft = buildDefaultSessionDraft(sampleClass, now);
     expect(draft.date).toBe("2026-11-17");

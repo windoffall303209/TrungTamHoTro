@@ -96,7 +96,6 @@ export function ClassSchedulePanel({
   const [submitError, setSubmitError] = useState("");
 
   const [cancellingSession, setCancellingSession] = useState<LiveSession | null>(null);
-  const [cancelReason, setCancelReason] = useState("");
   const [cancelError, setCancelError] = useState("");
 
   const requestCounterRef = useRef(0);
@@ -236,7 +235,6 @@ export function ClassSchedulePanel({
       startTime: toLocalTimeInputValue(startsAt),
       endTime: toLocalTimeInputValue(endsAt),
       meetingUrl: sessionItem.hostUrl || sessionItem.attendeeUrl || "",
-      reason: "",
     });
     setFieldErrors({});
     setSubmitError("");
@@ -250,7 +248,6 @@ export function ClassSchedulePanel({
     const validation = validateSessionFormInput({
       ...formValues,
       classItem,
-      requireReason: Boolean(editingSession),
     });
     setFieldErrors(validation.errors);
     if (
@@ -279,7 +276,6 @@ export function ClassSchedulePanel({
             endsAt: validation.endsAtIso,
             provider: "GOOGLE_MEET",
             meetingUrl: validation.normalizedMeetingUrl,
-            reason: (formValues.reason ?? "").trim(),
           }),
         });
         notify("Đã cập nhật lịch học và link Google Meet.", "success");
@@ -376,15 +372,10 @@ export function ClassSchedulePanel({
     }
   };
 
-  // Xác nhận hủy buổi học với lý do bắt buộc tối thiểu 5 ký tự.
+  // Xác nhận hủy buổi học và gửi thông báo cho lớp.
   const handleConfirmCancel = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!cancellingSession || saving) return;
-    const normalized = cancelReason.trim();
-    if (normalized.length < 5) {
-      setCancelError("Lý do hủy cần ít nhất 5 ký tự.");
-      return;
-    }
     setSaving(true);
     setCancelError("");
     try {
@@ -394,11 +385,10 @@ export function ClassSchedulePanel({
       await apiRequest<LiveSession>(endpoint, {
         method: "POST",
         roleCode,
-        body: JSON.stringify({ reason: normalized }),
+        body: JSON.stringify({}),
       });
       notify("Đã hủy buổi học và gửi thông báo.", "success");
       setCancellingSession(null);
-      setCancelReason("");
       await loadClassSessions();
     } catch (error) {
       const message =
@@ -652,7 +642,6 @@ export function ClassSchedulePanel({
                                     type="button"
                                     onClick={() => {
                                       setCancellingSession(entry);
-                                      setCancelReason("");
                                       setCancelError("");
                                     }}
                                     className="py-1 px-1.5 rounded-lg border border-rose-200 dark:border-rose-900/60 text-[10px] font-semibold text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
@@ -687,7 +676,6 @@ export function ClassSchedulePanel({
             const target = findSessionById(row.id);
             if (target) {
               setCancellingSession(target);
-              setCancelReason("");
               setCancelError("");
             }
           }}
@@ -877,41 +865,6 @@ export function ClassSchedulePanel({
                   </p>
                 )}
               </div>
-
-              {editingSession ? (
-                <div>
-                  <label
-                    htmlFor="class-session-reason"
-                    className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1"
-                  >
-                    Lý do đổi lịch <span className="text-rose-500">*</span>
-                  </label>
-                  <textarea
-                    id="class-session-reason"
-                    rows={2}
-                    required
-                    minLength={5}
-                    value={formValues.reason ?? ""}
-                    onChange={(event) => {
-                      setFormValues((prev) => ({
-                        ...prev,
-                        reason: event.target.value,
-                      }));
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        reason: undefined,
-                      }));
-                    }}
-                    placeholder="Nhập lý do cập nhật thời gian hoặc link phòng học..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                  {fieldErrors.reason ? (
-                    <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
-                      {fieldErrors.reason}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -967,32 +920,11 @@ export function ClassSchedulePanel({
               Buổi học: <strong>{cancellingSession.title}</strong>
             </p>
 
-            <div>
-              <label
-                htmlFor="cancel-session-reason"
-                className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1"
-              >
-                Lý do hủy buổi học <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                id="cancel-session-reason"
-                rows={3}
-                required
-                minLength={5}
-                value={cancelReason}
-                onChange={(event) => {
-                  setCancelReason(event.target.value);
-                  setCancelError("");
-                }}
-                placeholder="Nhập lý do hủy buổi học để thông báo tới học viên..."
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-              />
-              {cancelError ? (
-                <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-400">
-                  {cancelError}
-                </p>
-              ) : null}
-            </div>
+            {cancelError ? (
+              <p className="text-[11px] text-rose-600 dark:text-rose-400">
+                {cancelError}
+              </p>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button

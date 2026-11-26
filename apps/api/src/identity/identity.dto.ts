@@ -11,7 +11,6 @@ import {
   Length,
   Matches,
   MaxLength,
-  MinLength,
 } from "class-validator";
 import { Transform, type TransformFnParams } from "class-transformer";
 import {
@@ -94,7 +93,6 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(5)
   @MaxLength(1000)
   handoffReason?: string;
 }

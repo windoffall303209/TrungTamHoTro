@@ -111,7 +111,6 @@ export default function UsersPage() {
     useState<IdentityUser["status"]>("ACTIVE");
   const [impact, setImpact] = useState<IdentityChangeImpact | null>(null);
   const [handoffUserId, setHandoffUserId] = useState("");
-  const [handoffReason, setHandoffReason] = useState("");
   const [form, setForm] = useState<UserForm>(emptyForm);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -187,7 +186,6 @@ export default function UsersPage() {
     setEditStatus(status);
     setImpact(null);
     setHandoffUserId("");
-    setHandoffReason("");
     setForm({
       username: user.username,
       roleCodes: user.roleCodes?.length ? user.roleCodes : [user.roleCode],
@@ -249,7 +247,6 @@ export default function UsersPage() {
           status: editStatus,
           impactToken: impact?.token,
           handoffUserId: impact?.requiresHandoff ? handoffUserId : undefined,
-          handoffReason: impact?.requiresHandoff ? handoffReason : undefined,
         }),
       });
       notify("Đã cập nhật tài khoản.");
@@ -422,16 +419,6 @@ export default function UsersPage() {
                     ))}
                 </select>
               </Field>
-              <Field label="Lý do bàn giao">
-                <textarea
-                  className={inputClass}
-                  minLength={5}
-                  onChange={(event) => setHandoffReason(event.target.value)}
-                  required
-                  rows={3}
-                  value={handoffReason}
-                />
-              </Field>
             </div>
           ) : null}
         </div>
@@ -449,10 +436,7 @@ export default function UsersPage() {
         <Button
           disabled={
             form.roleCodes.length === 0 ||
-            Boolean(
-              impact?.requiresHandoff &&
-                (!handoffUserId || handoffReason.trim().length < 5),
-            )
+            Boolean(impact?.requiresHandoff && !handoffUserId)
           }
           loading={saving}
           type="submit"

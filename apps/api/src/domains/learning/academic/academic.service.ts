@@ -184,7 +184,7 @@ export class AcademicService {
   async extendAssignment(
     assignmentId: string,
     dueAtValue: string,
-    reason: string,
+    reason: string | undefined,
     expectedVersion: number,
     session: AuthenticatedSession,
   ): Promise<AssignmentView> {
@@ -201,7 +201,7 @@ export class AcademicService {
   /** Đóng bài sớm bằng cập nhật có điều kiện và bảo toàn lý do trong lịch sử. */
   async closeAssignment(
     assignmentId: string,
-    reason: string,
+    reason: string | undefined,
     expectedVersion: number,
     session: AuthenticatedSession,
   ): Promise<AssignmentView> {

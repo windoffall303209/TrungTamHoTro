@@ -95,7 +95,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
   const [restoreForm, setRestoreForm] = useState({
     backupId: "",
     mode: "DRILL" as "DRILL" | "OPERATIONAL",
-    reason: "Kiểm tra định kỳ khả năng phục hồi bản sao lưu",
     targetDatabase: "",
   });
 
@@ -253,7 +252,6 @@ export function useOperationsModel(view: OperationsView = "monitoring") {
         body: JSON.stringify({
           backupId: backup.id,
           mode: restoreForm.mode,
-          reason: restoreForm.reason,
           targetDatabase:
             restoreForm.mode === "OPERATIONAL"
               ? restoreForm.targetDatabase

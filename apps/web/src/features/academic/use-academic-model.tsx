@@ -81,8 +81,6 @@ export function useAcademicModel() {
 
   const [lifecycleMinDueAt, setLifecycleMinDueAt] = useState("");
 
-  const [lifecycleReason, setLifecycleReason] = useState("");
-
   const [creatingAnnouncement, setCreatingAnnouncement] = useState(false);
 
   const [submitting, setSubmitting] = useState<Assignment | null>(null);
@@ -106,8 +104,6 @@ export function useAcademicModel() {
   const [rubricScores, setRubricScores] = useState<Record<string, number>>({});
 
   const [feedback, setFeedback] = useState("");
-
-  const [correctionReason, setCorrectionReason] = useState("");
 
   const allowed =
     session.roleCode === "INSTRUCTOR" || session.roleCode === "LEARNER";
@@ -388,7 +384,7 @@ export function useAcademicModel() {
     setCreatingAssignment(true);
   }
 
-  /** Mở thao tác gia hạn hoặc đóng bài với lý do bắt buộc. */
+  /** Mở thao tác gia hạn hoặc đóng bài tập. */
   function openLifecycle(item: Assignment, mode: "EXTEND" | "CLOSE"): void {
     setLifecycleAssignment(item);
     setLifecycleMode(mode);
@@ -399,7 +395,6 @@ export function useAcademicModel() {
         Math.max(Date.now() + 60_000, new Date(item.dueAt).getTime() + 60_000),
       ),
     );
-    setLifecycleReason("");
   }
 
   /** Gửi lệnh gia hạn hoặc đóng bài bằng expectedVersion rồi làm mới màn hình. */
@@ -413,7 +408,6 @@ export function useAcademicModel() {
           method: lifecycleMode === "EXTEND" ? "PATCH" : "POST",
           roleCode: session.roleCode,
           body: JSON.stringify({
-            reason: lifecycleReason,
             expectedVersion: lifecycleAssignment.version,
             ...(lifecycleMode === "EXTEND"
               ? { dueAt: localDateTimeToIso(lifecycleDueAt) }
@@ -603,14 +597,11 @@ export function useAcademicModel() {
             })),
             feedback,
             expectedSubmissionRevision: grading.revision,
-            correctionReason:
-              grading.status === "GRADED" ? correctionReason : undefined,
           }),
         },
       );
       setGrading(null);
       setFeedback("");
-      setCorrectionReason("");
       await openSubmissions(reviewing);
       await Promise.all([load(), loadAssignments()]);
       notify("Đã lưu điểm rubric và phản hồi.");
@@ -698,8 +689,6 @@ export function useAcademicModel() {
     lifecycleDueAt,
     setLifecycleDueAt,
     lifecycleMinDueAt,
-    lifecycleReason,
-    setLifecycleReason,
     creatingAnnouncement,
     setCreatingAnnouncement,
     submitting,
@@ -722,8 +711,6 @@ export function useAcademicModel() {
     setRubricScores,
     feedback,
     setFeedback,
-    correctionReason,
-    setCorrectionReason,
     allowed,
     canTeach,
     changeClass,

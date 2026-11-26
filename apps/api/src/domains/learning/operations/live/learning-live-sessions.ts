@@ -443,21 +443,19 @@ export async function createSession(
   return { ...item };
 }
 
-/** Cập nhật lịch và liên kết phòng họp trước khi buổi học diễn ra và lưu lý do audit. */
+/** Cập nhật lịch và liên kết phòng họp trước khi buổi học diễn ra và lưu dấu vết audit. */
 export async function updateSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
   input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
-    reason: string;
+    reason?: string;
     meetingUrl?: string;
   },
   actorId: string,
   actorRole: string,
 ): Promise<LiveSession> {
   assertSessionControlRole(actorRole);
-  const reason = input.reason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do đổi lịch cần ít nhất 5 ký tự.");
+  const reason = input.reason?.trim() || "Cập nhật lịch học";
   const validated = validateSessionWindow(
     input.title,
     input.startsAt,
@@ -617,18 +615,16 @@ export async function updateSession(
   return { ...item };
 }
 
-/** Hủy buổi chưa hoàn tất, ghi lý do và gửi thông báo tới lớp. */
+/** Hủy buổi chưa hoàn tất và gửi thông báo tới lớp. */
 export async function cancelSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
-  reason: string,
+  reason: string | undefined,
   actorId: string,
   actorRole: string,
 ): Promise<LiveSession> {
   assertSessionControlRole(actorRole);
-  const normalized = reason.trim();
-  if (normalized.length < 5)
-    throw new BadRequestException("Lý do hủy cần ít nhất 5 ký tự.");
+  const normalized = reason?.trim() || "Hủy buổi học";
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.liveSession.findUnique({

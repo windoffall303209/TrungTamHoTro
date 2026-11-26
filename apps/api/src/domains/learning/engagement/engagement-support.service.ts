@@ -62,10 +62,10 @@ export class EngagementSupportService {
     );
   }
 
-  /** Ghim hoặc khóa chủ đề với lý do bắt buộc và ghi audit người điều phối. */
+  /** Ghim hoặc khóa chủ đề và ghi audit người điều phối. */
   async moderateTopic(
     topicId: string,
-    input: { isLocked?: boolean; isPinned?: boolean; reason: string },
+    input: { isLocked?: boolean; isPinned?: boolean; reason?: string },
     actorId: string,
   ): Promise<ForumTopic> {
     return await forum_ops.moderateTopic(this.runtime.context, topicId, input, actorId);
@@ -174,7 +174,7 @@ export class EngagementSupportService {
   async updateSession(
     sessionId: string,
     input: Pick<LiveSession, "title" | "startsAt" | "endsAt" | "provider"> & {
-      reason: string;
+      reason?: string;
       meetingUrl?: string;
     },
     actorId: string,
@@ -192,7 +192,7 @@ export class EngagementSupportService {
   /** Hủy buổi chưa hoàn tất, ghi lý do và gửi thông báo tới lớp. */
   async cancelSession(
     sessionId: string,
-    reason: string,
+    reason: string | undefined,
     actorId: string,
     actorRole: string,
   ): Promise<LiveSession> {
@@ -491,7 +491,7 @@ export class EngagementSupportService {
   async transferProgressIntervention(
     interventionId: string,
     assigneeId: string,
-    rawReason: string,
+    rawReason: string | undefined,
     actorId: string,
     actorRole: string,
   ): Promise<ProgressIntervention> {

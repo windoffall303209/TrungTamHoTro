@@ -199,12 +199,10 @@ export async function transferPrimaryInstructor(
   classId: string,
   expectedPrimaryId: string,
   newPrimaryId: string,
-  rawReason: string,
+  rawReason: string | undefined,
   actorId: string,
 ): Promise<LearningClass> {
-  const reason = rawReason.trim();
-  if (reason.length < 5)
-    throw new BadRequestException("Lý do bàn giao cần ít nhất 5 ký tự.");
+  const reason = rawReason?.trim() || "Bàn giao giảng viên chính";
   if (expectedPrimaryId === newPrimaryId)
     throw new BadRequestException(
       "Giảng viên nhận bàn giao phải khác người hiện tại.",
@@ -308,12 +306,10 @@ export async function removeInstructor(
   serviceContext: LearningServiceContext,
   classId: string,
   instructorId: string,
-  reason: string,
+  reason: string | undefined,
   actorId: string,
 ): Promise<LearningClass> {
-  const normalizedReason = reason.trim();
-  if (normalizedReason.length < 5)
-    throw new BadRequestException("Lý do gỡ phân công cần ít nhất 5 ký tự.");
+  const normalizedReason = reason?.trim() || "Gỡ phân công giảng viên";
   const prisma = serviceContext.database();
   if (prisma) {
     const current = await prisma.classInstructor.findUnique({

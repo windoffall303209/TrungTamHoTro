@@ -175,12 +175,10 @@ export async function removeEnrollment(
   serviceContext: LearningServiceContext,
   classId: string,
   learnerId: string,
-  reason: string,
+  reason: string | undefined,
   actorId: string,
 ): Promise<LearningClass> {
-  const normalizedReason = reason.trim();
-  if (normalizedReason.length < 5)
-    throw new BadRequestException("Lý do gỡ học viên cần ít nhất 5 ký tự.");
+  const normalizedReason = reason?.trim() || null;
   const prisma = serviceContext.database();
   if (prisma) {
     const enrollment = await prisma.classEnrollment.findUnique({

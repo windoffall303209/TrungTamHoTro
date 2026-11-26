@@ -42,8 +42,6 @@ export default function AcademicScreen() {
     lifecycleDueAt,
     setLifecycleDueAt,
     lifecycleMinDueAt,
-    lifecycleReason,
-    setLifecycleReason,
     creatingAnnouncement,
     setCreatingAnnouncement,
     openSubmissionDialog,
@@ -53,7 +51,6 @@ export default function AcademicScreen() {
     setGrading,
     setRubricScores,
     setFeedback,
-    setCorrectionReason,
     allowed,
     canTeach,
     changeClass,
@@ -487,7 +484,6 @@ export default function AcademicScreen() {
                       ),
                     );
                     setFeedback(item.feedback ?? "");
-                    setCorrectionReason("");
                   }}
                   variant="secondary"
                 >
@@ -533,20 +529,6 @@ export default function AcademicScreen() {
               />
             </Field>
           ) : null}
-          <Field
-            label={
-              lifecycleMode === "EXTEND" ? "Lý do gia hạn" : "Lý do đóng bài"
-            }
-          >
-            <textarea
-              className={inputClass}
-              minLength={3}
-              onChange={(event) => setLifecycleReason(event.target.value)}
-              required
-              rows={4}
-              value={lifecycleReason}
-            />
-          </Field>
           <Button type="submit">
             {lifecycleMode === "EXTEND"
               ? "Xác nhận gia hạn"

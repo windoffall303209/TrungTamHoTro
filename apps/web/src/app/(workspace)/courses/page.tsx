@@ -67,7 +67,6 @@ export default function CoursesPage() {
   const [versionTarget, setVersionTarget] = useState<Course | null>(null);
   const [versions, setVersions] = useState<CourseVersionSnapshot[]>([]);
   const [archiveTarget, setArchiveTarget] = useState<Course | null>(null);
-  const [archiveReason, setArchiveReason] = useState("");
   const loadRequestId = useRef(0);
   const versionRequestId = useRef(0);
   
@@ -400,11 +399,10 @@ export default function CoursesPage() {
       await apiRequest(`/manager/courses/${archiveTarget.id}/archive`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({ reason: archiveReason }),
+        body: JSON.stringify({}),
       });
       notify("Đã ngừng sử dụng khóa học; các lớp cũ vẫn giữ phiên bản đã chọn.");
       setArchiveTarget(null);
-      setArchiveReason("");
       await Promise.all([load(), loadCourseOptions()]);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không ngừng sử dụng được khóa học.", "error");
@@ -1108,25 +1106,14 @@ export default function CoursesPage() {
       </Modal>
       <Modal
         open={Boolean(archiveTarget)}
-        onClose={() => { if (!saving) { setArchiveTarget(null); setArchiveReason(""); } }}
+        onClose={() => { if (!saving) { setArchiveTarget(null); } }}
         title={`Ngừng sử dụng ${archiveTarget?.code ?? "môn học"}`}
         description="Khóa học sẽ không thể mở lớp mới; lớp hiện có và snapshot phiên bản vẫn được giữ nguyên."
       >
         <form className="space-y-4" onSubmit={(event) => void archiveCourse(event)}>
-          <Field label="Lý do ngừng sử dụng">
-            <textarea
-              className={inputClass}
-              maxLength={500}
-              minLength={5}
-              onChange={(event) => setArchiveReason(event.target.value)}
-              required
-              rows={3}
-              value={archiveReason}
-            />
-          </Field>
           <div className="flex justify-end gap-2">
-            <Button disabled={saving} onClick={() => { setArchiveTarget(null); setArchiveReason(""); }} variant="ghost">Hủy</Button>
-            <Button disabled={archiveReason.trim().length < 5} loading={saving} type="submit" variant="danger">Xác nhận ngừng dùng</Button>
+            <Button disabled={saving} onClick={() => { setArchiveTarget(null); }} variant="ghost">Hủy</Button>
+            <Button loading={saving} type="submit" variant="danger">Xác nhận ngừng dùng</Button>
           </div>
         </form>
       </Modal>

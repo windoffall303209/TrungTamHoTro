@@ -86,12 +86,8 @@ export interface ManagerClassWorkspaceProps {
   importResults: EnrollmentImportResult[];
   removeTarget: RemoveTarget | null;
   setRemoveTarget: React.Dispatch<React.SetStateAction<RemoveTarget | null>>;
-  removeReason: string;
-  setRemoveReason: React.Dispatch<React.SetStateAction<string>>;
   transferTarget: { id: string; name: string } | null;
   setTransferTarget: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>;
-  transferReason: string;
-  setTransferReason: React.Dispatch<React.SetStateAction<string>>;
   activeEnrollments: ClassRoster["enrollments"];
   instructors: Array<{
     instructorId: string;
@@ -157,12 +153,8 @@ export function ManagerClassWorkspace({
   importResults,
   removeTarget,
   setRemoveTarget,
-  removeReason,
-  setRemoveReason,
   transferTarget,
   setTransferTarget,
-  transferReason,
-  setTransferReason,
   activeEnrollments,
   instructors,
   primaryInstructor,
@@ -1973,28 +1965,18 @@ export function ManagerClassWorkspace({
           }}
           className="space-y-4"
         >
-          <Field label="Lý do chuyển giao vai trò">
-            <textarea
-              className={inputClass}
-              rows={3}
-              placeholder="Nhập lý do thay đổi phân công..."
-              value={transferReason}
-              onChange={(e) => setTransferReason(e.target.value)}
-              required
-            />
-          </Field>
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setTransferTarget(null)} type="button">
               Hủy
             </Button>
-            <Button loading={saving} disabled={!transferReason.trim()} type="submit">
+            <Button loading={saving} type="submit">
               Xác nhận chuyển giao
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Modal 5: Gỡ thành viên (Giảng viên / Học viên) kèm lý do */}
+      {/* Modal 5: Gỡ thành viên (Giảng viên / Học viên) */}
       <Modal
         open={Boolean(removeTarget)}
         onClose={() => setRemoveTarget(null)}
@@ -2011,23 +1993,12 @@ export function ManagerClassWorkspace({
           }}
           className="space-y-4"
         >
-          <Field label="Lý do gỡ thành viên (bắt buộc)">
-            <textarea
-              className={inputClass}
-              rows={3}
-              placeholder="Nhập lý do nghiệp vụ..."
-              value={removeReason}
-              onChange={(e) => setRemoveReason(e.target.value)}
-              required
-            />
-          </Field>
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setRemoveTarget(null)} type="button">
               Hủy
             </Button>
             <Button
               loading={saving}
-              disabled={!removeReason.trim()}
               className="bg-rose-600 hover:bg-rose-700 text-white"
               type="submit"
             >

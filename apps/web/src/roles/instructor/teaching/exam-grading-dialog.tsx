@@ -204,46 +204,6 @@ export function ExamGradingDialog({
                 />
               </Field>
             ) : null}
-            {!activeRegrade && grading?.status === "GRADED" ? (
-              <Field label="Lý do sửa điểm">
-                <div className="mb-2 flex flex-wrap gap-1.5">
-                  {[
-                    "Sửa lỗi nhập điểm số",
-                    "Chấm lại theo phản hồi học viên",
-                    "Cộng điểm khuyến khích phần tự luận",
-                    "Hiệu chỉnh theo đáp án chuẩn cập nhật",
-                  ].map((reason) => (
-                    <button
-                      key={reason}
-                      type="button"
-                      onClick={() =>
-                        setGrade({
-                          ...grade,
-                          correctionReason: reason,
-                        })
-                      }
-                      className="rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:border-sky-400 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
-                    >
-                      {reason}
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  className={inputClass}
-                  minLength={5}
-                  placeholder="Chọn gợi ý nhanh ở trên hoặc tự nhập lý do sửa điểm..."
-                  required
-                  rows={3}
-                  value={grade.correctionReason}
-                  onChange={(event) =>
-                    setGrade({
-                      ...grade,
-                      correctionReason: event.target.value,
-                    })
-                  }
-                />
-              </Field>
-            ) : null}
             <Button className="w-full" loading={gradeSaving} type="submit">
               <CheckCircle2 size={16} />
               {activeRegrade ? "Chấp nhận & công bố điểm" : "Công bố kết quả"}
