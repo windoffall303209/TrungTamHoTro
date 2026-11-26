@@ -221,16 +221,11 @@ export function formatSessionStatusLabel(
   return startsAt < now ? "Đã diễn ra" : "Sắp diễn ra";
 }
 
-// Kiểm tra học viên có được vào phòng học ở thời điểm hiện tại hay không.
+// Kiểm tra buổi học còn mở để học viên vào phòng học trực tuyến không phụ thuộc khung giờ.
 export function canLearnerJoinSession(
-  session: Pick<LiveSession, "status" | "startsAt" | "endsAt">,
-  nowMs: number,
+  session: Pick<LiveSession, "status">,
+  _nowMs?: number,
 ): boolean {
-  if (session.status === "CANCELLED" || session.status === "COMPLETED") {
-    return false;
-  }
-  if (session.status === "LIVE") return true;
-  const startsMs = new Date(session.startsAt).getTime();
-  const endsMs = new Date(session.endsAt).getTime();
-  return nowMs >= startsMs - 15 * 60_000 && nowMs <= endsMs + 30 * 60_000;
+  void _nowMs;
+  return session.status !== "CANCELLED" && session.status !== "COMPLETED";
 }

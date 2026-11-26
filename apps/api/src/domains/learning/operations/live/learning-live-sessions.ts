@@ -146,11 +146,7 @@ function buildSessionRoleWhere(
   throw new ForbiddenException(SESSION_ACCESS_DENIED);
 }
 
-/**
- * Ẩn dữ liệu nhạy cảm khi trả danh sách buổi học: học viên không nhận link host, link phòng (chỉ lấy qua API join có
- * kiểm tra khung giờ -15/+30 phút) hay URL bản ghi (chỉ lấy qua liên kết ký ngắn hạn); bản ghi đã hết hạn lưu giữ
- * không còn trả URL gốc cho bất kỳ vai trò nào.
- */
+/** Ẩn liên kết phòng và URL bản ghi gốc khi trả danh sách buổi học cho học viên; học viên nhận link phòng qua API join xác thực thành viên lớp. */
 function redactSessionForRole(
   mapped: LiveSession,
   role: string,
@@ -739,7 +735,7 @@ export async function transitionSession(
   return { ...item };
 }
 
-/** Xác minh quyền lớp/cửa sổ tham dự theo vai trò và trả URL phòng họp hợp lệ. */
+/** Xác minh quyền thành viên lớp theo vai trò và trả URL phòng họp hợp lệ bất kể khung giờ khi buổi học còn mở. */
 export async function joinSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
@@ -789,14 +785,13 @@ export async function joinSession(
       where: { classId: session.classId, learnerId: actorId, status: "ACTIVE" },
     });
     if (!enrollment) throw new BadRequestException("Học viên không thuộc lớp.");
-    const joinedAt = new Date();
-    if (joinedAt < new Date(session.startsAt.getTime() - 15 * 60_000))
-      throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
-    if (joinedAt > new Date(session.endsAt.getTime() + 30 * 60_000))
-      throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
+    const meetingUrl = session.attendeeUrl || session.hostUrl;
+    if (!meetingUrl) {
+      throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+    }
     return {
-      attendeeUrl: session.attendeeUrl,
-      joinedAt: joinedAt.toISOString(),
+      attendeeUrl: meetingUrl,
+      joinedAt: new Date().toISOString(),
     };
   }
   const item = serviceContext.findSession(sessionId);
@@ -822,11 +817,9 @@ export async function joinSession(
   }
   if (!classItem.learnerIds.includes(actorId))
     throw new BadRequestException("Học viên không thuộc lớp.");
-  const timestamp = new Date();
-  if (timestamp < new Date(new Date(item.startsAt).getTime() - 15 * 60_000))
-    throw new BadRequestException("Chỉ có thể vào lớp sớm tối đa 15 phút.");
-  if (timestamp > new Date(new Date(item.endsAt).getTime() + 30 * 60_000))
-    throw new BadRequestException("Đã hết thời gian tham gia buổi học.");
-  const joinedAt = now();
-  return { attendeeUrl: item.attendeeUrl, joinedAt };
+  const meetingUrl = item.attendeeUrl || item.hostUrl;
+  if (!meetingUrl) {
+    throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
+  }
+  return { attendeeUrl: meetingUrl, joinedAt: now() };
 }

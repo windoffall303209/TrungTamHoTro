@@ -245,7 +245,7 @@ describe("LearnerClassWorkspace", () => {
     renderWorkspace();
     fireEvent.click(screen.getByText("Lịch học"));
     fireEvent.click(screen.getByText("Dạng tháng (Danh sách)"));
-    fireEvent.click(await screen.findByText("Vào phòng học"));
+    fireEvent.click(await screen.findByText("Vào phòng"));
 
     expect(openSpy).toHaveBeenCalledWith("", "_blank");
     expect(openedWindow.opener).toBeNull();
@@ -255,6 +255,35 @@ describe("LearnerClassWorkspace", () => {
     approveJoin?.({ attendeeUrl: "https://meet.example.test/attend" });
     await waitFor(() => expect(openedWindow.location.replace).toHaveBeenCalledWith("https://meet.example.test/attend"));
     expect(openedWindow.close).not.toHaveBeenCalled();
+  });
+
+  it("hiển thị Đã kết thúc thay vì COMPLETED và luôn hiện nút Vào phòng cho buổi học chưa kết thúc", async () => {
+    const defaultRequest = mockApiRequest.getMockImplementation();
+    mockApiRequest.mockImplementation((path: string, options?: unknown) => {
+      if (path === "/sessions") {
+        return Promise.resolve([
+          { ...classSession, id: "session-done", title: "Buổi đã xong", status: "COMPLETED" },
+          {
+            ...classSession,
+            id: "session-future",
+            title: "Buổi tuần tới",
+            status: "SCHEDULED",
+            startsAt: "2099-12-20T12:00:00Z",
+            endsAt: "2099-12-20T13:30:00Z",
+          },
+        ]);
+      }
+      if (!defaultRequest) throw new Error(`Unexpected API request: ${path}`);
+      return defaultRequest(path, options);
+    });
+
+    renderWorkspace();
+    fireEvent.click(screen.getByText("Lịch học"));
+    fireEvent.click(screen.getByText("Dạng tháng (Danh sách)"));
+
+    expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
+    expect(screen.queryByText("COMPLETED")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Vào phòng" })).toBeInTheDocument();
   });
 
   it("đóng tab phòng học nếu API từ chối cho tham gia", async () => {
@@ -267,7 +296,7 @@ describe("LearnerClassWorkspace", () => {
     renderWorkspace();
     fireEvent.click(screen.getByText("Lịch học"));
     fireEvent.click(screen.getByText("Dạng tháng (Danh sách)"));
-    fireEvent.click(await screen.findByText("Vào phòng học"));
+    fireEvent.click(await screen.findByText("Vào phòng"));
 
     rejectJoin?.(new Error("Chưa được phép tham gia."));
     await waitFor(() => expect(openedWindow.close).toHaveBeenCalledOnce());

@@ -24,7 +24,6 @@ import {
   Field,
   inputClass,
   Modal,
-  StatusBadge,
 } from "@/shared/ui/ui";
 import type { PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest } from "@/lib/api-client";
@@ -81,6 +80,33 @@ function formatDateDayMonth(d: Date): string {
   return `${day}/${month}`;
 }
 
+// Xác định nhãn trạng thái buổi học thống nhất giữa chế độ tuần và tháng cho cả giáo viên và học sinh.
+function getSessionDisplayStatus(
+  sessionItem: Pick<LiveSession, "status" | "startsAt">,
+  nowMs: number,
+): string {
+  if (sessionItem.status === "LIVE") return "Đang diễn ra";
+  if (sessionItem.status === "CANCELLED") return "Đã hủy";
+  if (sessionItem.status === "COMPLETED") return "Đã kết thúc";
+  return nowMs < new Date(sessionItem.startsAt).getTime()
+    ? "Sắp diễn ra"
+    : "Đã kết thúc";
+}
+
+// Xác định lớp màu huy hiệu trạng thái buổi học trên danh sách dạng tháng.
+function getMonthStatusBadgeClass(status: LiveSession["status"]): string {
+  if (status === "LIVE") {
+    return "border-rose-200/80 dark:border-rose-800/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300";
+  }
+  if (status === "CANCELLED") {
+    return "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/80 text-slate-500 line-through dark:text-slate-400";
+  }
+  if (status === "COMPLETED") {
+    return "border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300";
+  }
+  return "border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300";
+}
+
 /** Hiển thị lịch học tổng hợp theo tuần và tháng của các lớp đối với giáo viên và học sinh. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
@@ -108,7 +134,7 @@ export default function LiveClassesPage() {
   const [scheduleView, setScheduleView] = useState<"week" | "month">("week");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<LiveSession | null>(null);
-  const [clock, setClock] = useState(0);
+  const [clock, setClock] = useState(() => Date.now());
   const [form, setForm] = useState({
     classId: "",
     title: "",
@@ -661,19 +687,9 @@ export default function LiveClassesPage() {
                       <div className="space-y-2.5 flex-1">
                         {daySessions.map((sessionItem) => {
                           const isLive = sessionItem.status === "LIVE";
-                          const isUpcoming =
-                            clock < new Date(sessionItem.startsAt).getTime();
                           const joinable =
                             sessionItem.status === "SCHEDULED" ||
                             sessionItem.status === "LIVE";
-                          const canJoin =
-                            joinable &&
-                            clock >=
-                              new Date(sessionItem.startsAt).getTime() -
-                                15 * 60_000 &&
-                            clock <=
-                              new Date(sessionItem.endsAt).getTime() +
-                                30 * 60_000;
                           const classInfo = classById.get(sessionItem.classId);
 
                           return (
@@ -689,11 +705,7 @@ export default function LiveClassesPage() {
                                     className={isLive ? "animate-pulse" : ""}
                                   />
                                   <span>
-                                    {isLive
-                                      ? t("Đang diễn ra")
-                                      : isUpcoming
-                                        ? t("Sắp diễn ra")
-                                        : t("Đã kết thúc")}
+                                    {t(getSessionDisplayStatus(sessionItem, clock))}
                                   </span>
                                 </span>
                                 <span className="text-[10px] text-white/80 font-medium">
@@ -730,65 +742,58 @@ export default function LiveClassesPage() {
                                 </p>
                               </div>
 
-                              <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
-                                {instructor ? (
-                                  <>
-                                    {sessionItem.status === "SCHEDULED" && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void transition(sessionItem, "LIVE")
-                                        }
-                                        className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                      >
-                                        <Play size={12} /> {t("Bắt đầu ca dạy")}
-                                      </button>
-                                    )}
-                                    {sessionItem.status === "LIVE" && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void transition(
-                                            sessionItem,
-                                            "COMPLETED",
-                                          )
-                                        }
-                                        className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                      >
-                                        {t("Kết thúc ca dạy")}
-                                      </button>
-                                    )}
-                                    {joinable && (
+                              {instructor || joinable ? (
+                                <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
+                                  {instructor ? (
+                                    <>
+                                      {sessionItem.status === "SCHEDULED" && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void transition(sessionItem, "LIVE")
+                                          }
+                                          className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                        >
+                                          <Play size={12} /> {t("Bắt đầu ca dạy")}
+                                        </button>
+                                      )}
+                                      {sessionItem.status === "LIVE" && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            void transition(
+                                              sessionItem,
+                                              "COMPLETED",
+                                            )
+                                          }
+                                          className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                        >
+                                          {t("Kết thúc ca dạy")}
+                                        </button>
+                                      )}
+                                      {joinable && (
+                                        <button
+                                          type="button"
+                                          onClick={() => void join(sessionItem)}
+                                          className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                        >
+                                          {t("Vào phòng")} <ExternalLink size={11} />
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    joinable && (
                                       <button
                                         type="button"
                                         onClick={() => void join(sessionItem)}
-                                        className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                        className="w-full py-1.5 px-2 rounded-lg bg-white text-[#0070ba] hover:bg-white/95 shadow-xs text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
                                       >
                                         {t("Vào phòng")} <ExternalLink size={11} />
                                       </button>
-                                    )}
-                                  </>
-                                ) : (
-                                  joinable && (
-                                    <button
-                                      type="button"
-                                      disabled={!canJoin && !isLive}
-                                      onClick={() => void join(sessionItem)}
-                                      className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors ${
-                                        canJoin || isLive
-                                          ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs cursor-pointer"
-                                          : "bg-white/15 text-white/60 cursor-not-allowed"
-                                      }`}
-                                    >
-                                      {isLive
-                                        ? t("Vào lớp ngay")
-                                        : canJoin
-                                          ? t("Vào phòng")
-                                          : t("Chưa đến giờ")}
-                                    </button>
-                                  )
-                                )}
-                              </div>
+                                    )
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
                           );
                         })}
@@ -812,13 +817,7 @@ export default function LiveClassesPage() {
             ) : (
               monthSessions.map((item) => {
                 const classInfo = classById.get(item.classId);
-                const startsMs = new Date(item.startsAt).getTime();
-                const endsMs = new Date(item.endsAt).getTime();
-                const isLive = item.status === "LIVE";
-                const canLearnerJoin =
-                  isLive ||
-                  (clock >= startsMs - 15 * 60_000 &&
-                    clock <= endsMs + 30 * 60_000);
+                const statusLabel = t(getSessionDisplayStatus(item, clock));
 
                 return (
                   <article
@@ -849,7 +848,11 @@ export default function LiveClassesPage() {
                         <h2 className="font-heading text-lg font-extrabold">
                           {item.title}
                         </h2>
-                        <StatusBadge status={item.status} />
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${getMonthStatusBadgeClass(item.status)}`}
+                        >
+                          {statusLabel}
+                        </span>
                       </div>
                       <p className="mt-2 text-xs sm:text-sm text-slate-500">
                         {classInfo ? `${classInfo.name} · ` : ""}
@@ -896,27 +899,14 @@ export default function LiveClassesPage() {
                           </Button>
                         </>
                       ) : null}
-                      {item.status !== "SCHEDULED" &&
-                      item.status !== "LIVE" ? null : instructor ? (
+                      {item.status === "SCHEDULED" || item.status === "LIVE" ? (
                         <Button
                           onClick={() => void join(item)}
-                          variant="secondary"
+                          variant={instructor ? "secondary" : "primary"}
                         >
                           {t("Vào phòng")} <ExternalLink size={15} />
                         </Button>
-                      ) : (
-                        <Button
-                          disabled={!canLearnerJoin}
-                          onClick={() => void join(item)}
-                        >
-                          {clock < startsMs - 15 * 60_000 && !isLive
-                            ? t("Chưa đến giờ")
-                            : clock > endsMs + 30 * 60_000 && !isLive
-                              ? t("Đã kết thúc")
-                              : t("Vào lớp")}{" "}
-                          <ExternalLink size={15} />
-                        </Button>
-                      )}
+                      ) : null}
                     </div>
                   </article>
                 );

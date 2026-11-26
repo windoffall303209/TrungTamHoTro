@@ -2543,16 +2543,15 @@ describe("LearningService", () => {
     }
   });
 
-  it("chỉ cho học viên vào lớp đúng cửa sổ và ghi đủ sự kiện rời phòng", async () => {
+  it("cho phép học viên thuộc lớp vào phòng không phụ thuộc khung giờ và ẩn link host trong danh sách", async () => {
     vi.useFakeTimers();
     try {
       const service = new LearningService();
       const learnerSessions = await service.listSessions("LEARNER", "usr-learner");
       expect(learnerSessions[0]?.hostUrl).toBe("");
       vi.setSystemTime(new Date("2026-08-26T01:30:00.000Z"));
-      await expect(service.joinSession("session-web-01", "usr-learner", "LEARNER")).rejects.toThrow(
-        "sớm tối đa 15 phút",
-      );
+      const earlyJoined = await service.joinSession("session-web-01", "usr-learner", "LEARNER");
+      expect(earlyJoined.attendeeUrl).not.toContain("-host");
       vi.setSystemTime(new Date("2026-08-26T01:50:00.000Z"));
       const joined = await service.joinSession("session-web-01", "usr-learner", "LEARNER");
       expect(joined.attendeeUrl).not.toContain("-host");

@@ -221,16 +221,17 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu v�
     expect(hostJoin.attendeeUrl).toBe("https://meet.google.com/aaa-bbbb-ccc");
     await expect(learning.joinSession(ids.sessionOpenB, ids.instructorA, "INSTRUCTOR")).rejects.toMatchObject({ status: 400 });
 
-    // Học viên lớp A vào đúng cửa sổ [-15p, +30p], bị chặn khi quá sớm, quá muộn, buổi hủy hoặc lớp B.
+    // Học viên lớp A vào phòng được bất kể thời điểm khi buổi học còn mở; bị chặn ở buổi đã hủy hoặc lớp B.
     const learnerJoin = await learning.joinSession(ids.sessionOpenA, ids.learnerA, "LEARNER");
     expect(learnerJoin.attendeeUrl).toBe("https://meet.google.com/aaa-bbbb-ccc");
-    await expect(learning.joinSession(ids.sessionEarlyA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
-    await expect(learning.joinSession(ids.sessionLateA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
+    expect((await learning.joinSession(ids.sessionEarlyA, ids.learnerA, "LEARNER")).attendeeUrl).toBe("https://meet.google.com/ddd-eeee-fff");
+    expect((await learning.joinSession(ids.sessionLateA, ids.learnerA, "LEARNER")).attendeeUrl).toBe("https://meet.google.com/ggg-hhhh-iii");
     await expect(learning.joinSession(ids.sessionCancelledA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
     await expect(learning.joinSession(ids.sessionOpenB, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
 
-    // Quản lý trung tâm tham gia giám sát được cả hai lớp; vai trò lạ bị từ chối deny-by-default (403).
+    // Quản lý trung tâm và Quản trị hệ thống tham gia giám sát không bị giới hạn giờ; vai trò lạ bị từ chối deny-by-default (403).
     expect((await learning.joinSession(ids.sessionOpenB, ids.manager, "CENTER_MANAGER")).attendeeUrl).toBe("https://meet.google.com/mmm-nnnn-ooo");
+    expect((await learning.joinSession(ids.sessionEarlyA, ids.manager, "SYSTEM_ADMIN")).attendeeUrl).toBe("https://meet.google.com/ddd-eeee-fff");
     await expect(learning.joinSession(ids.sessionOpenA, ids.learnerA, "GUEST")).rejects.toMatchObject({ status: 403 });
   });
 

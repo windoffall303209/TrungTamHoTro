@@ -191,4 +191,43 @@ describe("LiveClassesPage aggregated schedule", () => {
       ),
     );
   });
+
+  it("hiển thị Đã kết thúc cho buổi COMPLETED và cho phép học sinh bấm Vào phòng ngay cả khi chưa tới giờ", async () => {
+    currentRole.code = "LEARNER";
+    const now = new Date();
+    const futureStarts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 0, 0);
+    const futureEnds = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 55, 0);
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/classes") return Promise.resolve([]);
+      if (path.startsWith("/sessions/page?")) {
+        return Promise.resolve({
+          items: [
+            buildTodaySession({ id: "done-1", title: "Ca sáng", status: "COMPLETED" }),
+            buildTodaySession({
+              id: "future-1",
+              title: "Ca tối",
+              status: "SCHEDULED",
+              startsAt: futureStarts.toISOString(),
+              endsAt: futureEnds.toISOString(),
+            }),
+          ],
+          total: 2,
+          page: 1,
+          pageSize: 100,
+          totalPages: 1,
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<LiveClassesPage />);
+    expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
+    expect(screen.queryByText("COMPLETED")).not.toBeInTheDocument();
+    const joinBtn = screen.getByRole("button", { name: /Vào phòng/i });
+    expect(joinBtn).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tháng" }));
+    expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Vào phòng/i })).not.toBeDisabled();
+  });
 });

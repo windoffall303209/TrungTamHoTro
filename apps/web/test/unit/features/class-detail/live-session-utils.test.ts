@@ -83,31 +83,31 @@ describe("live-session-utils", () => {
     expect(draft.date).toBe("2026-11-17");
   });
 
-  it("xác định chính xác cửa sổ vào phòng của học viên", () => {
+  it("cho phép học viên vào phòng bất kể thời điểm miễn là buổi học chưa hủy hoặc kết thúc", () => {
     const startsAt = "2026-11-20T12:30:00.000Z";
     const endsAt = "2026-11-20T14:00:00.000Z";
     expect(
       canLearnerJoinSession(
-        { status: "LIVE", startsAt, endsAt },
+        { status: "LIVE" },
         new Date("2026-11-16T00:00:00.000Z").getTime(),
       ),
     ).toBe(true);
     expect(
       canLearnerJoinSession(
-        { status: "SCHEDULED", startsAt, endsAt },
-        new Date("2026-11-20T12:10:00.000Z").getTime(),
-      ),
-    ).toBe(false);
-    expect(
-      canLearnerJoinSession(
-        { status: "SCHEDULED", startsAt, endsAt },
-        new Date("2026-11-20T12:20:00.000Z").getTime(),
+        { status: "SCHEDULED" },
+        new Date("2026-11-10T00:00:00.000Z").getTime(),
       ),
     ).toBe(true);
     expect(
       canLearnerJoinSession(
-        { status: "CANCELLED", startsAt, endsAt },
-        new Date("2026-11-20T12:35:00.000Z").getTime(),
+        { status: "COMPLETED" },
+        new Date(startsAt).getTime(),
+      ),
+    ).toBe(false);
+    expect(
+      canLearnerJoinSession(
+        { status: "CANCELLED" },
+        new Date(endsAt).getTime(),
       ),
     ).toBe(false);
   });

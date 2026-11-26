@@ -1392,18 +1392,42 @@ export function LearnerClassWorkspace({
                         </div>
                         {daySessions.length === 0 ? <p className="text-[11px] text-slate-400 italic text-center pt-4">Không có lịch</p> : (
                           <div className="space-y-3">
-                            {daySessions.map((entry) => (
-                              <div key={entry.id} className="space-y-1">
-                                <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{entry.title}</p>
-                                <p className="text-[10px] text-slate-500">
-                                  {new Date(entry.startsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
-                                </p>
-                                <p className="text-[10px] text-slate-500">{entry.status}</p>
-                                {canLearnerJoinSession(entry, Date.now()) && (
-                                  <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-bold text-white">Vào phòng</button>
-                                )}
-                              </div>
-                            ))}
+                            {daySessions.map((entry) => {
+                              const statusText =
+                                entry.status === "CANCELLED"
+                                  ? "Đã hủy"
+                                  : entry.status === "COMPLETED"
+                                    ? "Đã kết thúc"
+                                    : entry.status === "LIVE"
+                                      ? "Đang diễn ra"
+                                      : new Date(entry.startsAt) < new Date()
+                                        ? "Đã kết thúc"
+                                        : "Sắp diễn ra";
+                              return (
+                                <div key={entry.id} className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 space-y-1.5 shadow-2xs">
+                                  <span
+                                    className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                      entry.status === "LIVE"
+                                        ? "bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300"
+                                        : entry.status === "COMPLETED"
+                                          ? "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                          : entry.status === "CANCELLED"
+                                            ? "bg-slate-200 text-slate-500 line-through dark:bg-slate-800 dark:text-slate-400"
+                                            : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                    }`}
+                                  >
+                                    {statusText}
+                                  </span>
+                                  <p className="text-xs font-bold text-slate-900 dark:text-slate-100">{entry.title}</p>
+                                  <p className="text-[10px] text-slate-500">
+                                    {new Date(entry.startsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                  {canLearnerJoinSession(entry) && (
+                                    <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 px-2 py-1.5 text-[11px] font-bold text-white cursor-pointer">Vào phòng</button>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -1412,19 +1436,46 @@ export function LearnerClassWorkspace({
                 </div>
               ) : (
                 <div className="space-y-3 pt-2">
-                  {[...classSessions].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()).map((entry) => (
-                    <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 gap-3">
-                      <div className="space-y-1">
-                        <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{entry.title}</strong>
-                        <p className="text-xs text-slate-500">
-                          {new Date(entry.startsAt).toLocaleString(locale)} – {new Date(entry.endsAt).toLocaleString(locale)} · {entry.status}
-                        </p>
+                  {[...classSessions].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime()).map((entry) => {
+                    const statusText =
+                      entry.status === "CANCELLED"
+                        ? "Đã hủy"
+                        : entry.status === "COMPLETED"
+                          ? "Đã kết thúc"
+                          : entry.status === "LIVE"
+                            ? "Đang diễn ra"
+                            : new Date(entry.startsAt) < new Date()
+                              ? "Đã kết thúc"
+                              : "Sắp diễn ra";
+                    return (
+                      <div key={entry.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 gap-3">
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                entry.status === "LIVE"
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300"
+                                  : entry.status === "COMPLETED"
+                                    ? "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                                    : entry.status === "CANCELLED"
+                                      ? "bg-slate-200 text-slate-500 line-through dark:bg-slate-800 dark:text-slate-400"
+                                      : "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                              }`}
+                            >
+                              {statusText}
+                            </span>
+                            <strong className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">{entry.title}</strong>
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {new Date(entry.startsAt).toLocaleString(locale)} – {new Date(entry.endsAt).toLocaleString(locale)}
+                          </p>
+                        </div>
+                        {canLearnerJoinSession(entry) && (
+                          <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-bold text-white cursor-pointer">Vào phòng</button>
+                        )}
                       </div>
-                      {canLearnerJoinSession(entry, Date.now()) && (
-                        <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-bold text-white">Vào phòng học</button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -257,9 +257,12 @@ describe("Live sessions with direct Google Meet URLs", () => {
       learning.joinSession(created.id, outsiderId, "INSTRUCTOR"),
     ).rejects.toThrow("Giảng viên không thuộc lớp");
 
-    await expect(
-      learning.joinSession(created.id, "usr-learner", "LEARNER"),
-    ).rejects.toThrow("sớm tối đa 15 phút");
+    const learnerJoin = await learning.joinSession(
+      created.id,
+      "usr-learner",
+      "LEARNER",
+    );
+    expect(learnerJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
 
     const cancelled = await learning.cancelSession(
       created.id,
