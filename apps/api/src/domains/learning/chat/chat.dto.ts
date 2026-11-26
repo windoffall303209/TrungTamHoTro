@@ -31,7 +31,3 @@ export class SendChatMessageDto {
 export class MuteConversationDto {
   @IsOptional() @IsDateString() mutedUntil?: string;
 }
-
-export class ReportChatMessageDto {
-  @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
-}

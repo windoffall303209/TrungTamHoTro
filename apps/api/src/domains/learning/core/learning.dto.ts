@@ -422,9 +422,6 @@ export class ModerateTopicDto {
   @IsOptional() @IsBoolean() isPinned?: boolean;
   @IsString() @MinLength(5) @MaxLength(500) reason!: string;
 }
-export class HideForumPostDto {
-  @IsString() @MinLength(5) @MaxLength(500) reason!: string;
-}
 
 /** Dữ liệu lên lịch buổi học trực tuyến và gắn liên kết Google Meet. */
 export class CreateSessionDto {
