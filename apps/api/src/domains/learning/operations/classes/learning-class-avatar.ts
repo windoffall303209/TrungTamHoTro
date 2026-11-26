@@ -162,37 +162,59 @@ export async function updateClassAvatar(
     `class-avatars/${classId}/${randomUUID()}.${extension}`,
     sanitized,
   );
-  let row;
+  let committed: {
+    row: Parameters<LearningServiceContext["mapClass"]>[0];
+    previousObjectKey: string | null;
+  };
   try {
-    row = await prisma.learningClass.update({
-      where: { id: classId },
-      data: {
-        avatarObjectKey: stored.objectKey,
-        avatarMimeType: upload.mimeType.toLowerCase(),
-        avatarUpdatedAt: new Date(),
-      },
-      include: { instructors: true, enrollments: true },
-    });
-    await prisma.auditLog.create({
-      data: {
-        actorId: session.user.id,
-        action: "CLASS_AVATAR_UPDATED",
-        entityType: "learning_class",
-        entityId: classId,
-        context: { mimeType: upload.mimeType.toLowerCase(), size: upload.size },
-      },
+    committed = await prisma.$transaction(async (transaction) => {
+      if (typeof transaction.$queryRaw === "function") {
+        await transaction.$queryRaw`SELECT id FROM learning_classes WHERE id = ${classId} FOR UPDATE`;
+      }
+      const current = await transaction.learningClass.findUnique({
+        where: { id: classId },
+        select: { avatarObjectKey: true },
+      });
+      const row = await transaction.learningClass.update({
+        where: { id: classId },
+        data: {
+          avatarObjectKey: stored.objectKey,
+          avatarMimeType: upload.mimeType.toLowerCase(),
+          avatarUpdatedAt: new Date(),
+        },
+        include: { instructors: true, enrollments: true },
+      });
+      await transaction.auditLog.create({
+        data: {
+          actorId: session.user.id,
+          action: "CLASS_AVATAR_UPDATED",
+          entityType: "learning_class",
+          entityId: classId,
+          context: { mimeType: upload.mimeType.toLowerCase(), size: upload.size },
+        },
+      });
+      return {
+        row,
+        previousObjectKey:
+          current !== undefined && current !== null
+            ? current.avatarObjectKey
+            : existing.avatarObjectKey,
+      };
     });
   } catch (error) {
     await serviceContext.objectStorage.remove(stored.objectKey).catch(() => undefined);
     throw error;
   }
 
-  if (existing.avatarObjectKey) {
+  if (
+    committed.previousObjectKey &&
+    committed.previousObjectKey !== stored.objectKey
+  ) {
     await serviceContext.objectStorage
-      .remove(existing.avatarObjectKey)
+      .remove(committed.previousObjectKey)
       .catch(() => undefined);
   }
-  return serviceContext.mapClass(row);
+  return serviceContext.mapClass(committed.row);
 }
 
 /** Xóa ảnh đại diện tùy chỉnh của lớp học để quay về icon mặc định. */
@@ -211,30 +233,46 @@ export async function removeClassAvatar(
     throw new NotFoundException("Không tìm thấy lớp học.");
   }
 
-  const row = await prisma.learningClass.update({
-    where: { id: classId },
-    data: {
-      avatarObjectKey: null,
-      avatarMimeType: null,
-      avatarUpdatedAt: null,
-    },
-    include: { instructors: true, enrollments: true },
+  const committed = await prisma.$transaction(async (transaction) => {
+    if (typeof transaction.$queryRaw === "function") {
+      await transaction.$queryRaw`SELECT id FROM learning_classes WHERE id = ${classId} FOR UPDATE`;
+    }
+    const current = await transaction.learningClass.findUnique({
+      where: { id: classId },
+      select: { avatarObjectKey: true },
+    });
+    const row = await transaction.learningClass.update({
+      where: { id: classId },
+      data: {
+        avatarObjectKey: null,
+        avatarMimeType: null,
+        avatarUpdatedAt: null,
+      },
+      include: { instructors: true, enrollments: true },
+    });
+    await transaction.auditLog.create({
+      data: {
+        actorId: session.user.id,
+        action: "CLASS_AVATAR_REMOVED",
+        entityType: "learning_class",
+        entityId: classId,
+        context: {},
+      },
+    });
+    return {
+      row,
+      previousObjectKey:
+        current !== undefined && current !== null
+          ? current.avatarObjectKey
+          : existing.avatarObjectKey,
+    };
   });
-  await prisma.auditLog.create({
-    data: {
-      actorId: session.user.id,
-      action: "CLASS_AVATAR_REMOVED",
-      entityType: "learning_class",
-      entityId: classId,
-      context: {},
-    },
-  });
-  if (existing.avatarObjectKey && serviceContext.objectStorage) {
+  if (committed.previousObjectKey && serviceContext.objectStorage) {
     await serviceContext.objectStorage
-      .remove(existing.avatarObjectKey)
+      .remove(committed.previousObjectKey)
       .catch(() => undefined);
   }
-  return serviceContext.mapClass(row);
+  return serviceContext.mapClass(committed.row);
 }
 
 /** Đọc ảnh đại diện của lớp học từ object storage phục vụ hiển thị trực tuyến. */

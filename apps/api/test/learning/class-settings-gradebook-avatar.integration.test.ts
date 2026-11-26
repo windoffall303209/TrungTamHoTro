@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import type { AuthenticatedSession } from "../../src/auth/auth.service.js";
 import { PrismaService } from "../../src/database/prisma.service.js";
@@ -277,5 +277,85 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
     const learnerExamCell = learnerRow?.cells?.find((cell) => cell.assessmentId === examId);
     expect(learnerAsgCell?.submissionId).toBeUndefined();
     expect(learnerExamCell?.attemptId).toBeUndefined();
+  });
+
+  it("giữ nguyên ảnh lớp hiện tại và dọn tệp mới tải lên khi ghi audit thất bại trong transaction", async () => {
+    await courseClass.updateClassAvatar(
+      classId,
+      { mimeType: "image/png", size: VALID_PNG_BYTES.length, buffer: VALID_PNG_BYTES },
+      sessionInstructor,
+    );
+    const beforeFailure = await prisma.learningClass.findUniqueOrThrow({
+      where: { id: classId },
+      select: { avatarObjectKey: true },
+    });
+    expect(beforeFailure.avatarObjectKey).toBeTruthy();
+    const originalObjectKey = beforeFailure.avatarObjectKey!;
+
+    const originalTransaction = prisma.$transaction.bind(prisma);
+    const putSpy = vi.spyOn(storage, "put");
+    /** Tạo hàm bọc transaction giả lập lỗi ghi audit để xác minh cơ chế rollback PostgreSQL thật. */
+    const mockFailingAuditTransaction = (
+      errorMessage: string,
+    ): typeof prisma.$transaction =>
+      ((arg: unknown): Promise<unknown> => {
+        if (typeof arg !== "function") {
+          return originalTransaction(arg as Parameters<typeof originalTransaction>[0]);
+        }
+        const callback = arg as (tx: PrismaService) => Promise<unknown>;
+        return originalTransaction((realTx) => {
+          const failingAuditTx = Object.create(realTx, {
+            auditLog: {
+              value: {
+                ...realTx.auditLog,
+                create: (): Promise<never> => Promise.reject(new Error(errorMessage)),
+              },
+            },
+          }) as PrismaService;
+          return callback(failingAuditTx);
+        });
+      }) as typeof prisma.$transaction;
+
+    const txSpy = vi
+      .spyOn(prisma, "$transaction")
+      .mockImplementationOnce(mockFailingAuditTransaction("AUDIT_WRITE_FAILED"));
+
+    await expect(
+      courseClass.updateClassAvatar(
+        classId,
+        { mimeType: "image/png", size: VALID_PNG_BYTES.length, buffer: VALID_PNG_BYTES },
+        sessionInstructor,
+      ),
+    ).rejects.toThrow("AUDIT_WRITE_FAILED");
+
+    const failedUploadResult: unknown = await putSpy.mock.results[0]?.value;
+    const failedNewObjectKey = (failedUploadResult as { objectKey: string } | undefined)?.objectKey;
+    expect(failedNewObjectKey).toBeTruthy();
+    expect(failedNewObjectKey).not.toBe(originalObjectKey);
+
+    const afterUpdateFailure = await prisma.learningClass.findUniqueOrThrow({
+      where: { id: classId },
+      select: { avatarObjectKey: true },
+    });
+    expect(afterUpdateFailure.avatarObjectKey).toBe(originalObjectKey);
+    const preservedAvatar = await courseClass.readClassAvatar(classId);
+    expect(preservedAvatar.buffer.length).toBeGreaterThan(0);
+    await expect(storage.get(failedNewObjectKey!)).rejects.toThrow();
+
+    txSpy.mockImplementationOnce(mockFailingAuditTransaction("AUDIT_REMOVE_FAILED"));
+
+    await expect(courseClass.removeClassAvatar(classId, sessionInstructor)).rejects.toThrow(
+      "AUDIT_REMOVE_FAILED",
+    );
+    const afterRemoveFailure = await prisma.learningClass.findUniqueOrThrow({
+      where: { id: classId },
+      select: { avatarObjectKey: true },
+    });
+    expect(afterRemoveFailure.avatarObjectKey).toBe(originalObjectKey);
+    expect((await storage.get(originalObjectKey)).length).toBeGreaterThan(0);
+
+    putSpy.mockRestore();
+    txSpy.mockRestore();
+    await courseClass.removeClassAvatar(classId, sessionInstructor);
   });
 });
