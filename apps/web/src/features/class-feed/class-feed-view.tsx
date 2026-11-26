@@ -35,6 +35,7 @@ import {
 import type {
   ClassFeedAuthorRole,
   ClassFeedComment,
+  ClassFeedCommentsPage,
   ClassFeedLikeToggleResult,
   ClassFeedPost,
   ClassFeedPreferenceResult,
@@ -88,12 +89,14 @@ function formatFeedTimestamp(iso: string, locale: string): string {
   });
 }
 
-/** Tính tổng số bình luận gồm cả cấp 1 và các phản hồi con cấp 2 của bài viết. */
+/** Tính tổng số bình luận gồm cả cấp 1 và các phản hồi con cấp 2 của bài viết (ưu tiên tổng thực từ DB). */
 function countTotalComments(post: ClassFeedPost): number {
-  return (
+  const loadedCount =
     post.comments.length +
-    post.comments.reduce((acc, comment) => acc + (comment.replies?.length ?? 0), 0)
-  );
+    post.comments.reduce((acc, comment) => acc + (comment.replies?.length ?? 0), 0);
+  return typeof post.commentCount === "number"
+    ? Math.max(post.commentCount, loadedCount)
+    : loadedCount;
 }
 
 /** Tạo instance độc lập cho từng lớp để bản nháp và modal không rò sang lớp khác. */
@@ -155,6 +158,14 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
   const [submittingReply, setSubmittingReply] = useState(false);
   const replyInputRef = useRef<HTMLInputElement>(null);
 
+  const feedRequestIdRef = useRef(0);
+  const feedAbortRef = useRef<AbortController | null>(null);
+  const commentsAbortRef = useRef<AbortController | null>(null);
+  const likingPostIdsRef = useRef<Set<string>>(new Set());
+  const likingCommentIdsRef = useRef<Set<string>>(new Set());
+  const [commentsCursorByPost, setCommentsCursorByPost] = useState<Record<string, string | null>>({});
+  const [loadingCommentsPostId, setLoadingCommentsPostId] = useState<string | null>(null);
+
   const selectedPost = useMemo(
     () => (selectedPostId ? posts.find((item) => item.id === selectedPostId) ?? null : null),
     [posts, selectedPostId],
@@ -176,24 +187,33 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
     };
   }, []);
 
-  /** Nạp danh sách bài viết bảng tin thật từ máy chủ cho lớp hiện tại. */
+  /** Nạp danh sách bài viết bảng tin thật từ máy chủ, tự động hủy và bỏ qua phản hồi cũ khi đổi lớp hoặc bộ lọc. */
   const loadFeed = useCallback(
     async (showHidden = includeHidden) => {
+      const requestId = ++feedRequestIdRef.current;
+      feedAbortRef.current?.abort();
+      const controller = new AbortController();
+      feedAbortRef.current = controller;
       setLoading(true);
       setLoadError(null);
       try {
         const suffix = showHidden ? "?includeHidden=true" : "";
         const rows = await apiRequest<ClassFeedPost[]>(
           `/classes/${encodeURIComponent(classItem.id)}/feed${suffix}`,
-          { roleCode },
+          { roleCode, signal: controller.signal },
         );
+        if (requestId !== feedRequestIdRef.current || controller.signal.aborted) return;
+        setCommentsCursorByPost({});
         setPosts(Array.isArray(rows) ? rows : []);
       } catch (error) {
+        if (requestId !== feedRequestIdRef.current || controller.signal.aborted) return;
         setLoadError(
           error instanceof Error ? error.message : "Không tải được bảng tin lớp.",
         );
       } finally {
-        setLoading(false);
+        if (requestId === feedRequestIdRef.current && !controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     },
     [classItem.id, includeHidden, roleCode],
@@ -201,7 +221,73 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
 
   useEffect(() => {
     void loadFeed(includeHidden);
+    return () => {
+      feedRequestIdRef.current += 1;
+      feedAbortRef.current?.abort();
+    };
   }, [includeHidden, loadFeed]);
+
+  /** Tải phân trang bình luận đầy đủ của bài viết khi bài có nhiều hơn số bình luận xem trước. */
+  const loadPostComments = useCallback(
+    async (postId: string, cursor?: string | null) => {
+      commentsAbortRef.current?.abort();
+      const controller = new AbortController();
+      commentsAbortRef.current = controller;
+      setLoadingCommentsPostId(postId);
+      try {
+        const params = new URLSearchParams({ limit: "50" });
+        if (cursor) params.set("cursor", cursor);
+        const page = await apiRequest<ClassFeedCommentsPage>(
+          `/classes/${encodeURIComponent(classItem.id)}/feed/posts/${encodeURIComponent(postId)}/comments?${params.toString()}`,
+          { roleCode, signal: controller.signal },
+        );
+        if (controller.signal.aborted) return;
+        setCommentsCursorByPost((prev) => ({ ...prev, [postId]: page.nextCursor }));
+        setPosts((current) =>
+          current.map((item) => {
+            if (item.id !== postId) return item;
+            if (!cursor) {
+              return {
+                ...item,
+                comments: page.items,
+                commentCount: page.totalCount,
+                commentsHasMore: Boolean(page.nextCursor),
+              };
+            }
+            const existingIds = new Set(item.comments.map((cmt) => cmt.id));
+            const appended = page.items.filter((cmt) => !existingIds.has(cmt.id));
+            return {
+              ...item,
+              comments: [...item.comments, ...appended],
+              commentCount: page.totalCount,
+              commentsHasMore: Boolean(page.nextCursor),
+            };
+          }),
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          notify(
+            error instanceof Error ? error.message : "Không thể gửi bình luận.",
+            "error",
+          );
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoadingCommentsPostId((prev) => (prev === postId ? null : prev));
+        }
+      }
+    },
+    [classItem.id, notify, roleCode],
+  );
+
+  useEffect(() => {
+    if (!selectedPost?.id || !selectedPost.commentsHasMore) return;
+    if (Object.prototype.hasOwnProperty.call(commentsCursorByPost, selectedPost.id)) return;
+    void loadPostComments(selectedPost.id);
+    return () => {
+      commentsAbortRef.current?.abort();
+    };
+  }, [commentsCursorByPost, loadPostComments, selectedPost?.commentsHasMore, selectedPost?.id]);
 
   useEffect(() => {
     if (!selectedPostId && !historyModalPostId) return;
@@ -370,9 +456,10 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
     }
   };
 
-  /** Bật/tắt lượt thích bài viết trên máy chủ và đồng bộ số lượt thích chính xác. */
+  /** Bật/tắt lượt thích bài viết trên máy chủ và chặn nhấp đúp đồng thời trên cùng bài viết. */
   const handleToggleLikePost = async (postId: string) => {
-    if (isClassClosed) return;
+    if (isClassClosed || likingPostIdsRef.current.has(postId)) return;
+    likingPostIdsRef.current.add(postId);
     try {
       const result = await apiRequest<ClassFeedLikeToggleResult>(
         `/classes/${encodeURIComponent(classItem.id)}/feed/posts/${encodeURIComponent(postId)}/like`,
@@ -390,6 +477,8 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
         error instanceof Error ? error.message : "Không cập nhật được lượt thích.",
         "error",
       );
+    } finally {
+      likingPostIdsRef.current.delete(postId);
     }
   };
 
@@ -468,6 +557,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
           item.id === selectedPost.id
             ? {
                 ...item,
+                commentCount: countTotalComments(item) + 1,
                 comments: [...item.comments, { ...created, replies: created.replies ?? [] }],
               }
             : item,
@@ -509,6 +599,7 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
           item.id === selectedPost.id
             ? {
                 ...item,
+                commentCount: countTotalComments(item) + 1,
                 comments: item.comments.map((comment) =>
                   comment.id === parentCommentId
                     ? {
@@ -533,14 +624,15 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
     }
   };
 
-  /** Bật/tắt lượt thích cho bình luận cấp 1 hoặc phản hồi cấp 2 trên cơ sở dữ liệu. */
+  /** Bật/tắt lượt thích cho bình luận cấp 1 hoặc phản hồi cấp 2 và chặn nhấp đúp đồng thời. */
   const handleToggleLikeComment = async (
     postId: string,
     commentId: string,
     isReply = false,
     parentId?: string,
   ) => {
-    if (isClassClosed) return;
+    if (isClassClosed || likingCommentIdsRef.current.has(commentId)) return;
+    likingCommentIdsRef.current.add(commentId);
     try {
       const result = await apiRequest<ClassFeedLikeToggleResult>(
         `/classes/${encodeURIComponent(classItem.id)}/feed/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/like`,
@@ -575,6 +667,8 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
         error instanceof Error ? error.message : "Không cập nhật được lượt thích bình luận.",
         "error",
       );
+    } finally {
+      likingCommentIdsRef.current.delete(commentId);
     }
   };
 
@@ -595,13 +689,17 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
         current.map((post) => {
           if (post.id !== postId) return post;
           if (!isReply) {
+            const removedTop = post.comments.find((comment) => comment.id === commentId);
+            const removedTotal = 1 + (removedTop?.replies?.length ?? 0);
             return {
               ...post,
+              commentCount: Math.max(0, countTotalComments(post) - removedTotal),
               comments: post.comments.filter((comment) => comment.id !== commentId),
             };
           }
           return {
             ...post,
+            commentCount: Math.max(0, countTotalComments(post) - 1),
             comments: post.comments.map((comment) =>
               comment.id === parentId
                 ? {
@@ -1457,6 +1555,24 @@ function ClassFeedContent({ classItem, teacherName = "Wind Fall" }: ClassFeedVie
                     )}
                   </div>
                 ))}
+
+                {selectedPost.commentsHasMore && commentsCursorByPost[selectedPost.id] && (
+                  <div className="pt-2 text-center">
+                    <button
+                      type="button"
+                      disabled={loadingCommentsPostId === selectedPost.id}
+                      onClick={() =>
+                        void loadPostComments(
+                          selectedPost.id,
+                          commentsCursorByPost[selectedPost.id],
+                        )
+                      }
+                      className="text-xs font-bold text-blue-400 hover:text-blue-300 hover:underline disabled:opacity-50 cursor-pointer"
+                    >
+                      Xem thêm
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

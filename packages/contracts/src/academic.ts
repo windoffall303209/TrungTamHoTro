@@ -151,8 +151,16 @@ export interface ClassFeedPostView {
   canDelete: boolean;
   editHistories: ClassFeedEditHistoryView[];
   comments: ClassFeedCommentView[];
+  commentCount?: number;
+  commentsHasMore?: boolean;
   createdAt: IsoDateTimeString;
   updatedAt: IsoDateTimeString;
+}
+
+export interface ClassFeedCommentsPage {
+  items: ClassFeedCommentView[];
+  nextCursor: string | null;
+  totalCount: number;
 }
 
 export interface ClassFeedLikeToggleResult {

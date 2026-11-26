@@ -286,4 +286,91 @@ describe("ClassFeedService tích hợp PostgreSQL thật: đăng bài đa vai tr
     const afterDelete = await feed.listPosts(classId, sessionInstructor, { includeHidden: true });
     expect(afterDelete.some((item) => item.id === post.id)).toBe(false);
   });
+
+  it("kiểm chứng checksum tệp tải xuống, giới hạn bình luận trong danh sách bài viết và tuần tự hóa thao tác sửa/thích đồng thời", async () => {
+    const txtBuffer = Buffer.from("Tài liệu kiểm tra toàn vẹn checksum SHA-256", "utf8");
+    const post = await feed.createPost(
+      classId,
+      "Bài viết gốc v0",
+      [{ originalName: "toan-ven.txt", mimeType: "text/plain", size: txtBuffer.length, buffer: txtBuffer }],
+      sessionLearnerA,
+    );
+    const attachmentId = post.attachments[0]!.id;
+    const storedAttachment = await prisma.classFeedAttachment.findUniqueOrThrow({
+      where: { id: attachmentId },
+    });
+
+    // Giả lập lệch checksum trong DB → đường tải xuống phải phát hiện và từ chối ngay
+    await prisma.classFeedAttachment.update({
+      where: { id: attachmentId },
+      data: { checksum: "0".repeat(64) },
+    });
+    await expect(
+      feed.readAttachmentStream(classId, post.id, attachmentId, sessionLearnerB),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await prisma.classFeedAttachment.update({
+      where: { id: attachmentId },
+      data: { checksum: storedAttachment.checksum },
+    });
+
+    // Chạy đồng thời 2 lệnh sửa cùng nội dung: không được chèn bản ghi lịch sử chỉnh sửa trùng lặp
+    await Promise.all([
+      feed.updatePost(classId, post.id, "Phiên bản v1", sessionLearnerA),
+      feed.updatePost(classId, post.id, "Phiên bản v1", sessionLearnerA),
+    ]);
+    const historiesAfterDuplicate = await prisma.classFeedPostEditHistory.findMany({
+      where: { postId: post.id },
+    });
+    expect(historiesAfterDuplicate).toHaveLength(1);
+    expect(historiesAfterDuplicate[0]?.previousContent).toBe("Bài viết gốc v0");
+
+    // Chạy đồng thời 2 lệnh sửa nội dung khác nhau: khóa hàng bảo toàn đầy đủ chuỗi lịch sử v1 -> v2 -> v3
+    await Promise.all([
+      feed.updatePost(classId, post.id, "Phiên bản v2", sessionLearnerA),
+      feed.updatePost(classId, post.id, "Phiên bản v3", sessionLearnerA),
+    ]);
+    const historiesAfterChain = await prisma.classFeedPostEditHistory.findMany({
+      where: { postId: post.id },
+      orderBy: { editedAt: "asc" },
+    });
+    expect(historiesAfterChain).toHaveLength(3);
+
+    // Chạy đồng thời nhiều lượt thích từ các thành viên khác nhau: tổng lượt thích chính xác tuyệt đối
+    await Promise.all([
+      feed.togglePostLike(classId, post.id, sessionLearnerA),
+      feed.togglePostLike(classId, post.id, sessionLearnerB),
+      feed.togglePostLike(classId, post.id, sessionInstructor),
+    ]);
+    const likeCount = await prisma.classFeedPostLike.count({ where: { postId: post.id } });
+    expect(likeCount).toBe(3);
+
+    // Tạo 25 bình luận cấp 1 → listPosts chỉ kéo tối đa 20 bình luận inline nhưng giữ nguyên commentCount = 25 và phân trang đầy đủ qua listPostComments
+    for (let index = 1; index <= 25; index += 1) {
+      await feed.createComment(
+        classId,
+        post.id,
+        { content: `Bình luận thứ ${String(index).padStart(2, "0")}` },
+        sessionLearnerB,
+      );
+    }
+    const feedSnapshot = await feed.listPosts(classId, sessionLearnerA);
+    const targetPost = feedSnapshot.find((item) => item.id === post.id);
+    expect(targetPost?.commentCount).toBe(25);
+    expect(targetPost?.comments).toHaveLength(20);
+    expect(targetPost?.commentsHasMore).toBe(true);
+
+    const firstCommentsPage = await feed.listPostComments(classId, post.id, sessionLearnerA, {
+      limit: 15,
+    });
+    expect(firstCommentsPage.items).toHaveLength(15);
+    expect(firstCommentsPage.totalCount).toBe(25);
+    expect(firstCommentsPage.nextCursor).toBeTruthy();
+
+    const secondCommentsPage = await feed.listPostComments(classId, post.id, sessionLearnerA, {
+      cursor: firstCommentsPage.nextCursor ?? undefined,
+      limit: 15,
+    });
+    expect(secondCommentsPage.items).toHaveLength(10);
+    expect(secondCommentsPage.nextCursor).toBeNull();
+  });
 });

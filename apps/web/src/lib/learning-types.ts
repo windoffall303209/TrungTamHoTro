@@ -15,6 +15,7 @@ export type {
   ClassAnnouncementView as ClassAnnouncement,
   ClassFeedAttachmentView as ClassFeedAttachment,
   ClassFeedAuthorRole,
+  ClassFeedCommentsPage,
   ClassFeedCommentView as ClassFeedComment,
   ClassFeedEditHistoryView as ClassFeedEditHistory,
   ClassFeedLikeToggleResult,

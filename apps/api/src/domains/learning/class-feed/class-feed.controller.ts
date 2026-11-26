@@ -18,6 +18,7 @@ import {
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import type {
+  ClassFeedCommentsPage,
   ClassFeedCommentView,
   ClassFeedLikeToggleResult,
   ClassFeedPostView,
@@ -44,6 +45,7 @@ import { SubmissionUploadInterceptor } from "../../../infrastructure/submission-
 import {
   CreateFeedCommentDto,
   CreateFeedPostDto,
+  ListFeedCommentsQueryDto,
   ListFeedQueryDto,
   UpdateFeedPostDto,
   UpdateFeedPreferenceDto,
@@ -138,6 +140,20 @@ export class ClassFeedController {
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<ClassFeedPreferenceResult> {
     return this.classFeed.updatePostPreference(classId, postId, input, session);
+  }
+
+  /** Tải danh sách bình luận phân trang của một bài viết khi bài viết có nhiều bình luận. */
+  @Get(":classId/feed/posts/:postId/comments")
+  listComments(
+    @Param("classId") classId: string,
+    @Param("postId") postId: string,
+    @Query() query: ListFeedCommentsQueryDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<ClassFeedCommentsPage> {
+    return this.classFeed.listPostComments(classId, postId, session, {
+      cursor: query.cursor,
+      limit: query.limit,
+    });
   }
 
   /** Tạo bình luận cấp 1 hoặc phản hồi con cấp 2 cho một bài viết trên bảng tin lớp. */

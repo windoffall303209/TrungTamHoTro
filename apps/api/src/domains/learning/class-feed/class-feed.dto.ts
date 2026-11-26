@@ -79,3 +79,20 @@ export class UpdateFeedPreferenceDto {
   @IsBoolean()
   following?: boolean;
 }
+
+/** Tham số phân trang theo con trỏ khi tải bình luận đầy đủ của một bài viết bảng tin. */
+export class ListFeedCommentsQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(191)
+  cursor?: string;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === undefined || value === "" ? undefined : Number(value),
+  )
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}

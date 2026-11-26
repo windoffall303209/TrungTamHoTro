@@ -1547,6 +1547,7 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Hệ thống đang xử lý quá nhiều lượt nộp tệp. Hãy thử lại sau.": "Too many submission uploads in progress. Please try again later.",
   "Tỷ lệ lấy mẫu checksum phải nằm trong khoảng từ 0 đến 1.": "Checksum sample rate must be between 0 and 1.",
   "Không tìm thấy tác vụ đối soát lưu trữ.": "Storage audit job not found.",
+  "Bạn không có quyền xem lớp học này.": "You do not have permission to view this class.",
 };
 
 

@@ -843,4 +843,5 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Link phòng học phải là URL Google Meet hợp lệ (https://meet.google.com/...).": "Classroom link must be a valid Google Meet URL (https://meet.google.com/...).",
   "Thời gian buổi học không hợp lệ.": "Invalid session schedule timestamps.",
   "Tệp đính kèm cần giữ lại không hợp lệ.": "The attachments selected to retain are invalid.",
+  "Bạn không có quyền xem lớp học này.": "You do not have permission to view this class.",
 });

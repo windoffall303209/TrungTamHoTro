@@ -8,6 +8,7 @@ import {
 import type {
   ClassFeedAttachmentView,
   ClassFeedAuthorRole,
+  ClassFeedCommentsPage,
   ClassFeedCommentView,
   ClassFeedLikeToggleResult,
   ClassFeedPostView,
@@ -39,6 +40,8 @@ export interface UploadedFeedFile {
 
 const MAX_FEED_FILES = 5;
 const MAX_FEED_FILE_BYTES = 10 * 1024 * 1024;
+const FEED_INLINE_COMMENT_LIMIT = 20;
+const FEED_INLINE_REPLY_LIMIT = 20;
 const ALLOWED_FEED_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -52,6 +55,35 @@ const ALLOWED_FEED_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ]);
 
+type FeedCommentLeafIncludeShape = {
+  author: {
+    select: {
+      id: true;
+      displayName: true;
+      avatarObjectKey: true;
+      avatarUpdatedAt: true;
+    };
+  };
+  likes: { where: { userId: string }; select: { userId: true } };
+  _count: { select: { likes: true } };
+};
+
+/** Cấu hình include tác giả và trạng thái thích cho một dòng bình luận bảng tin. */
+function FEED_COMMENT_LEAF_INCLUDE(userId: string): FeedCommentLeafIncludeShape {
+  return {
+    author: {
+      select: {
+        id: true,
+        displayName: true,
+        avatarObjectKey: true,
+        avatarUpdatedAt: true,
+      },
+    },
+    likes: { where: { userId }, select: { userId: true } },
+    _count: { select: { likes: true } },
+  };
+}
+
 type FeedPostIncludeShape = {
   class: { select: { code: true } };
   author: {
@@ -64,7 +96,7 @@ type FeedPostIncludeShape = {
   };
   attachments: { orderBy: { createdAt: "asc" } };
   likes: { where: { userId: string }; select: { userId: true } };
-  _count: { select: { likes: true } };
+  _count: { select: { likes: true; comments: true } };
   editHistories: {
     orderBy: { editedAt: "desc" };
     take: number;
@@ -75,23 +107,20 @@ type FeedPostIncludeShape = {
     select: { hidden: true; following: true };
   };
   comments: {
-    orderBy: { createdAt: "asc" };
-    include: {
-      author: {
-        select: {
-          id: true;
-          displayName: true;
-          avatarObjectKey: true;
-          avatarUpdatedAt: true;
-        };
+    where: { parentId: null };
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }];
+    take: number;
+    include: FeedCommentLeafIncludeShape & {
+      replies: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }];
+        take: number;
+        include: FeedCommentLeafIncludeShape;
       };
-      likes: { where: { userId: string }; select: { userId: true } };
-      _count: { select: { likes: true } };
     };
   };
 };
 
-/** Cấu hình include chuẩn khi tải bài viết bảng tin kèm đính kèm, lượt thích, lịch sử sửa, tùy chọn và bình luận. */
+/** Cấu hình include chuẩn khi tải bài viết bảng tin kèm đính kèm, lượt thích, lịch sử sửa, tùy chọn và bình luận giới hạn. */
 function FEED_POST_INCLUDE(userId: string): FeedPostIncludeShape {
   return {
     class: { select: { code: true } },
@@ -105,7 +134,7 @@ function FEED_POST_INCLUDE(userId: string): FeedPostIncludeShape {
     },
     attachments: { orderBy: { createdAt: "asc" } },
     likes: { where: { userId }, select: { userId: true } },
-    _count: { select: { likes: true } },
+    _count: { select: { likes: true, comments: true } },
     editHistories: {
       orderBy: { editedAt: "desc" },
       take: 20,
@@ -116,18 +145,16 @@ function FEED_POST_INCLUDE(userId: string): FeedPostIncludeShape {
       select: { hidden: true, following: true },
     },
     comments: {
-      orderBy: { createdAt: "asc" },
+      where: { parentId: null },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: FEED_INLINE_COMMENT_LIMIT,
       include: {
-        author: {
-          select: {
-            id: true,
-            displayName: true,
-            avatarObjectKey: true,
-            avatarUpdatedAt: true,
-          },
+        ...FEED_COMMENT_LEAF_INCLUDE(userId),
+        replies: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          take: FEED_INLINE_REPLY_LIMIT,
+          include: FEED_COMMENT_LEAF_INCLUDE(userId),
         },
-        likes: { where: { userId }, select: { userId: true } },
-        _count: { select: { likes: true } },
       },
     },
   };
@@ -137,7 +164,9 @@ type LoadedFeedPost = Prisma.ClassFeedPostGetPayload<{
   include: FeedPostIncludeShape;
 }>;
 
-type LoadedFeedComment = LoadedFeedPost["comments"][number];
+type LoadedFeedComment = Prisma.ClassFeedCommentGetPayload<{
+  include: FeedCommentLeafIncludeShape;
+}>;
 
 @Injectable()
 /** Xử lý nghiệp vụ Bảng tin lớp trên PostgreSQL: đăng bài, tệp đính kèm, bình luận đa tầng, lượt thích và lịch sử sửa. */
@@ -256,7 +285,7 @@ export class ClassFeedService {
     }
   }
 
-  /** Cập nhật nội dung bài viết và lưu phiên bản cũ vào bảng lịch sử chỉnh sửa trong cùng transaction. */
+  /** Cập nhật nội dung bài viết và lưu phiên bản cũ vào bảng lịch sử chỉnh sửa dưới khóa hàng trong cùng transaction. */
   async updatePost(
     classId: string,
     postId: string,
@@ -264,42 +293,44 @@ export class ClassFeedService {
     session: AuthenticatedSession,
   ): Promise<ClassFeedPostView> {
     await this.requireClassAccess(classId, session, true);
-    const existing = await this.prisma.classFeedPost.findFirst({
-      where: { id: postId, classId },
-      include: { _count: { select: { attachments: true } } },
-    });
-    if (!existing) {
-      throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
-    }
-    if (!this.canManageRecord(existing.authorId, session)) {
-      throw new ForbiddenException(
-        "Bạn không có quyền chỉnh sửa bài viết này.",
-      );
-    }
-
     const nextContent = content.trim();
-    if (!nextContent && existing._count.attachments === 0) {
-      throw new BadRequestException("Nội dung bài viết không được để trống.");
-    }
 
     const updated = await this.prisma.$transaction(async (transaction) => {
-      if (nextContent !== existing.content) {
+      if (typeof transaction.$queryRaw === "function") {
+        await transaction.$queryRaw`SELECT id FROM class_feed_posts WHERE id = ${postId} AND class_id = ${classId} FOR UPDATE`;
+      }
+      const current = await transaction.classFeedPost.findFirst({
+        where: { id: postId, classId },
+        include: { _count: { select: { attachments: true } } },
+      });
+      if (!current) {
+        throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
+      }
+      if (!this.canManageRecord(current.authorId, session)) {
+        throw new ForbiddenException(
+          "Bạn không có quyền chỉnh sửa bài viết này.",
+        );
+      }
+      if (!nextContent && current._count.attachments === 0) {
+        throw new BadRequestException("Nội dung bài viết không được để trống.");
+      }
+      if (nextContent !== current.content) {
         await transaction.classFeedPostEditHistory.create({
           data: {
             id: `feed-hist-${randomUUID()}`,
-            postId: existing.id,
+            postId: current.id,
             editorId: session.user.id,
-            previousContent: existing.content,
+            previousContent: current.content,
           },
         });
         return transaction.classFeedPost.update({
-          where: { id: existing.id },
+          where: { id: current.id },
           data: { content: nextContent, isEdited: true },
           include: FEED_POST_INCLUDE(session.user.id),
         });
       }
       return transaction.classFeedPost.findUniqueOrThrow({
-        where: { id: existing.id },
+        where: { id: current.id },
         include: FEED_POST_INCLUDE(session.user.id),
       });
     });
@@ -336,22 +367,32 @@ export class ClassFeedService {
     return { deleted: true, postId: existing.id };
   }
 
-  /** Chuyển đổi trạng thái Thích / Bỏ thích bài viết bằng khóa chính kép trong transaction. */
+  /** Chuyển đổi trạng thái Thích / Bỏ thích bài viết tuần tự dưới khóa hàng của bài viết trong transaction. */
   async togglePostLike(
     classId: string,
     postId: string,
     session: AuthenticatedSession,
   ): Promise<ClassFeedLikeToggleResult> {
     await this.requireClassAccess(classId, session, true);
-    const post = await this.prisma.classFeedPost.findFirst({
-      where: { id: postId, classId },
-      select: { id: true },
-    });
-    if (!post) {
-      throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
-    }
 
     return this.prisma.$transaction(async (transaction) => {
+      if (typeof transaction.$queryRaw === "function") {
+        const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM class_feed_posts WHERE id = ${postId} AND class_id = ${classId} FOR UPDATE
+        `;
+        if (locked.length === 0) {
+          throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
+        }
+      } else {
+        const post = await transaction.classFeedPost.findFirst({
+          where: { id: postId, classId },
+          select: { id: true },
+        });
+        if (!post) {
+          throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
+        }
+      }
+
       const removed = await transaction.classFeedPostLike.deleteMany({
         where: { postId, userId: session.user.id },
       });
@@ -407,6 +448,74 @@ export class ClassFeedService {
       postId,
       isHidden: updated.hidden,
       isFollowing: updated.following,
+    };
+  }
+
+  /** Liệt kê phân trang bình luận cấp 1 kèm phản hồi cấp 2 của một bài viết theo con trỏ keyset. */
+  async listPostComments(
+    classId: string,
+    postId: string,
+    session: AuthenticatedSession,
+    options: { cursor?: string; limit?: number } = {},
+  ): Promise<ClassFeedCommentsPage> {
+    await this.requireClassAccess(classId, session, false);
+    const post = await this.prisma.classFeedPost.findFirst({
+      where: { id: postId, classId },
+      select: { id: true, _count: { select: { comments: true } } },
+    });
+    if (!post) {
+      throw new NotFoundException("Không tìm thấy bài viết trên bảng tin lớp.");
+    }
+
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+    let keysetWhere: Prisma.ClassFeedCommentWhereInput = {
+      postId,
+      parentId: null,
+    };
+    if (options.cursor) {
+      const cursorRow = await this.prisma.classFeedComment.findFirst({
+        where: { id: options.cursor, postId, parentId: null },
+        select: { id: true, createdAt: true },
+      });
+      if (!cursorRow) {
+        return { items: [], nextCursor: null, totalCount: post._count.comments };
+      }
+      keysetWhere = {
+        postId,
+        parentId: null,
+        OR: [
+          { createdAt: { gt: cursorRow.createdAt } },
+          { createdAt: cursorRow.createdAt, id: { gt: cursorRow.id } },
+        ],
+      };
+    }
+
+    const rows = await this.prisma.classFeedComment.findMany({
+      where: keysetWhere,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: limit + 1,
+      include: {
+        ...FEED_COMMENT_LEAF_INCLUDE(session.user.id),
+        replies: {
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          include: FEED_COMMENT_LEAF_INCLUDE(session.user.id),
+        },
+      },
+    });
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.id ?? null : null;
+
+    return {
+      items: pageRows.map((comment) =>
+        this.mapComment(
+          comment,
+          session,
+          comment.replies.map((reply) => this.mapComment(reply, session)),
+        ),
+      ),
+      nextCursor,
+      totalCount: post._count.comments,
     };
   }
 
@@ -540,7 +649,7 @@ export class ClassFeedService {
     return { deleted: true, commentId: existing.id };
   }
 
-  /** Chuyển đổi trạng thái Thích / Bỏ thích một bình luận (cấp 1 hoặc cấp 2). */
+  /** Chuyển đổi trạng thái Thích / Bỏ thích một bình luận (cấp 1 hoặc cấp 2) tuần tự dưới khóa hàng. */
   async toggleCommentLike(
     classId: string,
     postId: string,
@@ -548,15 +657,28 @@ export class ClassFeedService {
     session: AuthenticatedSession,
   ): Promise<ClassFeedLikeToggleResult> {
     await this.requireClassAccess(classId, session, true);
-    const comment = await this.prisma.classFeedComment.findFirst({
-      where: { id: commentId, postId, post: { classId } },
-      select: { id: true },
-    });
-    if (!comment) {
-      throw new NotFoundException("Không tìm thấy bình luận.");
-    }
 
     return this.prisma.$transaction(async (transaction) => {
+      if (typeof transaction.$queryRaw === "function") {
+        const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+          SELECT c.id FROM class_feed_comments c
+          JOIN class_feed_posts p ON p.id = c.post_id
+          WHERE c.id = ${commentId} AND c.post_id = ${postId} AND p.class_id = ${classId}
+          FOR UPDATE OF c
+        `;
+        if (locked.length === 0) {
+          throw new NotFoundException("Không tìm thấy bình luận.");
+        }
+      } else {
+        const comment = await transaction.classFeedComment.findFirst({
+          where: { id: commentId, postId, post: { classId } },
+          select: { id: true },
+        });
+        if (!comment) {
+          throw new NotFoundException("Không tìm thấy bình luận.");
+        }
+      }
+
       const removed = await transaction.classFeedCommentLike.deleteMany({
         where: { commentId, userId: session.user.id },
       });
@@ -578,7 +700,7 @@ export class ClassFeedService {
     });
   }
 
-  /** Mở luồng đọc tệp đính kèm bảng tin có hỗ trợ HTTP Range sau khi kiểm tra quyền thành viên lớp. */
+  /** Mở luồng đọc tệp đính kèm bảng tin có đối chiếu checksum SHA-256 và hỗ trợ HTTP Range sau khi kiểm tra quyền thành viên lớp. */
   async readAttachmentStream(
     classId: string,
     postId: string,
@@ -602,6 +724,7 @@ export class ClassFeedService {
     const opened = await openVerifiedObjectStream({
       objectStorage: this.objectStorage,
       objectKey: attachment.objectKey,
+      checksum: attachment.checksum,
       expectedSize: Number(attachment.sizeBytes),
       rangeHeader,
     });
@@ -735,23 +858,22 @@ export class ClassFeedService {
     });
   }
 
-  /** Chuyển bản ghi bài viết từ Prisma sang view model hoàn chỉnh kèm cây bình luận 2 tầng. */
+  /** Chuyển bản ghi bài viết từ Prisma sang view model hoàn chỉnh kèm cây bình luận 2 tầng và tổng số bình luận. */
   private mapPost(
     row: LoadedFeedPost,
     session: AuthenticatedSession,
   ): ClassFeedPostView {
-    const repliesByParent = new Map<string, ClassFeedCommentView[]>();
-    const topComments: LoadedFeedComment[] = [];
-
-    for (const comment of row.comments) {
-      if (comment.parentId) {
-        const bucket = repliesByParent.get(comment.parentId) ?? [];
-        bucket.push(this.mapComment(comment, session));
-        repliesByParent.set(comment.parentId, bucket);
-      } else {
-        topComments.push(comment);
-      }
-    }
+    const mappedComments = row.comments.map((comment) =>
+      this.mapComment(
+        comment,
+        session,
+        comment.replies.map((reply) => this.mapComment(reply, session)),
+      ),
+    );
+    const loadedCommentCount = mappedComments.reduce(
+      (sum, comment) => sum + 1 + (comment.replies?.length ?? 0),
+      0,
+    );
 
     const canManage = this.canManageRecord(row.authorId, session);
     const preference = row.preferences[0];
@@ -779,9 +901,9 @@ export class ClassFeedService {
         editorName: history.editor.displayName,
         editedAt: history.editedAt.toISOString(),
       })),
-      comments: topComments.map((comment) =>
-        this.mapComment(comment, session, repliesByParent.get(comment.id) ?? []),
-      ),
+      comments: mappedComments,
+      commentCount: row._count.comments,
+      commentsHasMore: row._count.comments > loadedCommentCount,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };

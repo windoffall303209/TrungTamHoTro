@@ -89,8 +89,87 @@ describe("ClassFeedView", () => {
     render(<ClassFeedView classItem={{ id: "class-a", code: "TOAN-10A1", name: "Toán 10A1" }} />);
 
     expect(await screen.findByText("Bài tập tuần này đã mở trên hệ thống.")).toBeInTheDocument();
-    expect(apiRequest).toHaveBeenCalledWith("/classes/class-a/feed", { roleCode: "LEARNER" });
+    expect(apiRequest).toHaveBeenCalledWith(
+      "/classes/class-a/feed",
+      expect.objectContaining({ roleCode: "LEARNER", signal: expect.any(AbortSignal) }),
+    );
     expect(screen.queryByText(/REST hay GraphQL/)).not.toBeInTheDocument();
+  });
+
+  it("hủy và bỏ qua phản hồi tải cũ khi đổi bộ lọc hoặc đổi lớp để không ghi đè dữ liệu mới", async () => {
+    let resolveStale!: (value: ClassFeedPost[]) => void;
+    const stalePromise = new Promise<ClassFeedPost[]>((resolve) => {
+      resolveStale = resolve;
+    });
+    const freshHiddenPost = makeFeedPost({
+      id: "feed-post-fresh",
+      content: "Bài đã ẩn thuộc bộ lọc mới.",
+      isHidden: true,
+    });
+
+    apiRequest
+      .mockImplementationOnce((_path: string, options?: { signal?: AbortSignal }) => {
+        expect(options?.signal).toBeInstanceOf(AbortSignal);
+        return stalePromise;
+      })
+      .mockResolvedValueOnce([freshHiddenPost]);
+
+    render(<ClassFeedView classItem={{ id: "class-a", code: "TOAN-10A1", name: "Toán 10A1" }} />);
+    const firstCallSignal = apiRequest.mock.calls[0]?.[1]?.signal as AbortSignal;
+    expect(firstCallSignal.aborted).toBe(false);
+
+    // Chuyển nhanh sang bộ lọc "Hiện bài đã ẩn" trước khi request đầu trả về
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Hiện bài đã ẩn" }));
+    });
+    expect(firstCallSignal.aborted).toBe(true);
+    expect(await screen.findByText("Bài đã ẩn thuộc bộ lọc mới.")).toBeInTheDocument();
+
+    // Khi phản hồi cũ trễ mạng trả về sau, kết quả mới không bị ghi đè
+    await act(async () => {
+      resolveStale([makeFeedPost({ id: "feed-post-stale", content: "Phản hồi cũ bị trễ" })]);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Bài đã ẩn thuộc bộ lọc mới.")).toBeInTheDocument();
+    expect(screen.queryByText("Phản hồi cũ bị trễ")).not.toBeInTheDocument();
+  });
+
+  it("tự động nạp thêm bình luận phân trang khi mở bài viết có nhiều bình luận (commentsHasMore)", async () => {
+    const truncatedPost = makeFeedPost({
+      commentCount: 2,
+      commentsHasMore: true,
+    });
+    apiRequest.mockResolvedValueOnce([truncatedPost]).mockResolvedValueOnce({
+      items: [
+        ...truncatedPost.comments,
+        {
+          id: "cmt-extra",
+          postId: "feed-post-1",
+          parentId: null,
+          authorId: "learner-3",
+          authorName: "Bạn C",
+          authorAvatarUrl: null,
+          authorRole: "LEARNER",
+          replyToUserId: null,
+          replyToName: null,
+          content: "Bình luận trang sau được tải theo yêu cầu.",
+          likes: 0,
+          isLiked: false,
+          isEdited: false,
+          canDelete: false,
+          createdAt: "2026-11-26T08:10:00.000Z",
+          replies: [],
+        },
+      ],
+      nextCursor: null,
+      totalCount: 2,
+    });
+
+    render(<ClassFeedView classItem={{ id: "class-a", code: "TOAN-10A1", name: "Toán 10A1" }} />);
+    expect(await screen.findByText("2 bình luận")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Bình luận" }));
+    expect(await screen.findByText("Bình luận trang sau được tải theo yêu cầu.")).toBeInTheDocument();
   });
 
   it("học viên cũng đăng được bài kèm tệp đính kèm qua FormData và chỉ cập nhật sau khi máy chủ lưu", async () => {
