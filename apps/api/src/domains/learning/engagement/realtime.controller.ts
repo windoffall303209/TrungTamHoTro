@@ -1,9 +1,10 @@
-import { BadRequestException, Controller, ForbiddenException, Query, Sse } from "@nestjs/common";
-import { catchError, filter, interval, map, merge, of, type Observable } from "rxjs";
+import { BadRequestException, Controller, ForbiddenException, Optional, Query, Sse } from "@nestjs/common";
+import { catchError, defer, filter, finalize, interval, map, merge, of, type Observable } from "rxjs";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication } from "../../../auth/require-permissions.decorator.js";
 import { DatabaseEventsService } from "../../../database/database-events.service.js";
+import { MetricsService } from "../../../observability/metrics.service.js";
 import { ChatService } from "../chat/chat.service.js";
 import type { ChatMessageView } from "../chat/chat.types.js";
 import { EngagementSupportService } from "./engagement-support.service.js";
@@ -44,8 +45,12 @@ export function parseRealtimeConversations(raw?: string): RealtimeConversation[]
 /** Ghép các kênh đã xác thực thành một HTTP SSE; không chia sẻ payload giữa các phiên. */
 export class RealtimeController {
   /** Dùng lại kiểm quyền, cursor và snapshot của từng domain. */
-  constructor(private readonly chat: ChatService, private readonly learning: EngagementSupportService,
-    private readonly events: DatabaseEventsService) {}
+  constructor(
+    private readonly chat: ChatService,
+    private readonly learning: EngagementSupportService,
+    private readonly events: DatabaseEventsService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   /** Cursor nằm trong từng subscription chat; client reconnect phải gửi lại toàn bộ cursor riêng, không dùng ID SSE toàn cục. */
   @Sse("events") @RequireAuthentication()
@@ -82,6 +87,9 @@ export class RealtimeController {
         catchError(() => of<RealtimeFrame>({ data: { channel: "error", key: "operations" } })),
       ));
     }
-    return merge(...sources);
+    return defer(() => {
+      const release = this.metrics?.trackSseConnection("realtime");
+      return merge(...sources).pipe(finalize(() => release?.()));
+    });
   }
 }

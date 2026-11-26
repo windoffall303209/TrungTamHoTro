@@ -1,4 +1,5 @@
 import { Controller, Get } from "@nestjs/common";
+import type { ObservabilityMetricsSnapshot } from "@wind-of-fall/contracts";
 import { RequirePermissions } from "../auth/require-permissions.decorator.js";
 import { MetricsService } from "./metrics.service.js";
 
@@ -10,5 +11,5 @@ export class ObservabilityController {
   @Get("metrics")
   @RequirePermissions("system:configure")
   /** Đọc snapshot hiện tại từ MetricsService; không reset bộ đếm. */
-  metricsSnapshot(): object { return this.metrics.snapshot(); }
+  metricsSnapshot(): ObservabilityMetricsSnapshot { return this.metrics.snapshot(); }
 }

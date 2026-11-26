@@ -151,3 +151,123 @@ export interface StorageCleanupFailure {
   error: string;
   removedAt: IsoDateTimeString;
 }
+
+/** Chỉ số connection pool PostgreSQL theo thời gian thực (không phát sinh truy vấn SQL). */
+export interface DatabasePoolMetrics {
+  enabled: boolean;
+  max: number;
+  totalCount: number;
+  idleCount: number;
+  activeCount: number;
+  waitingCount: number;
+}
+
+/** Chỉ số kết nối SSE và listener LISTEN/NOTIFY có cardinality hữu hạn. */
+export interface SseMetrics {
+  activeConnections: number;
+  totalOpened: number;
+  byChannel: Record<"realtime" | "notifications" | "chat" | "operations", number>;
+  listenerConnected: boolean;
+  listenerReconnects: number;
+  activeBusWatchers: number;
+  eventsReceived: number;
+}
+
+/** Thống kê lời gọi AI theo cặp (task, outcome) hữu hạn. */
+export interface AiCallMetric {
+  task:
+    | "SCAN_IMAGE"
+    | "GENERATE_EXAM"
+    | "DOCUMENT_CONTEXT"
+    | "DOCUMENT_QA"
+    | "STUDY_GUIDE"
+    | "GRADING_ASSIST"
+    | "HEALTH_CHECK";
+  outcome: "SUCCESS" | "ERROR";
+  count: number;
+  averageDurationMs: number;
+  maxDurationMs: number;
+}
+
+/** Thống kê vòng chạy của từng worker nền (outbox, operational_jobs, exam_reconciliation). */
+export interface WorkerRunMetric {
+  worker: "outbox" | "operational_jobs" | "exam_reconciliation";
+  runs: number;
+  processed: number;
+  failed: number;
+  averageDurationMs: number;
+  maxDurationMs: number;
+  lastRunAt?: IsoDateTimeString;
+}
+
+/** Snapshot toàn diện các chỉ số vận hành HTTP, DB pool, SSE, AI, worker và truyền tệp. */
+export interface ObservabilityMetricsSnapshot {
+  startedAt: IsoDateTimeString;
+  uptimeSeconds: number;
+  process: {
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+  };
+  databasePool: DatabasePoolMetrics;
+  sse: SseMetrics;
+  ai: AiCallMetric[];
+  workers: WorkerRunMetric[];
+  transfers: {
+    activeDownloads: number;
+  };
+  routes: Array<{
+    route: string;
+    requestCount: number;
+    status2xxCount: number;
+    status4xxCount: number;
+    serverErrorCount: number;
+    averageDurationMs: number;
+    maxDurationMs: number;
+  }>;
+}
+
+/** Bảng tổng hợp dashboard quản trị tính trực tiếp bằng SQL aggregate (COUNT/GROUP BY), không tải danh sách thô. */
+export interface DashboardSummary {
+  generatedAt: IsoDateTimeString;
+  database: "connected" | "disabled";
+  users: {
+    total: number;
+    active: number;
+    pending: number;
+    locked: number;
+  };
+  academic: {
+    courses: number;
+    classes: number;
+    activeClasses: number;
+    activeEnrollments: number;
+    exams: number;
+    assignments: number;
+    openTickets: number;
+  };
+  outbox: Record<string, number>;
+  jobs: {
+    pending: number;
+    running: number;
+    failed: number;
+    byKind: Record<string, Record<string, number>>;
+  };
+  ai: {
+    studyDrafts: Record<string, number>;
+    gradingSuggestions: Record<string, number>;
+    documentAnswers: Record<string, number>;
+    generationRequests: Record<string, number>;
+  };
+  storage: {
+    quotaBytes: ByteSizeNumber;
+    usedBytes: ByteSizeNumber;
+    usagePercent: number;
+    materialCount: number;
+  };
+  runtime: {
+    databasePool: DatabasePoolMetrics;
+    sse: SseMetrics;
+    activeDownloads: number;
+  };
+}

@@ -2,7 +2,9 @@ import { Body, Controller, Delete, Get, Header, Headers, Optional, Param, Patch,
 import type { Request, Response } from "express";
 import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import type { Observable } from "rxjs";
+import { defer, finalize } from "rxjs";
 import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
+import { MetricsService } from "../../../observability/metrics.service.js";
 import { ApiTags } from "@nestjs/swagger";
 import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
@@ -13,6 +15,7 @@ import {
   SystemService,
   type AuditEvent,
   type BackupRun,
+  type DashboardSummary,
   type DataExport,
   type IntegrationConfig,
   type RestoreRun,
@@ -47,14 +50,25 @@ class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GE
 @ApiTags("System") @Controller("system")
 /** API quản trị tập trung cho cấu hình, AI, tích hợp, sao lưu, xuất dữ liệu và giám sát. */
 export class SystemController {
-  constructor(private readonly system: SystemService, private readonly aiProviders: AiProviderService, private readonly outbox: OutboxDeliveryService,
-    @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
+  constructor(
+    private readonly system: SystemService,
+    private readonly aiProviders: AiProviderService,
+    private readonly outbox: OutboxDeliveryService,
+    @Optional() private readonly databaseEvents?: DatabaseEventsService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
   /** Chỉ báo dữ liệu vận hành thay đổi; client đọc lại qua các endpoint kiểm quyền hiện hành. */
   @Sse("operations/events") @RequirePermissions("system:configure")
   watchOperations(): Observable<SnapshotStreamEvent<{ revision: number }>> {
     if (!this.databaseEvents) throw new Error("Database event listener is unavailable.");
-    let revision = 0;
-    return this.databaseEvents.watchSnapshot("job", "operations", () => Promise.resolve({ revision: ++revision }));
+    const events = this.databaseEvents;
+    return defer(() => {
+      const release = this.metrics?.trackSseConnection("operations");
+      let revision = 0;
+      return events
+        .watchSnapshot("job", "operations", () => Promise.resolve({ revision: ++revision }))
+        .pipe(finalize(() => release?.()));
+    });
   }
   /** Đọc cấu hình hệ thống hiện hành. */
   @Get("settings") @RequirePermissions("system:configure") getSettings(): Promise<SystemSettings> { return this.system.getSettings(); }
@@ -144,6 +158,8 @@ export class SystemController {
   }
   /** Tổng hợp sức khỏe DB, storage và hàng đợi operational_jobs. */
   @Get("health-overview") @RequirePermissions("system:configure") healthOverview(): Promise<object> { return this.system.healthOverview(); }
+  /** Tổng hợp bảng chỉ số dashboard quản trị bằng SQL aggregate (COUNT/GROUP BY), không tải danh sách thô. */
+  @Get("dashboard-summary") @RequirePermissions("system:configure") dashboardSummary(): Promise<DashboardSummary> { return this.system.getDashboardSummary(); }
   /** Trả số email outbox theo trạng thái để giám sát backlog và lỗi retry. */
   @Get("outbox/stats") @RequirePermissions("system:configure") outboxStats(): Promise<Record<string, number>> { return this.outbox.stats(); }
   /** Cho phép vận hành kích hoạt một batch retry ngay thay vì đợi worker định kỳ. */

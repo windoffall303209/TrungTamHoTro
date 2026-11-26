@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { MetricsService } from "../../../observability/metrics.service.js";
 import { SystemService } from "../core/system.service.js";
 
 @Injectable()
@@ -8,7 +9,10 @@ export class OperationalJobWorkerService implements OnModuleInit, OnModuleDestro
   private timer?: NodeJS.Timeout;
   private draining = false;
 
-  constructor(private readonly system: SystemService) {}
+  constructor(
+    private readonly system: SystemService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   /** Khởi động worker ngay khi module sẵn sàng và tiếp tục quét mỗi năm giây. */
   onModuleInit(): void {
@@ -26,12 +30,19 @@ export class OperationalJobWorkerService implements OnModuleInit, OnModuleDestro
   async drain(): Promise<{ backup: number; export: number; audit: number }> {
     if (this.draining) return { backup: 0, export: 0, audit: 0 };
     this.draining = true;
+    const startedAt = performance.now();
+    let processed = 0;
+    let failed = 0;
     try {
-      return await this.system.drainOperationalJobs();
+      const result = await this.system.drainOperationalJobs();
+      processed = result.backup + result.export + result.audit;
+      return result;
     } catch (error) {
+      failed = 1;
       this.logger.error(error instanceof Error ? error.message : "Không thể quét hàng đợi vận hành.");
       return { backup: 0, export: 0, audit: 0 };
     } finally {
+      this.metrics?.recordWorkerRun("operational_jobs", processed, failed, performance.now() - startedAt);
       this.draining = false;
     }
   }

@@ -5,7 +5,9 @@ import { ApiTags } from "@nestjs/swagger";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Observable } from "rxjs";
+import { defer, finalize } from "rxjs";
 import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
+import { MetricsService } from "../../../observability/metrics.service.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
@@ -20,7 +22,11 @@ import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-si
 @Controller()
 /** API tương tác học tập: diễn đàn, thông báo, kiểm duyệt, lớp trực tuyến, hỗ trợ và báo cáo. */
 export class EngagementController {
-  constructor(private readonly learning: EngagementSupportService, @Optional() private readonly databaseEvents?: DatabaseEventsService) {}
+  constructor(
+    private readonly learning: EngagementSupportService,
+    @Optional() private readonly databaseEvents?: DatabaseEventsService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   @Get("forum/topics") @RequirePermissions("forum:view")
   /** Liệt kê chủ đề diễn đàn trong các lớp phiên hiện tại truy cập được. */
@@ -94,8 +100,13 @@ export class EngagementController {
   @Sse("notifications/events") @RequireAuthentication()
   watchRoleNotifications(@CurrentSession() session: AuthenticatedSession): Observable<SnapshotStreamEvent<LearningNotification[]>> {
     if (!this.databaseEvents) throw new Error("Database event listener is unavailable.");
-    return this.databaseEvents.watchSnapshot("notification", session.user.id,
-      () => this.learning.listNotifications(session.user.id));
+    const events = this.databaseEvents;
+    return defer(() => {
+      const release = this.metrics?.trackSseConnection("notifications");
+      return events
+        .watchSnapshot("notification", session.user.id, () => this.learning.listNotifications(session.user.id))
+        .pipe(finalize(() => release?.()));
+    });
   }
 
   @Patch("notifications/read-all") @RequireAuthentication()

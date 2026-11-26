@@ -1,5 +1,6 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service.js";
+import { MetricsService } from "../observability/metrics.service.js";
 import { EmailDeliveryService } from "./email-delivery.service.js";
 
 interface ClaimedOutboxDelivery {
@@ -60,7 +61,11 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
     Math.min(Number(process.env.OUTBOX_CONCURRENCY) || 5, 20),
   );
 
-  constructor(private readonly prisma: PrismaService, private readonly email: EmailDeliveryService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailDeliveryService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   /** Bật worker định kỳ chỉ khi email provider đã cấu hình, tránh vòng retry vô ích ở môi trường dev. */
   onModuleInit(): void {
@@ -91,6 +96,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{ processed: number; delivered: number; failed: number }> {
     if (this.draining || !this.emailReady()) return { processed: 0, delivered: 0, failed: 0 };
     this.draining = true;
+    const startedAt = performance.now();
     let delivered = 0;
     let failed = 0;
     const batchLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 100)) : 25;
@@ -122,6 +128,7 @@ export class OutboxDeliveryService implements OnModuleInit, OnModuleDestroy {
 
       return { processed: delivered + failed, delivered, failed };
     } finally {
+      this.metrics?.recordWorkerRun("outbox", delivered, failed, performance.now() - startedAt);
       this.draining = false;
     }
   }

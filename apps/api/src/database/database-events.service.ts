@@ -18,18 +18,40 @@ export class DatabaseEventsService implements OnApplicationShutdown {
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private stopping = false;
   private failures = 0;
+  private activeWatchers = 0;
+  private reconnectCount = 0;
+  private eventsReceived = 0;
 
   /** Dùng cùng cấu hình PostgreSQL với Prisma nhưng một kết nối LISTEN chuyên biệt. */
   constructor(private readonly config: ConfigService<Environment, true>) {}
 
+  /** Trả số liệu vận hành tức thời của kênh PostgreSQL LISTEN/NOTIFY không chứa khóa người dùng. */
+  getMetrics(): {
+    listenerConnected: boolean;
+    listenerReconnects: number;
+    activeBusWatchers: number;
+    eventsReceived: number;
+  } {
+    return {
+      listenerConnected: Boolean(this.client) && !this.stopping,
+      listenerReconnects: this.reconnectCount,
+      activeBusWatchers: this.activeWatchers,
+      eventsReceived: this.eventsReceived,
+    };
+  }
+
   /** Đăng ký trước khi mở listener để không bỏ lỡ tín hiệu resync đầu tiên. */
   watch(): Observable<DatabaseEvent> {
     return new Observable((subscriber) => {
+      this.activeWatchers += 1;
       const subscription = this.events.subscribe(subscriber);
       if (!this.stopping && !this.client && !this.connecting && !this.reconnectTimer) {
         this.connecting = this.connect().finally(() => { this.connecting = undefined; });
       }
-      return () => subscription.unsubscribe();
+      return () => {
+        this.activeWatchers = Math.max(0, this.activeWatchers - 1);
+        subscription.unsubscribe();
+      };
     });
   }
 
@@ -111,6 +133,7 @@ export class DatabaseEventsService implements OnApplicationShutdown {
       const value = payload as Record<string, unknown>;
       if ((value.kind === "chat" || value.kind === "chat-list" || value.kind === "notification" || value.kind === "job") &&
         typeof value.key === "string" && value.key.length > 0 && value.key.length <= 191) {
+        this.eventsReceived += 1;
         this.events.next({ kind: value.kind, key: value.key });
       }
     } catch { /* Tín hiệu lỗi không được làm chết listener. */ }
@@ -122,6 +145,7 @@ export class DatabaseEventsService implements OnApplicationShutdown {
     this.client = undefined;
     void client.end().catch(() => undefined);
     if (this.stopping || this.reconnectTimer) return;
+    this.reconnectCount += 1;
     this.logger.warn("Database event listener disconnected; reconnect scheduled.");
     const delay = Math.min(30000, 250 * 2 ** Math.min(this.failures++, 7));
     this.reconnectTimer = setTimeout(() => {

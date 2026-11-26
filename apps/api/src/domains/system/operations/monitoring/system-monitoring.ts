@@ -1,9 +1,12 @@
 import { BadRequestException } from "@nestjs/common";
+import type { DashboardSummary } from "@wind-of-fall/contracts";
 import { Prisma } from "../../../../generated/prisma/client.js";
 import {
   paginateArray,
   type PaginatedResult,
 } from "../../../../common/pagination.js";
+import { getActiveDownloadCount } from "../../../../infrastructure/verified-download.js";
+import type { MetricsService } from "../../../../observability/metrics.service.js";
 import {
   AuditEvent,
   AuditFilter,
@@ -205,20 +208,16 @@ export async function healthOverview(
   }
   const startedAt = performance.now();
   await prisma.$queryRaw`SELECT 1`;
-  const storage = await serviceContext.getStorageOverview();
-  const queueDepth = await prisma.$transaction([
+  const [storage, totalQueueDepth] = await Promise.all([
+    serviceContext.getStorageOverview(),
     prisma.operationalJob.count({
-      where: { kind: "BACKUP", status: { in: ["PENDING", "RUNNING"] } },
-    }),
-    prisma.operationalJob.count({
-      where: { kind: "RESTORE", status: { in: ["PENDING", "RUNNING"] } },
-    }),
-    prisma.operationalJob.count({
-      where: { kind: "EXPORT", status: { in: ["PENDING", "RUNNING"] } },
+      where: {
+        kind: { in: ["BACKUP", "RESTORE", "EXPORT", "AUDIT"] },
+        status: { in: ["PENDING", "RUNNING"] },
+      },
     }),
   ]);
   const apiLatencyMs = Math.max(1, Math.round(performance.now() - startedAt));
-  const totalQueueDepth = queueDepth.reduce((sum, value) => sum + value, 0);
   return {
     status: storage.usagePercent >= 90 ? "warning" : "healthy",
     database: "connected",
@@ -226,6 +225,183 @@ export async function healthOverview(
     storageUsagePercent: storage.usagePercent,
     queueDepth: totalQueueDepth,
     checkedAt: new Date().toISOString(),
+  };
+}
+
+/** Chuyển kết quả groupBy có `_count._all` sang map đếm gọn không tải bản ghi thô. */
+function countsByKey(
+  rows: ReadonlyArray<{ key: string; count: number }>,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const row of rows) {
+    result[row.key] = (result[row.key] ?? 0) + row.count;
+  }
+  return result;
+}
+
+/**
+ * Tổng hợp toàn bộ chỉ số dashboard quản trị trực tiếp từ SQL aggregate (COUNT/GROUP BY/SUM),
+ * tuyệt đối không tải danh sách thô người dùng, lớp học, audit hay hàng đợi về bộ nhớ ứng dụng.
+ */
+export async function getDashboardSummary(
+  serviceContext: SystemServiceContext,
+  metrics?: MetricsService,
+): Promise<DashboardSummary> {
+  const settings = await serviceContext.getSettings();
+  const quotaBytes = settings.storageQuotaMb * 1_000_000;
+  const runtime = {
+    databasePool: metrics?.getDatabasePoolMetrics() ?? {
+      enabled: false,
+      max: 0,
+      totalCount: 0,
+      idleCount: 0,
+      activeCount: 0,
+      waitingCount: 0,
+    },
+    sse: metrics?.getSseMetrics() ?? {
+      activeConnections: 0,
+      totalOpened: 0,
+      byChannel: { realtime: 0, notifications: 0, chat: 0, operations: 0 },
+      listenerConnected: false,
+      listenerReconnects: 0,
+      activeBusWatchers: 0,
+      eventsReceived: 0,
+    },
+    activeDownloads: getActiveDownloadCount(),
+  };
+  const prisma = serviceContext.database();
+  if (!prisma) {
+    return {
+      generatedAt: new Date().toISOString(),
+      database: "disabled",
+      users: { total: 0, active: 0, pending: 0, locked: 0 },
+      academic: {
+        courses: 0,
+        classes: 0,
+        activeClasses: 0,
+        activeEnrollments: 0,
+        exams: 0,
+        assignments: 0,
+        openTickets: 0,
+      },
+      outbox: {},
+      jobs: { pending: 0, running: 0, failed: 0, byKind: {} },
+      ai: {
+        studyDrafts: {},
+        gradingSuggestions: {},
+        documentAnswers: {},
+        generationRequests: {},
+      },
+      storage: { quotaBytes, usedBytes: 0, usagePercent: 0, materialCount: 0 },
+      runtime,
+    };
+  }
+
+  const [
+    userGroups,
+    courseCount,
+    classGroups,
+    activeEnrollments,
+    examCount,
+    assignmentCount,
+    openTickets,
+    outboxGroups,
+    jobGroups,
+    studyGroups,
+    gradingGroups,
+    answerGroups,
+    generationGroups,
+    materialAgg,
+  ] = await Promise.all([
+    prisma.user.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.course.count(),
+    prisma.learningClass.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.classEnrollment.count({ where: { status: "ACTIVE" } }),
+    prisma.exam.count(),
+    prisma.assignment.count(),
+    prisma.supportTicket.count({ where: { status: { in: ["OPEN", "IN_PROGRESS"] } } }),
+    prisma.outboxDelivery.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.operationalJob.groupBy({ by: ["kind", "status"], _count: { _all: true } }),
+    prisma.aiStudyDraft.groupBy({ by: ["state"], _count: { _all: true } }),
+    prisma.aiGradingSuggestion.groupBy({ by: ["state"], _count: { _all: true } }),
+    prisma.aiDocumentAnswer.groupBy({ by: ["state"], _count: { _all: true } }),
+    prisma.aiGenerationRequest.groupBy({ by: ["state"], _count: { _all: true } }),
+    prisma.material.aggregate({ _sum: { sizeBytes: true }, _count: { _all: true } }),
+  ]);
+
+  const userCounts = countsByKey(
+    userGroups.map((row) => ({ key: row.status, count: row._count._all })),
+  );
+  const totalUsers = Object.values(userCounts).reduce((sum, value) => sum + value, 0);
+  const classCounts = countsByKey(
+    classGroups.map((row) => ({ key: row.status, count: row._count._all })),
+  );
+  const totalClasses = Object.values(classCounts).reduce((sum, value) => sum + value, 0);
+
+  const byKind: Record<string, Record<string, number>> = {};
+  let pendingJobs = 0;
+  let runningJobs = 0;
+  let failedJobs = 0;
+  for (const row of jobGroups) {
+    const bucket = (byKind[row.kind] ??= {});
+    bucket[row.status] = (bucket[row.status] ?? 0) + row._count._all;
+    if (row.status === "PENDING") pendingJobs += row._count._all;
+    else if (row.status === "RUNNING") runningJobs += row._count._all;
+    else if (row.status === "FAILED") failedJobs += row._count._all;
+  }
+
+  const usedBytes = Number(materialAgg._sum.sizeBytes ?? 0n);
+  const usagePercent =
+    quotaBytes > 0 ? Math.min(100, Math.round((usedBytes / quotaBytes) * 1000) / 10) : 0;
+
+  return {
+    generatedAt: new Date().toISOString(),
+    database: "connected",
+    users: {
+      total: totalUsers,
+      active: userCounts.ACTIVE ?? 0,
+      pending: (userCounts.PENDING ?? 0) + (userCounts.PENDING_VERIFICATION ?? 0),
+      locked: userCounts.LOCKED ?? 0,
+    },
+    academic: {
+      courses: courseCount,
+      classes: totalClasses,
+      activeClasses: classCounts.ACTIVE ?? 0,
+      activeEnrollments,
+      exams: examCount,
+      assignments: assignmentCount,
+      openTickets,
+    },
+    outbox: countsByKey(
+      outboxGroups.map((row) => ({ key: row.status, count: row._count._all })),
+    ),
+    jobs: {
+      pending: pendingJobs,
+      running: runningJobs,
+      failed: failedJobs,
+      byKind,
+    },
+    ai: {
+      studyDrafts: countsByKey(
+        studyGroups.map((row) => ({ key: row.state, count: row._count._all })),
+      ),
+      gradingSuggestions: countsByKey(
+        gradingGroups.map((row) => ({ key: row.state, count: row._count._all })),
+      ),
+      documentAnswers: countsByKey(
+        answerGroups.map((row) => ({ key: row.state, count: row._count._all })),
+      ),
+      generationRequests: countsByKey(
+        generationGroups.map((row) => ({ key: row.state, count: row._count._all })),
+      ),
+    },
+    storage: {
+      quotaBytes,
+      usedBytes,
+      usagePercent,
+      materialCount: materialAgg._count._all,
+    },
+    runtime,
   };
 }
 

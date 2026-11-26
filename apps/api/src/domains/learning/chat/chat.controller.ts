@@ -5,6 +5,7 @@ import {
   Get,
   Header,
   Headers,
+  Optional,
   Param,
   Patch,
   Post,
@@ -32,16 +33,20 @@ import type {
   ChatMessageView,
   ChatStreamEvent,
 } from "./chat.types.js";
-import type { Observable } from "rxjs";
+import { defer, finalize, type Observable } from "rxjs";
 import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
+import { MetricsService } from "../../../observability/metrics.service.js";
 
 @ApiTags("Chat")
 @Controller("chat")
 @RequireAuthentication()
 /** API danh bạ, hội thoại riêng/lớp và trạng thái đã đọc. */
 export class ChatController {
-  constructor(private readonly chat: ChatService) {}
+  constructor(
+    private readonly chat: ChatService,
+    @Optional() private readonly metrics?: MetricsService,
+  ) {}
 
   /** Tìm người dùng trong phạm vi quan hệ lớp hiện tại. */
   @Get("directory") directory(
@@ -96,7 +101,12 @@ export class ChatController {
     @CurrentSession() session: AuthenticatedSession,
     @Headers("last-event-id") lastEventId?: string,
   ): Observable<ChatStreamEvent> {
-    return this.chat.watchMessages(conversationId, session, lastEventId);
+    return defer(() => {
+      const release = this.metrics?.trackSseConnection("chat");
+      return this.chat
+        .watchMessages(conversationId, session, lastEventId)
+        .pipe(finalize(() => release?.()));
+    });
   }
 
   /** Tìm nội dung trong một hội thoại thuộc phạm vi truy cập. */

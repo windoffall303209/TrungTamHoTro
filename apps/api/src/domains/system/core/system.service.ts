@@ -10,6 +10,7 @@ import { DatabaseBackupService } from "../../../infrastructure/database-backup.s
 import { EmailDeliveryService } from "../../../infrastructure/email-delivery.service.js";
 import { ObjectStorageService } from "../../../infrastructure/object-storage.service.js";
 import { asPrismaJsonRecord } from "../../../infrastructure/prisma-json.js";
+import { MetricsService } from "../../../observability/metrics.service.js";
 import * as audit_ops from "../operations/monitoring/system-audit.js";
 import * as monitoring_ops from "../operations/monitoring/system-monitoring.js";
 import * as notifications_ops from "../operations/notifications/system-notifications.js";
@@ -28,6 +29,7 @@ import {
   AuditFilter,
   AuditPageFilter,
   BackupRun,
+  DashboardSummary,
   DataExport,
   defaultSettings,
   IntegrationConfig,
@@ -103,6 +105,7 @@ export class SystemService {
     @Optional() private readonly databaseBackup?: DatabaseBackupService,
     @Optional() private readonly objectStorage?: ObjectStorageService,
     @Optional() private readonly config?: ConfigService<Environment, true>,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   private readonly operationContext: SystemServiceContext =
@@ -527,6 +530,14 @@ export class SystemService {
   /** Tổng hợp sức khỏe DB, độ trễ API, dung lượng lưu trữ và hàng đợi operational_jobs. */
   async healthOverview(): Promise<object> {
     return await monitoring_ops.healthOverview(this.operationContext);
+  }
+
+  /** Tổng hợp bảng điều khiển vận hành bằng truy vấn tổng hợp (groupBy/count/aggregate), không tải danh sách thô. */
+  async getDashboardSummary(): Promise<DashboardSummary> {
+    return await monitoring_ops.getDashboardSummary(
+      this.operationContext,
+      this.metrics,
+    );
   }
 
   /** Tổng hợp byte lưu trữ theo lớp và so sánh với quota hệ thống. */
