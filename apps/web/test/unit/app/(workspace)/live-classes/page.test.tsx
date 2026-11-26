@@ -56,7 +56,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-describe("LiveClassesPage aggregated instructor schedule", () => {
+describe("LiveClassesPage aggregated schedule", () => {
   beforeEach(() => {
     currentRole.code = "INSTRUCTOR";
     searchParamsState.values.clear();
@@ -121,31 +121,40 @@ describe("LiveClassesPage aggregated instructor schedule", () => {
     expect(notifyMock).not.toHaveBeenCalled();
   });
 
-  it("hiển thị lưới tuần 7 ngày cho giảng viên ngay cả khi tuần chưa có buổi học và không còn nhãn Lớp học online", async () => {
-    apiMock.mockImplementation((path: string) => {
-      if (path === "/classes") return Promise.resolve([]);
-      if (path.startsWith("/sessions/page?")) {
-        return Promise.resolve({
-          items: [],
-          total: 0,
-          page: 1,
-          pageSize: 100,
-          totalPages: 1,
-        });
+  it.each(["INSTRUCTOR", "LEARNER"] as const)(
+    "hiển thị lưới lịch học tổng hợp 7 ngày cho %s và ẩn nút Lên lịch với học sinh",
+    async (roleCode) => {
+      currentRole.code = roleCode;
+      apiMock.mockImplementation((path: string) => {
+        if (path === "/classes") return Promise.resolve([]);
+        if (path.startsWith("/sessions/page?")) {
+          return Promise.resolve({
+            items: [],
+            total: 0,
+            page: 1,
+            pageSize: 100,
+            totalPages: 1,
+          });
+        }
+        throw new Error(`Unexpected request: ${path}`);
+      });
+
+      render(<LiveClassesPage />);
+      await waitFor(() =>
+        expect(screen.getAllByText("Không có lịch học")).toHaveLength(7),
+      );
+      expect(screen.getByRole("heading", { name: "Lịch học" })).toBeInTheDocument();
+      expect(screen.queryByText("Lớp học online")).not.toBeInTheDocument();
+      if (roleCode === "INSTRUCTOR") {
+        expect(screen.getByRole("button", { name: "Lên lịch" })).toBeInTheDocument();
+      } else {
+        expect(screen.queryByRole("button", { name: "Lên lịch" })).not.toBeInTheDocument();
       }
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    },
+  );
 
-    render(<LiveClassesPage />);
-    await waitFor(() =>
-      expect(screen.getAllByText("Không có lịch học")).toHaveLength(7),
-    );
-    expect(screen.getByRole("heading", { name: "Lịch học" })).toBeInTheDocument();
-    expect(screen.queryByText("Lớp học online")).not.toBeInTheDocument();
-  });
-
-  it.each(["LEARNER", "CENTER_MANAGER", "SYSTEM_ADMIN"] as const)(
-    "chuyển hướng %s khỏi trang /live-classes riêng lẻ về danh sách lớp hoặc tab lịch trong lớp",
+  it.each(["CENTER_MANAGER", "SYSTEM_ADMIN"] as const)(
+    "chuyển hướng %s khỏi trang /live-classes riêng lẻ về tab lịch trong lớp",
     async (roleCode) => {
       currentRole.code = roleCode;
       searchParamsState.values.set("classId", "cls-101");
@@ -162,8 +171,8 @@ describe("LiveClassesPage aggregated instructor schedule", () => {
     },
   );
 
-  it("tra cứu classId từ sessionId để mở thẳng tab Lịch học trong lớp khi thông báo chỉ mang sessionId", async () => {
-    currentRole.code = "LEARNER";
+  it("tra cứu classId từ sessionId để mở thẳng tab Lịch học trong lớp khi quản lý mở liên kết chỉ mang sessionId", async () => {
+    currentRole.code = "CENTER_MANAGER";
     searchParamsState.values.set("sessionId", "ses-77");
     apiMock.mockImplementation((path: string) => {
       if (path === "/sessions") {

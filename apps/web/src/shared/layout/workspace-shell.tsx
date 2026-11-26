@@ -159,7 +159,7 @@ const allNavItems: NavigationItem[] = [
     label: "Lịch học",
     icon: CalendarDays,
     permissions: ["session:view"],
-    roles: ["INSTRUCTOR"],
+    roles: ["INSTRUCTOR", "LEARNER"],
   },
   {
     href: "/academic",
@@ -343,10 +343,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     ].filter((s) => s.items.length > 0);
   }, [availableItems]);
 
-  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Tin nhắn
+  // Danh sách điều hướng trung tâm dành riêng cho Học sinh: Lớp học, Lịch học, Tin nhắn
   const learnerNavItems = useMemo(
     () => [
       { href: "/courses", label: "Lớp học", icon: GraduationCap },
+      { href: "/live-classes", label: "Lịch học", icon: CalendarDays },
       { href: "/messages", label: "Tin nhắn", icon: MessageSquareText },
     ],
     [],

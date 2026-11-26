@@ -81,7 +81,7 @@ function formatDateDayMonth(d: Date): string {
   return `${day}/${month}`;
 }
 
-/** Hiển thị và điều phối lịch giảng dạy tổng hợp theo tuần/tháng dành riêng cho giáo viên. */
+/** Hiển thị lịch học tổng hợp theo tuần và tháng của các lớp đối với giáo viên và học sinh. */
 export default function LiveClassesPage() {
   const { session, notify } = useApp();
   const { t } = useI18n();
@@ -92,6 +92,8 @@ export default function LiveClassesPage() {
     session.roleCode,
   );
   const instructor = session.roleCode === "INSTRUCTOR";
+  const learner = session.roleCode === "LEARNER";
+  const hasAggregatedSchedule = instructor || learner;
   const classIdParam = searchParams.get("classId")?.trim() ?? "";
   const sessionIdParam = searchParams.get("sessionId")?.trim() ?? "";
   const redirectHref = classIdParam
@@ -179,7 +181,7 @@ export default function LiveClassesPage() {
   };
 
   useEffect(() => {
-    if (!knownWorkspaceRole || instructor) return;
+    if (!knownWorkspaceRole || hasAggregatedSchedule) return;
     if (classIdParam || !sessionIdParam) {
       router.replace(redirectHref);
       return;
@@ -204,11 +206,19 @@ export default function LiveClassesPage() {
         if (!controller.signal.aborted) router.replace("/courses");
       });
     return () => controller.abort();
-  }, [classIdParam, instructor, knownWorkspaceRole, redirectHref, router, session.roleCode, sessionIdParam]);
+  }, [
+    classIdParam,
+    hasAggregatedSchedule,
+    knownWorkspaceRole,
+    redirectHref,
+    router,
+    session.roleCode,
+    sessionIdParam,
+  ]);
 
-  /** Nạp danh sách lớp phụ trách và các buổi học trong cửa sổ tuần hoặc tháng của giáo viên. */
+  /** Nạp danh sách lớp và buổi học trong cửa sổ tuần hoặc tháng cho giáo viên và học sinh. */
   const load = useCallback(async (signal?: AbortSignal) => {
-    if (!instructor || !mountedRef.current) return;
+    if (!hasAggregatedSchedule || !mountedRef.current) return;
     const requestVersion = ++loadRequestVersion.current;
     setLoading(true);
     try {
@@ -291,7 +301,7 @@ export default function LiveClassesPage() {
   }, [
     currentDate,
     currentMonday,
-    instructor,
+    hasAggregatedSchedule,
     notify,
     scheduleView,
     session.roleCode,
@@ -300,7 +310,7 @@ export default function LiveClassesPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    if (!instructor) {
+    if (!hasAggregatedSchedule) {
       return () => {
         mountedRef.current = false;
       };
@@ -313,11 +323,11 @@ export default function LiveClassesPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [instructor, load]);
+  }, [hasAggregatedSchedule, load]);
 
   /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn. */
   useEffect(() => {
-    if (!instructor) return;
+    if (!hasAggregatedSchedule) return;
     const sessionId = searchParams.get("sessionId");
     if (!sessionId || loading) return;
     const timer = window.setTimeout(() => {
@@ -331,16 +341,16 @@ export default function LiveClassesPage() {
       }
     }, 100);
     return () => window.clearTimeout(timer);
-  }, [instructor, items, loading, notify, searchParams]);
+  }, [hasAggregatedSchedule, items, loading, notify, searchParams]);
 
   useEffect(() => {
-    if (!instructor) return;
+    if (!hasAggregatedSchedule) return;
     // Cập nhật mốc thời gian dùng để tính trạng thái sắp diễn ra/đang học trên giao diện.
     const updateClock = () => setClock(Date.now());
     updateClock();
     const timer = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(timer);
-  }, [instructor]);
+  }, [hasAggregatedSchedule]);
 
   /** Tạo buổi học mới gắn link Google Meet và chuẩn hóa mốc thời gian sang ISO. */
   const create = async (event: React.FormEvent) => {
@@ -460,7 +470,7 @@ export default function LiveClassesPage() {
     }
   };
 
-  /** Mở liên kết phòng học trực tuyến được máy chủ xác thực cho giáo viên. */
+  /** Mở liên kết phòng học trực tuyến được máy chủ xác thực theo vai trò giáo viên hoặc học sinh. */
   const join = async (item: LiveSession) => {
     const meetingWindow = window.open("", "_blank");
     if (!meetingWindow) {
@@ -469,10 +479,13 @@ export default function LiveClassesPage() {
     }
     meetingWindow.opener = null;
     try {
+      const endpoint = learner
+        ? `/learner/sessions/${item.id}/join`
+        : `/sessions/${item.id}/join`;
       const result = await apiRequest<{
         attendeeUrl: string;
         joinedAt: string;
-      }>(`/sessions/${item.id}/join`, {
+      }>(endpoint, {
         method: "POST",
         roleCode: session.roleCode,
       });
@@ -492,7 +505,7 @@ export default function LiveClassesPage() {
   };
 
   if (!knownWorkspaceRole) return <AccessDenied />;
-  if (!instructor) return null;
+  if (!hasAggregatedSchedule) return null;
 
   const monthSessions = items
     .filter((entry) => {
@@ -512,31 +525,40 @@ export default function LiveClassesPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-3">
         <PageHeader
           title={t("Lịch học")}
-          description={t(
-            "Lịch giảng dạy tổng hợp theo tuần và tháng của tất cả các lớp phụ trách.",
-          )}
+          description={
+            learner
+              ? t(
+                  "Lịch học tổng hợp theo tuần và tháng của tất cả các lớp đang theo học.",
+                )
+              : t(
+                  "Lịch giảng dạy tổng hợp theo tuần và tháng của tất cả các lớp phụ trách.",
+                )
+          }
           actions={
-            <Button
-              onClick={() => {
-                setEditing(null);
-                const preselectedClassId =
-                  classIdParam && classes.some((entry) => entry.id === classIdParam)
-                    ? classIdParam
-                    : (classes[0]?.id ?? "");
-                setForm({
-                  classId: preselectedClassId,
-                  title: "",
-                  startsAt: "",
-                  endsAt: "",
-                  provider: "GOOGLE_MEET",
-                  meetingUrl: "",
-                });
-                setOpen(true);
-              }}
-            >
-              <CalendarPlus size={17} />
-              {t("Lên lịch")}
-            </Button>
+            instructor ? (
+              <Button
+                onClick={() => {
+                  setEditing(null);
+                  const preselectedClassId =
+                    classIdParam &&
+                    classes.some((entry) => entry.id === classIdParam)
+                      ? classIdParam
+                      : (classes[0]?.id ?? "");
+                  setForm({
+                    classId: preselectedClassId,
+                    title: "",
+                    startsAt: "",
+                    endsAt: "",
+                    provider: "GOOGLE_MEET",
+                    meetingUrl: "",
+                  });
+                  setOpen(true);
+                }}
+              >
+                <CalendarPlus size={17} />
+                {t("Lên lịch")}
+              </Button>
+            ) : undefined
           }
         />
       </div>
@@ -644,6 +666,14 @@ export default function LiveClassesPage() {
                           const joinable =
                             sessionItem.status === "SCHEDULED" ||
                             sessionItem.status === "LIVE";
+                          const canJoin =
+                            joinable &&
+                            clock >=
+                              new Date(sessionItem.startsAt).getTime() -
+                                15 * 60_000 &&
+                            clock <=
+                              new Date(sessionItem.endsAt).getTime() +
+                                30 * 60_000;
                           const classInfo = classById.get(sessionItem.classId);
 
                           return (
@@ -701,36 +731,62 @@ export default function LiveClassesPage() {
                               </div>
 
                               <div className="pt-2 border-t border-white/20 flex flex-col gap-1.5">
-                                {sessionItem.status === "SCHEDULED" && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      void transition(sessionItem, "LIVE")
-                                    }
-                                    className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                  >
-                                    <Play size={12} /> {t("Bắt đầu ca dạy")}
-                                  </button>
-                                )}
-                                {sessionItem.status === "LIVE" && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      void transition(sessionItem, "COMPLETED")
-                                    }
-                                    className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
-                                  >
-                                    {t("Kết thúc ca dạy")}
-                                  </button>
-                                )}
-                                {joinable && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void join(sessionItem)}
-                                    className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                  >
-                                    {t("Vào phòng")} <ExternalLink size={11} />
-                                  </button>
+                                {instructor ? (
+                                  <>
+                                    {sessionItem.status === "SCHEDULED" && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void transition(sessionItem, "LIVE")
+                                        }
+                                        className="w-full py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                      >
+                                        <Play size={12} /> {t("Bắt đầu ca dạy")}
+                                      </button>
+                                    )}
+                                    {sessionItem.status === "LIVE" && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void transition(
+                                            sessionItem,
+                                            "COMPLETED",
+                                          )
+                                        }
+                                        className="w-full py-1.5 px-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors cursor-pointer"
+                                      >
+                                        {t("Kết thúc ca dạy")}
+                                      </button>
+                                    )}
+                                    {joinable && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void join(sessionItem)}
+                                        className="w-full py-1 px-2 rounded-lg bg-white/20 hover:bg-white/30 text-white text-[10px] font-semibold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                      >
+                                        {t("Vào phòng")} <ExternalLink size={11} />
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  joinable && (
+                                    <button
+                                      type="button"
+                                      disabled={!canJoin && !isLive}
+                                      onClick={() => void join(sessionItem)}
+                                      className={`w-full py-1.5 px-2 rounded-lg text-[11px] font-bold transition-colors ${
+                                        canJoin || isLive
+                                          ? "bg-white text-[#0070ba] hover:bg-white/95 shadow-xs cursor-pointer"
+                                          : "bg-white/15 text-white/60 cursor-not-allowed"
+                                      }`}
+                                    >
+                                      {isLive
+                                        ? t("Vào lớp ngay")
+                                        : canJoin
+                                          ? t("Vào phòng")
+                                          : t("Chưa đến giờ")}
+                                    </button>
+                                  )
                                 )}
                               </div>
                             </div>
@@ -756,6 +812,14 @@ export default function LiveClassesPage() {
             ) : (
               monthSessions.map((item) => {
                 const classInfo = classById.get(item.classId);
+                const startsMs = new Date(item.startsAt).getTime();
+                const endsMs = new Date(item.endsAt).getTime();
+                const isLive = item.status === "LIVE";
+                const canLearnerJoin =
+                  isLive ||
+                  (clock >= startsMs - 15 * 60_000 &&
+                    clock <= endsMs + 30 * 60_000);
+
                 return (
                   <article
                     className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-5 lg:grid-cols-[auto_1fr_auto] lg:items-center"
@@ -798,13 +862,13 @@ export default function LiveClassesPage() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {item.status === "SCHEDULED" ? (
+                      {instructor && item.status === "SCHEDULED" ? (
                         <Button onClick={() => void transition(item, "LIVE")}>
                           <Play size={15} />
                           {t("Bắt đầu")}
                         </Button>
                       ) : null}
-                      {item.status === "LIVE" ? (
+                      {instructor && item.status === "LIVE" ? (
                         <Button
                           onClick={() => void transition(item, "COMPLETED")}
                           variant="secondary"
@@ -812,7 +876,8 @@ export default function LiveClassesPage() {
                           {t("Kết thúc")}
                         </Button>
                       ) : null}
-                      {item.status === "SCHEDULED" &&
+                      {instructor &&
+                      item.status === "SCHEDULED" &&
                       new Date(item.startsAt) > new Date() ? (
                         <>
                           <Button
@@ -831,14 +896,27 @@ export default function LiveClassesPage() {
                           </Button>
                         </>
                       ) : null}
-                      {item.status === "SCHEDULED" || item.status === "LIVE" ? (
+                      {item.status !== "SCHEDULED" &&
+                      item.status !== "LIVE" ? null : instructor ? (
                         <Button
                           onClick={() => void join(item)}
                           variant="secondary"
                         >
                           {t("Vào phòng")} <ExternalLink size={15} />
                         </Button>
-                      ) : null}
+                      ) : (
+                        <Button
+                          disabled={!canLearnerJoin}
+                          onClick={() => void join(item)}
+                        >
+                          {clock < startsMs - 15 * 60_000 && !isLive
+                            ? t("Chưa đến giờ")
+                            : clock > endsMs + 30 * 60_000 && !isLive
+                              ? t("Đã kết thúc")
+                              : t("Vào lớp")}{" "}
+                          <ExternalLink size={15} />
+                        </Button>
+                      )}
                     </div>
                   </article>
                 );
@@ -848,73 +926,75 @@ export default function LiveClassesPage() {
         )}
       </SectionState>
 
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editing ? t("Đổi lịch buổi học") : t("Thêm buổi học mới")}
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(e) => void (editing ? update(e) : create(e))}
+      {instructor ? (
+        <Modal
+          open={open}
+          onClose={() => setOpen(false)}
+          title={editing ? t("Đổi lịch buổi học") : t("Thêm buổi học mới")}
         >
-          <Field label="Lớp học">
-            <SearchableSelect
-              aria-label="Tìm và chọn lớp học"
-              disabled={Boolean(editing)}
-              onChange={(value) => setForm({ ...form, classId: value })}
-              options={classes.map((item) => ({
-                value: item.id,
-                label: `${item.code} — ${item.name}`,
-                description: item.term,
-                keywords: item.id,
-              }))}
-              placeholder="Gõ mã hoặc tên lớp để lọc…"
-              value={form.classId}
-            />
-          </Field>
-          <Field label="Tên buổi học">
-            <input
-              className={inputClass}
-              required
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-            />
-          </Field>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bắt đầu">
+          <form
+            className="space-y-4"
+            onSubmit={(e) => void (editing ? update(e) : create(e))}
+          >
+            <Field label="Lớp học">
+              <SearchableSelect
+                aria-label="Tìm và chọn lớp học"
+                disabled={Boolean(editing)}
+                onChange={(value) => setForm({ ...form, classId: value })}
+                options={classes.map((item) => ({
+                  value: item.id,
+                  label: `${item.code} — ${item.name}`,
+                  description: item.term,
+                  keywords: item.id,
+                }))}
+                placeholder="Gõ mã hoặc tên lớp để lọc…"
+                value={form.classId}
+              />
+            </Field>
+            <Field label="Tên buổi học">
               <input
                 className={inputClass}
                 required
-                type="datetime-local"
-                value={form.startsAt}
-                onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
             </Field>
-            <Field label="Kết thúc">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Bắt đầu">
+                <input
+                  className={inputClass}
+                  required
+                  type="datetime-local"
+                  value={form.startsAt}
+                  onChange={(e) => setForm({ ...form, startsAt: e.target.value })}
+                />
+              </Field>
+              <Field label="Kết thúc">
+                <input
+                  className={inputClass}
+                  required
+                  type="datetime-local"
+                  value={form.endsAt}
+                  onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+                />
+              </Field>
+            </div>
+            <Field label="Link Google Meet">
               <input
                 className={inputClass}
-                required
-                type="datetime-local"
-                value={form.endsAt}
-                onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+                placeholder="https://meet.google.com/abc-defg-hij"
+                required={form.provider === "GOOGLE_MEET"}
+                type="url"
+                value={form.meetingUrl}
+                onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })}
               />
             </Field>
-          </div>
-          <Field label="Link Google Meet">
-            <input
-              className={inputClass}
-              placeholder="https://meet.google.com/abc-defg-hij"
-              required={form.provider === "GOOGLE_MEET"}
-              type="url"
-              value={form.meetingUrl}
-              onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })}
-            />
-          </Field>
-          <Button disabled={!editing && !form.classId} type="submit">
-            {t("Xác nhận lịch")}
-          </Button>
-        </form>
-      </Modal>
+            <Button disabled={!editing && !form.classId} type="submit">
+              {t("Xác nhận lịch")}
+            </Button>
+          </form>
+        </Modal>
+      ) : null}
     </div>
   );
 }

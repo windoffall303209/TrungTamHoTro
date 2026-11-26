@@ -114,6 +114,9 @@ describe("WorkspaceShell", () => {
 
     const trigger = screen.getByRole("button", { name: "Mở menu tài khoản" });
     expect(screen.getByText("Lê Hoàng Nam")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("link", { name: "Lịch học" }).some((link) => link.getAttribute("href") === "/live-classes"),
+    ).toBe(true);
     fireEvent.mouseEnter(trigger.parentElement!);
 
     expect(screen.getByRole("menuitem", { name: "Thông tin" })).toHaveAttribute("href", "/account");
