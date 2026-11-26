@@ -73,8 +73,10 @@ export class LearningService {
 
   /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
   async createCourse(
-    input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
-      Partial<Pick<LearningCourse, "grade" | "subject">>,
+    input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> & {
+      grade?: string | number;
+      subject?: string;
+    },
     actorId: string,
   ): Promise<LearningCourse> {
     return await this.courseClass.createCourse(input, actorId);
@@ -83,7 +85,10 @@ export class LearningService {
   /** Cập nhật nội dung khóa học; khóa học đã xuất bản sẽ tăng version theo quy tắc lưu lịch sử. */
   async updateCourse(
     courseId: string,
-    input: Pick<LearningCourse, "name" | "description" | "outcomes">,
+    input: Pick<LearningCourse, "name" | "description" | "outcomes"> & {
+      grade?: string | number;
+      subject?: string;
+    },
     actorId: string,
   ): Promise<LearningCourse> {
     return await this.courseClass.updateCourse(courseId, input, actorId);
@@ -145,23 +150,9 @@ export class LearningService {
     return await this.courseClass.getClassCapabilities(classId, session);
   }
 
-  /** Tạo lớp nháp từ phiên bản khóa học hợp lệ và kiểm tra lịch, sức chứa, múi giờ. */
+  /** Mở lớp nháp theo Khối & Môn học (hoặc từ phiên bản khóa học có sẵn) và kiểm tra lịch, sức chứa, múi giờ. */
   async createClass(
-    input: Pick<
-      LearningClass,
-      "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
-    > &
-      Partial<
-        Pick<
-          LearningClass,
-          | "timezone"
-          | "allowLateEnrollment"
-          | "allowPeerGradeViewing"
-          | "allowLearnerFeedPosting"
-          | "grade"
-          | "subject"
-        >
-      >,
+    input: classes_ops.CreateClassInput,
     actorId: string,
   ): Promise<LearningClass> {
     return await this.courseClass.createClass(input, actorId);
@@ -173,7 +164,6 @@ export class LearningService {
     input: {
       name?: string;
       capacity?: number;
-      allowLateEnrollment?: boolean;
       allowPeerGradeViewing?: boolean;
       allowLearnerFeedPosting?: boolean;
     },

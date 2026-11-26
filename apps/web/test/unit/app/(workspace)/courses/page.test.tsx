@@ -36,7 +36,7 @@ function makeClass(name: string): LearningClass {
     id: name, courseId: "course-1", courseVersion: 1, code: `CODE-${name}`,
     name, term: "2026-2027", startAt: "2026-10-31T00:00:00Z",
     endAt: "2027-10-31T00:00:00Z", capacity: 30, timezone: "Asia/Bangkok",
-    allowLateEnrollment: false, status: "ACTIVE", instructorIds: [], learnerIds: [],
+    status: "ACTIVE", instructorIds: [], learnerIds: [],
   };
 }
 
@@ -232,5 +232,63 @@ describe("CoursesPage version history lifecycle", () => {
     expect(await screen.findByText("Course p1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Trang sau/i }));
     expect(await screen.findByText("Course p2")).toBeInTheDocument();
+  });
+
+  it("mở lớp học mới bằng cách chọn Khối và Môn học trên cùng một hàng kèm tùy chọn Khác", async () => {
+    mocks.request.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
+      if (path === "/manager/courses") return Promise.resolve([]);
+      if (path.startsWith("/classes/page?")) return Promise.resolve(toPage([]));
+      if (path === "/manager/classes" && options?.method === "POST") {
+        return Promise.resolve({
+          ...makeClass("Lớp AI Đại học"),
+          grade: "Đại học",
+          subject: "Trí tuệ nhân tạo",
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<CoursesPage />);
+    await waitFor(() => expect(mocks.request).toHaveBeenCalledWith("/manager/courses", expect.anything()));
+
+    fireEvent.click(screen.getByRole("button", { name: /Mở lớp học/ }));
+    const gradeSelect = screen.getByLabelText("Chọn khối");
+    const subjectSelect = screen.getByLabelText("Chọn môn học");
+
+    // Gồm 12 khối chuẩn và tùy chọn Khác
+    expect(gradeSelect.querySelectorAll("option")).toHaveLength(1 + 12 + 1);
+    fireEvent.change(gradeSelect, { target: { value: "__OTHER__" } });
+    fireEvent.change(screen.getByLabelText("Tên khối tùy chỉnh"), {
+      target: { value: "Đại học" },
+    });
+
+    fireEvent.change(subjectSelect, { target: { value: "__OTHER__" } });
+    fireEvent.change(screen.getByLabelText("Tên môn học tùy chỉnh"), {
+      target: { value: "Trí tuệ nhân tạo" },
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("VD: Lớp 11A1 - Chuyên Tin"), {
+      target: { value: "Lớp AI Đại học" },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Mở lớp" }));
+    });
+
+    const postCall = mocks.request.mock.calls.find(
+      ([path, opts]) => path === "/manager/classes" && opts?.method === "POST",
+    );
+    expect(postCall).toBeTruthy();
+    const body = JSON.parse(postCall![1].body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      name: "Lớp AI Đại học",
+      grade: "Đại học",
+      subject: "Trí tuệ nhân tạo",
+      capacity: 40,
+      allowPeerGradeViewing: false,
+      allowLearnerFeedPosting: true,
+    });
+    expect("courseId" in body).toBe(false);
+    expect("allowLateEnrollment" in body).toBe(false);
   });
 });

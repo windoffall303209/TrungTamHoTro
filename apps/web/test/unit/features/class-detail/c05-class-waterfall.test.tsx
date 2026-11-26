@@ -45,7 +45,6 @@ function makeClass(id: string): LearningClass {
     capacity: 30,
     timezone: "Asia/Bangkok",
     status: "ACTIVE",
-    allowLateEnrollment: true,
     instructorIds: ["user-1"],
     learnerIds: ["learner-1"],
   };

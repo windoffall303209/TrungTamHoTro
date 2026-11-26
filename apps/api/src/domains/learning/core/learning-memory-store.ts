@@ -127,7 +127,6 @@ export function createDefaultLearningMemoryState(): LearningMemoryState {
         endAt: "2026-12-20T10:00:00.000Z",
         capacity: 40,
         timezone: "Asia/Bangkok",
-        allowLateEnrollment: true,
         status: "ACTIVE",
         instructorIds: ["usr-instructor"],
         learnerIds: ["usr-learner"],

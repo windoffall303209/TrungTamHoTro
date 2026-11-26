@@ -4,7 +4,7 @@ import React, { memo, useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, Save, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/api-client";
 import type { RoleCode } from "@/lib/app-types";
-import type { Course, LearningClass } from "@/lib/learning-types";
+import { formatGradeLabel, type Course, type LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { ClassAvatar } from "@/shared/ui/class-avatar";
 
@@ -37,9 +37,6 @@ export const InstructorSettingsTab = memo(function InstructorSettingsTab({
   const [allowLearnerFeedPosting, setAllowLearnerFeedPosting] = useState(
     item.allowLearnerFeedPosting ?? true,
   );
-  const [allowLateEnrollment, setAllowLateEnrollment] = useState(
-    Boolean(item.allowLateEnrollment),
-  );
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
@@ -48,14 +45,12 @@ export const InstructorSettingsTab = memo(function InstructorSettingsTab({
     setCapacity(item.capacity);
     setAllowPeerGradeViewing(Boolean(item.allowPeerGradeViewing));
     setAllowLearnerFeedPosting(item.allowLearnerFeedPosting ?? true);
-    setAllowLateEnrollment(Boolean(item.allowLateEnrollment));
   }, [
     item.id,
     item.name,
     item.capacity,
     item.allowPeerGradeViewing,
     item.allowLearnerFeedPosting,
-    item.allowLateEnrollment,
   ]);
 
   /** Lưu toàn bộ thay đổi cài đặt lớp học xuống PostgreSQL và đồng bộ tức thì lên workspace. */
@@ -77,7 +72,6 @@ export const InstructorSettingsTab = memo(function InstructorSettingsTab({
           body: JSON.stringify({
             name: trimmedName,
             capacity: Number(capacity),
-            allowLateEnrollment,
             allowPeerGradeViewing,
             allowLearnerFeedPosting,
           }),
@@ -276,7 +270,7 @@ export const InstructorSettingsTab = memo(function InstructorSettingsTab({
             <div>
               <span className="text-slate-400 block text-[10px] font-bold">KHỐI HỌC</span>
               <strong className="text-slate-700 dark:text-slate-200">
-                {item.grade ? `Khối ${item.grade}` : "Chưa đặt"}
+                {item.grade ? formatGradeLabel(item.grade) : "Chưa đặt"}
               </strong>
             </div>
             <div>
@@ -325,24 +319,6 @@ export const InstructorSettingsTab = memo(function InstructorSettingsTab({
               </span>
               <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                 Khi bật, học sinh được tạo bài viết mới kèm tệp đính kèm trên bảng tin lớp; khi tắt, chỉ giảng viên và quản lý được đăng bài mới.
-              </span>
-            </span>
-          </label>
-
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-700 dark:bg-slate-800/50">
-            <input
-              type="checkbox"
-              disabled={isClosed}
-              checked={allowLateEnrollment}
-              onChange={(event) => setAllowLateEnrollment(event.target.checked)}
-              className="mt-1 h-4 w-4 accent-blue-600"
-            />
-            <span className="space-y-0.5">
-              <span className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                Cho phép ghi danh muộn
-              </span>
-              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-                Cho phép tiếp tục thêm học sinh mới sau khi lớp đã bắt đầu diễn ra.
               </span>
             </span>
           </label>

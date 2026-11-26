@@ -117,14 +117,40 @@ describe("LearningService", () => {
       endAt: "2027-04-10T00:00:00.000Z",
       capacity: 30,
       timezone: "Asia/Bangkok",
-      allowLateEnrollment: true,
     }, "usr-manager");
     expect(first).toMatchObject({
       courseVersion: 1,
       timezone: "Asia/Bangkok",
-      allowLateEnrollment: true,
       status: "DRAFT",
     });
+
+    const customByGradeAndSubject = await service.createClass({
+      code: "CUSTOM-GS-01",
+      name: "Lớp Lập trình C++ Đại học",
+      term: "2027-HK1",
+      grade: "Đại học",
+      subject: "Lập trình C++",
+      startAt: "2027-01-10T00:00:00.000Z",
+      endAt: "2027-04-10T00:00:00.000Z",
+      capacity: 35,
+    }, "usr-manager");
+    expect(customByGradeAndSubject).toMatchObject({
+      grade: "Đại học",
+      subject: "Lập trình C++",
+      courseVersion: 1,
+      status: "DRAFT",
+    });
+    await expect(
+      service.createClass({
+        code: "MISSING-GS-01",
+        name: "Thiếu môn học",
+        term: "2027-HK1",
+        grade: "10",
+        startAt: "2027-01-10T00:00:00.000Z",
+        endAt: "2027-04-10T00:00:00.000Z",
+        capacity: 30,
+      }, "usr-manager"),
+    ).rejects.toThrow(BadRequestException);
     await expect(
       service.createClass({
         courseId: "course-web",
@@ -679,7 +705,6 @@ describe("LearningService", () => {
       startAt: new Date(now - 30 * 86_400_000).toISOString(),
       endAt: new Date(now + 30 * 86_400_000).toISOString(),
       capacity: 20,
-      allowLateEnrollment: false,
     }, "usr-manager");
     await service.assignInstructor(classItem.id, "usr-instructor", undefined, "usr-manager");
     await service.activateClass(classItem.id, "usr-manager");

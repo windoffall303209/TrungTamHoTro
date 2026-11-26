@@ -3,27 +3,55 @@ import {
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "../../../../generated/prisma/client.js";
 import type { AuthenticatedSession } from "../../../../auth/auth.service.js";
 import {
   paginateArray,
   type PaginatedResult,
 } from "../../../../common/pagination.js";
-import { copyLearningClass, id } from "../../core/learning.shared.js";
+import { copyLearningClass, id, now } from "../../core/learning.shared.js";
 import { seedDefaultClassFolders } from "../materials/class-folders.js";
+import {
+  normalizeGradeText,
+  STANDARD_K12_GRADES,
+  STANDARD_K12_SUBJECTS,
+} from "../courses/learning-courses.js";
 import { isPrismaUniqueConstraintError } from "../../../../infrastructure/prisma-errors.js";
-import type { ClassCapabilities, LearningClass } from "../../core/learning.types.js";
+import type { ClassCapabilities, LearningClass, LearningCourse } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
 export interface ClassPageFilters {
   query?: string;
-  grade?: number;
+  grade?: string | number;
   subject?: string;
   courseId?: string;
   status?: LearningClass["status"];
   page?: number;
   pageSize?: number;
+}
+
+export type CreateClassInput = Pick<
+  LearningClass,
+  "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
+> & {
+  courseId?: string;
+  timezone?: string;
+  allowPeerGradeViewing?: boolean;
+  allowLearnerFeedPosting?: boolean;
+  grade?: string | number;
+  subject?: string;
+};
+
+/** Định dạng tên hiển thị cho khối học (thêm tiền tố Khối với số 1..12, giữ nguyên tên tùy chỉnh). */
+function formatGradeDisplay(grade: string): string {
+  return /^\d+$/.test(grade) ? `Khối ${grade}` : grade;
+}
+
+/** Sinh mã khóa học tự động duy nhất khi người dùng mở lớp trực tiếp theo Khối & Môn. */
+function buildAutoCourseCode(): string {
+  return `CRS-${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
 }
 
 /** Tạo điều kiện Prisma giới hạn lớp học theo vai trò và quan hệ thành viên của phiên. */
@@ -116,10 +144,12 @@ export async function listClassesPage(
   filters: ClassPageFilters = {},
 ): Promise<PaginatedResult<LearningClass>> {
   const query = filters.query?.trim();
+  const grade = normalizeGradeText(filters.grade);
   const subject = filters.subject?.trim();
   const courseId = filters.courseId?.trim();
   if (
     (query && query.length > 255) ||
+    (grade && grade.length > 255) ||
     (subject && subject.length > 255) ||
     (courseId && courseId.length > 255)
   ) {
@@ -142,15 +172,62 @@ export async function listClassesPage(
     if (roleWhere) andConditions.push(roleWhere);
     if (courseId) andConditions.push({ courseId });
     if (filters.status) andConditions.push({ status: filters.status });
-    if (filters.grade !== undefined) {
+    if (grade === "__OTHER__") {
       andConditions.push({
         OR: [
-          { grade: filters.grade },
-          { grade: null, course: { is: { grade: filters.grade } } },
+          {
+            AND: [
+              { grade: { not: null } },
+              { grade: { notIn: ["", ...STANDARD_K12_GRADES] } },
+            ],
+          },
+          {
+            OR: [{ grade: null }, { grade: "" }],
+            course: {
+              is: {
+                AND: [
+                  { grade: { not: null } },
+                  { grade: { notIn: ["", ...STANDARD_K12_GRADES] } },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    } else if (grade !== undefined) {
+      andConditions.push({
+        OR: [
+          { grade },
+          {
+            OR: [{ grade: null }, { grade: "" }],
+            course: { is: { grade } },
+          },
         ],
       });
     }
-    if (subject) {
+    if (subject === "__OTHER__") {
+      andConditions.push({
+        OR: [
+          {
+            AND: [
+              { subject: { not: null } },
+              { subject: { notIn: ["", ...STANDARD_K12_SUBJECTS] } },
+            ],
+          },
+          {
+            OR: [{ subject: null }, { subject: "" }],
+            course: {
+              is: {
+                AND: [
+                  { subject: { not: null } },
+                  { subject: { notIn: ["", ...STANDARD_K12_SUBJECTS] } },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    } else if (subject) {
       andConditions.push({
         OR: [
           { subject },
@@ -210,13 +287,31 @@ export async function listClassesPage(
       if (courseId && item.courseId !== courseId) return false;
       if (filters.status && item.status !== filters.status) return false;
       const parentCourse = courseById.get(item.courseId);
-      if (filters.grade !== undefined) {
-        const effectiveGrade = item.grade ?? parentCourse?.grade;
-        if (effectiveGrade !== filters.grade) return false;
+      if (grade !== undefined) {
+        const effectiveGrade = item.grade || parentCourse?.grade;
+        if (grade === "__OTHER__") {
+          if (
+            !effectiveGrade ||
+            (STANDARD_K12_GRADES as readonly string[]).includes(effectiveGrade)
+          ) {
+            return false;
+          }
+        } else if (effectiveGrade !== grade) {
+          return false;
+        }
       }
       if (subject) {
         const effectiveSubject = item.subject || parentCourse?.subject;
-        if (effectiveSubject !== subject) return false;
+        if (subject === "__OTHER__") {
+          if (
+            !effectiveSubject ||
+            (STANDARD_K12_SUBJECTS as readonly string[]).includes(effectiveSubject)
+          ) {
+            return false;
+          }
+        } else if (effectiveSubject !== subject) {
+          return false;
+        }
       }
       if (
         normalizedQuery &&
@@ -340,117 +435,281 @@ export async function getClassCapabilities(
   };
 }
 
-/** Tạo lớp nháp từ phiên bản khóa học hợp lệ và kiểm tra lịch, sức chứa, múi giờ. */
+/** Mở lớp nháp theo Khối và Môn học (tự động gắn/tạo học phần nền nếu không truyền courseId) và kiểm tra lịch, sức chứa, múi giờ. */
 export async function createClass(
   serviceContext: LearningServiceContext,
-  input: Pick<
-    LearningClass,
-    "courseId" | "code" | "name" | "term" | "startAt" | "endAt" | "capacity"
-  > &
-    Partial<
-      Pick<
-        LearningClass,
-        | "timezone"
-        | "allowLateEnrollment"
-        | "allowPeerGradeViewing"
-        | "allowLearnerFeedPosting"
-        | "grade"
-        | "subject"
-      >
-    >,
+  input: CreateClassInput,
   actorId: string,
 ): Promise<LearningClass> {
   const code = input.code.trim().toUpperCase();
   const term = input.term.trim();
   const timezone = input.timezone?.trim() || "Asia/Bangkok";
+  const explicitCourseId = input.courseId?.trim() || undefined;
+  const normalizedGrade = normalizeGradeText(input.grade);
+  const normalizedSubject = input.subject?.trim() || undefined;
   serviceContext.validateTimezone(timezone);
+  if (new Date(input.endAt) <= new Date(input.startAt)) {
+    throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
+  }
+  if (!explicitCourseId && (!normalizedGrade || !normalizedSubject)) {
+    throw new BadRequestException(
+      "Vui lòng chọn hoặc nhập đầy đủ Khối và Môn học để mở lớp.",
+    );
+  }
+
   const prisma = serviceContext.database();
   if (prisma) {
-    const course = await prisma.course.findUnique({
-      where: { id: input.courseId },
-    });
-    if (!course || course.status !== "PUBLISHED")
-      throw new BadRequestException(
-        "Khóa học phải được phát hành trước khi mở lớp.",
-      );
-    if (new Date(input.endAt) <= new Date(input.startAt))
-      throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
-    try {
-      const row = await prisma.learningClass.create({
-        data: {
-          id: id("class"),
-          courseId: input.courseId,
-          courseVersion: course.version,
-          code,
-          name: input.name.trim(),
-          term,
-          grade: input.grade ?? course.grade ?? null,
-          subject: input.subject?.trim() || course.subject || null,
-          startAt: new Date(input.startAt),
-          endAt: new Date(input.endAt),
-          capacity: input.capacity,
-          timezone,
-          allowLateEnrollment: input.allowLateEnrollment ?? false,
-          allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
-          allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
-        },
-        include: { instructors: true, enrollments: true },
+    if (explicitCourseId) {
+      const course = await prisma.course.findUnique({
+        where: { id: explicitCourseId },
       });
-      await seedDefaultClassFolders({ database: prisma }, row.id);
-      await prisma.auditLog.create({
-        data: {
-          actorId,
-          action: "CLASS_DRAFT_CREATED",
-          entityType: "learning_class",
-          entityId: row.id,
-          context: {
-            courseId: input.courseId,
+      if (!course || course.status !== "PUBLISHED") {
+        throw new BadRequestException(
+          "Khóa học phải được phát hành trước khi mở lớp.",
+        );
+      }
+      try {
+        const row = await prisma.learningClass.create({
+          data: {
+            id: id("class"),
+            courseId: course.id,
             courseVersion: course.version,
             code,
+            name: input.name.trim(),
             term,
+            grade: normalizedGrade ?? course.grade ?? null,
+            subject: normalizedSubject || course.subject || null,
+            startAt: new Date(input.startAt),
+            endAt: new Date(input.endAt),
+            capacity: input.capacity,
             timezone,
-            grade: row.grade,
-            subject: row.subject,
+            allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
+            allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
           },
-        },
+          include: { instructors: true, enrollments: true },
+        });
+        await seedDefaultClassFolders({ database: prisma }, row.id);
+        await prisma.auditLog.create({
+          data: {
+            actorId,
+            action: "CLASS_DRAFT_CREATED",
+            entityType: "learning_class",
+            entityId: row.id,
+            context: {
+              courseId: course.id,
+              courseVersion: course.version,
+              code,
+              term,
+              timezone,
+              grade: row.grade,
+              subject: row.subject,
+            },
+          },
+        });
+        return serviceContext.mapClass(row);
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          throw new ConflictException("Mã lớp đã tồn tại.");
+        }
+        throw error;
+      }
+    }
+
+    try {
+      const row = await prisma.$transaction(async (transaction) => {
+        let course = await transaction.course.findFirst({
+          where: {
+            grade: normalizedGrade!,
+            subject: normalizedSubject!,
+            status: "PUBLISHED",
+          },
+          orderBy: { updatedAt: "desc" },
+        });
+        if (!course) {
+          const gradeLabel = formatGradeDisplay(normalizedGrade!);
+          const courseName = `${normalizedSubject!} - ${gradeLabel}`.slice(0, 200);
+          const courseDescription = `Chương trình ${normalizedSubject!} (${gradeLabel})`;
+          const outcomes = [
+            `Hoàn thành chương trình ${normalizedSubject!} (${gradeLabel})`,
+          ];
+          course = await transaction.course.create({
+            data: {
+              id: id("course"),
+              code: buildAutoCourseCode(),
+              name: courseName,
+              description: courseDescription,
+              grade: normalizedGrade!,
+              subject: normalizedSubject!,
+              outcomes,
+              status: "PUBLISHED",
+              version: 1,
+              ownerId: actorId,
+            },
+          });
+          await transaction.courseVersion.create({
+            data: {
+              id: id("course-version"),
+              courseId: course.id,
+              version: 1,
+              name: courseName,
+              description: courseDescription,
+              grade: normalizedGrade!,
+              subject: normalizedSubject!,
+              outcomes,
+              publishedBy: actorId,
+            },
+          });
+        } else {
+          await transaction.courseVersion.upsert({
+            where: {
+              courseId_version: {
+                courseId: course.id,
+                version: course.version,
+              },
+            },
+            update: {},
+            create: {
+              id: id("course-version"),
+              courseId: course.id,
+              version: course.version,
+              name: course.name,
+              description: course.description,
+              grade: course.grade,
+              subject: course.subject,
+              outcomes: serviceContext.toStringArray(course.outcomes),
+              publishedBy: actorId,
+            },
+          });
+        }
+
+        const created = await transaction.learningClass.create({
+          data: {
+            id: id("class"),
+            courseId: course.id,
+            courseVersion: course.version,
+            code,
+            name: input.name.trim(),
+            term,
+            grade: normalizedGrade!,
+            subject: normalizedSubject!,
+            startAt: new Date(input.startAt),
+            endAt: new Date(input.endAt),
+            capacity: input.capacity,
+            timezone,
+            allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
+            allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
+          },
+          include: { instructors: true, enrollments: true },
+        });
+        await seedDefaultClassFolders({ database: transaction }, created.id);
+        await transaction.auditLog.create({
+          data: {
+            actorId,
+            action: "CLASS_DRAFT_CREATED",
+            entityType: "learning_class",
+            entityId: created.id,
+            context: {
+              courseId: course.id,
+              courseVersion: course.version,
+              code,
+              term,
+              timezone,
+              grade: created.grade,
+              subject: created.subject,
+            },
+          },
+        });
+        return created;
       });
       return serviceContext.mapClass(row);
     } catch (error) {
-      if (isPrismaUniqueConstraintError(error))
+      if (isPrismaUniqueConstraintError(error)) {
         throw new ConflictException("Mã lớp đã tồn tại.");
+      }
       throw error;
     }
   }
-  if (
-    !serviceContext.courses.some(
-      (course) => course.id === input.courseId && course.status === "PUBLISHED",
-    )
-  )
-    throw new BadRequestException(
-      "Khóa học phải được phát hành trước khi mở lớp.",
+
+  let course: LearningCourse;
+  if (explicitCourseId) {
+    const existingCourse = serviceContext.courses.find(
+      (item) => item.id === explicitCourseId && item.status === "PUBLISHED",
     );
-  if (new Date(input.endAt) <= new Date(input.startAt))
-    throw new BadRequestException("Ngày kết thúc phải sau ngày bắt đầu.");
+    if (!existingCourse) {
+      throw new BadRequestException(
+        "Khóa học phải được phát hành trước khi mở lớp.",
+      );
+    }
+    course = existingCourse;
+  } else {
+    const existingCourse = serviceContext.courses.find(
+      (item) =>
+        item.status === "PUBLISHED" &&
+        item.grade === normalizedGrade &&
+        item.subject === normalizedSubject,
+    );
+    if (existingCourse) {
+      course = existingCourse;
+    } else {
+      const timestamp = now();
+      const gradeLabel = formatGradeDisplay(normalizedGrade!);
+      const courseName = `${normalizedSubject!} - ${gradeLabel}`.slice(0, 200);
+      const courseDescription = `Chương trình ${normalizedSubject!} (${gradeLabel})`;
+      const outcomes = [
+        `Hoàn thành chương trình ${normalizedSubject!} (${gradeLabel})`,
+      ];
+      course = {
+        id: id("course"),
+        code: buildAutoCourseCode(),
+        name: courseName,
+        description: courseDescription,
+        grade: normalizedGrade!,
+        subject: normalizedSubject!,
+        outcomes,
+        status: "PUBLISHED",
+        version: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      serviceContext.courses.unshift(course);
+      serviceContext.courseVersions.unshift({
+        id: id("course-version"),
+        courseId: course.id,
+        version: 1,
+        name: courseName,
+        description: courseDescription,
+        grade: normalizedGrade!,
+        subject: normalizedSubject!,
+        outcomes: [...outcomes],
+        publishedBy: actorId,
+        publishedAt: timestamp,
+      });
+    }
+  }
+
   if (
     serviceContext.classes.some(
       (item) => item.code === code && item.term === term,
     )
-  )
+  ) {
     throw new ConflictException("Mã lớp đã tồn tại trong học kỳ.");
-  const course = serviceContext.findCourse(input.courseId);
+  }
   const item: LearningClass = {
-    ...input,
+    id: id("class"),
+    courseId: course.id,
     courseVersion: course.version,
     code,
+    name: input.name.trim(),
     term,
-    grade: input.grade ?? course.grade,
-    subject: input.subject?.trim() || course.subject,
+    grade: normalizedGrade ?? course.grade,
+    subject: normalizedSubject || course.subject,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    capacity: input.capacity,
     timezone,
-    allowLateEnrollment: input.allowLateEnrollment ?? false,
     allowPeerGradeViewing: input.allowPeerGradeViewing ?? false,
     allowLearnerFeedPosting: input.allowLearnerFeedPosting ?? true,
     avatarUrl: null,
-    id: id("class"),
     status: "DRAFT",
     instructorIds: [],
     learnerIds: [],
@@ -467,7 +726,6 @@ export async function updateClass(
   input: {
     name?: string;
     capacity?: number;
-    allowLateEnrollment?: boolean;
     allowPeerGradeViewing?: boolean;
     allowLearnerFeedPosting?: boolean;
   },
@@ -485,7 +743,6 @@ export async function updateClass(
     const dataToUpdate: Record<string, unknown> = {};
     if (input.name !== undefined) dataToUpdate.name = input.name.trim();
     if (input.capacity !== undefined) dataToUpdate.capacity = input.capacity;
-    if (input.allowLateEnrollment !== undefined) dataToUpdate.allowLateEnrollment = input.allowLateEnrollment;
     if (input.allowPeerGradeViewing !== undefined) dataToUpdate.allowPeerGradeViewing = input.allowPeerGradeViewing;
     if (input.allowLearnerFeedPosting !== undefined) dataToUpdate.allowLearnerFeedPosting = input.allowLearnerFeedPosting;
 
@@ -510,7 +767,6 @@ export async function updateClass(
   if (!item) throw new NotFoundException("Không tìm thấy lớp học.");
   if (input.name !== undefined) item.name = input.name.trim();
   if (input.capacity !== undefined) item.capacity = input.capacity;
-  if (input.allowLateEnrollment !== undefined) item.allowLateEnrollment = input.allowLateEnrollment;
   if (input.allowPeerGradeViewing !== undefined) item.allowPeerGradeViewing = input.allowPeerGradeViewing;
   if (input.allowLearnerFeedPosting !== undefined) item.allowLearnerFeedPosting = input.allowLearnerFeedPosting;
   return item;

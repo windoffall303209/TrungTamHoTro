@@ -13,7 +13,7 @@ import { activeLocale } from "@/i18n/runtime";
 import { CheckCircle2, ChevronRight, ClipboardCheck, Link2, MessageCircle, RotateCcw, Scale } from "lucide-react";
 import Link from "next/link";
 
-import { K12_GRADES, K12_SUBJECTS } from "@/lib/learning-types";
+import { CUSTOM_OPTION_VALUE, formatGradeLabel, K12_GRADES, K12_SUBJECTS } from "@/lib/learning-types";
 import { ExamGradingDialog } from "./exam-grading-dialog";
 import { useTeachingModel } from "./use-teaching-model";
 
@@ -96,6 +96,7 @@ export default function TeachingScreen() {
                 {g.label}
               </option>
             ))}
+            <option value={CUSTOM_OPTION_VALUE}>Khác</option>
           </select>
 
           {/* Chọn Môn */}
@@ -124,7 +125,15 @@ export default function TeachingScreen() {
             <option value="">Tất cả lớp phụ trách</option>
             {instructorClasses
               .filter((c) => {
-                if (gradeFilter && c.grade && String(c.grade) !== gradeFilter) return false;
+                if (gradeFilter) {
+                  if (gradeFilter === CUSTOM_OPTION_VALUE) {
+                    if (!c.grade || K12_GRADES.some((g) => g.value === String(c.grade))) {
+                      return false;
+                    }
+                  } else if (c.grade && String(c.grade) !== gradeFilter) {
+                    return false;
+                  }
+                }
                 if (subjectFilter && c.subject && c.subject !== subjectFilter) return false;
                 return true;
               })
@@ -166,7 +175,7 @@ export default function TeachingScreen() {
                   </h3>
                   {itemGrade ? (
                     <span className="rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 text-[10px] font-semibold border border-indigo-200/50 dark:border-indigo-800/50">
-                      Khối {itemGrade}
+                      {formatGradeLabel(itemGrade)}
                     </span>
                   ) : null}
                   {itemSubject ? (

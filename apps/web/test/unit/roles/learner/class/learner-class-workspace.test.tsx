@@ -56,7 +56,6 @@ const dummyClass: LearningClass = {
   endAt: "2026-12-31T00:00:00Z",
   capacity: 40,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: true,
   status: "ACTIVE",
   instructorIds: ["ins-1"],
   learnerIds: ["lrn-1", "lrn-2"],
@@ -495,8 +494,15 @@ describe("LearnerClassWorkspace", () => {
 
   it("hủy toàn bộ request đang tải khi rời trang lớp", () => {
     const view = renderWorkspace();
-    // Tab Bảng tin mặc định không bắn request thừa của các tab khác; chuyển sang tab Bài tập để kiểm chứng abort.
+    const feedSignals = mockApiRequest.mock.calls
+      .map((call: unknown[]) => (call[1] as RequestInit | undefined)?.signal)
+      .filter((signal: AbortSignal | null | undefined): signal is AbortSignal => signal != null);
+    mockApiRequest.mockClear();
+
+    // Chuyển sang tab Bài tập sẽ hủy request bảng tin cũ và mở 3 request mới của tab Bài tập.
     fireEvent.click(screen.getAllByText("Bài tập")[0]!);
+    expect(feedSignals.every((signal: AbortSignal) => signal.aborted)).toBe(true);
+
     const signals = mockApiRequest.mock.calls
       .map((call: unknown[]) => (call[1] as RequestInit | undefined)?.signal)
       .filter((signal: AbortSignal | null | undefined): signal is AbortSignal => signal != null);

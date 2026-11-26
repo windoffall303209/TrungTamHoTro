@@ -61,6 +61,8 @@ export type {
   TicketComment,
 } from "@wind-of-fall/contracts";
 
+export const CUSTOM_OPTION_VALUE = "__OTHER__";
+
 export const K12_GRADES = [
   { value: "1", label: "Khối 1 (Tiểu học)" },
   { value: "2", label: "Khối 2 (Tiểu học)" },
@@ -91,3 +93,11 @@ export const K12_SUBJECTS = [
   "Khoa học tự nhiên",
   "Lịch sử và Địa lí",
 ];
+
+/** Định dạng nhãn khối học: các khối số 1..12 hiển thị kèm tiền tố "Khối ", còn tên tùy chỉnh giữ nguyên. */
+export function formatGradeLabel(grade?: string | number | null): string {
+  if (grade === undefined || grade === null) return "";
+  const trimmed = String(grade).trim();
+  if (!trimmed) return "";
+  return /^\d+$/.test(trimmed) ? `Khối ${trimmed}` : trimmed;
+}

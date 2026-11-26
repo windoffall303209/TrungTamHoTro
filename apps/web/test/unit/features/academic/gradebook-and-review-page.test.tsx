@@ -58,7 +58,6 @@ const sampleClass: LearningClass = {
   endAt: "2026-12-30T00:00:00Z",
   capacity: 35,
   timezone: "Asia/Ho_Chi_Minh",
-  allowLateEnrollment: false,
   status: "ACTIVE",
   instructorIds: ["ins-1"],
   learnerIds: ["lrn-1", "lrn-2", "lrn-3"],

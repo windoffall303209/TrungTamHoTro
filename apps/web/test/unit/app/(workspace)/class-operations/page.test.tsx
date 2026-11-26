@@ -25,7 +25,7 @@ vi.mock("@/shared/ui/searchable-select", () => ({
 const classes: LearningClass[] = ["a", "b"].map((id) => ({
   id, courseId: "course", courseVersion: 1, code: id, name: `Class ${id}`, term: "2026",
   startAt: "2026-01-01T00:00:00Z", endAt: "2026-12-31T00:00:00Z", capacity: 30,
-  timezone: "Asia/Bangkok", allowLateEnrollment: false, status: "ACTIVE", instructorIds: [], learnerIds: [],
+  timezone: "Asia/Bangkok", status: "ACTIVE", instructorIds: [], learnerIds: [],
 }));
 
 // Tạo API trì hoãn để xác nhận phản hồi của lớp cũ không ghi đè lớp mới.

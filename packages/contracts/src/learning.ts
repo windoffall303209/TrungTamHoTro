@@ -12,7 +12,7 @@ export interface LearningCourse {
   code: string;
   name: string;
   description: string;
-  grade?: number;
+  grade?: string;
   subject?: string;
   outcomes: string[];
   status: PublishStatus;
@@ -27,7 +27,7 @@ export interface CourseVersionSnapshot {
   version: number;
   name: string;
   description: string;
-  grade?: number;
+  grade?: string;
   subject?: string;
   outcomes: string[];
   publishedBy: string;
@@ -41,13 +41,12 @@ export interface LearningClass {
   code: string;
   name: string;
   term: string;
-  grade?: number;
+  grade?: string;
   subject?: string;
   startAt: IsoDateTimeString;
   endAt: IsoDateTimeString;
   capacity: number;
   timezone: string;
-  allowLateEnrollment: boolean;
   allowPeerGradeViewing?: boolean;
   allowLearnerFeedPosting?: boolean;
   avatarUrl?: string | null;

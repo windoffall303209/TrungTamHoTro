@@ -199,14 +199,14 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
       code: "TOAN-10-PAGE",
       name: "Toan lop 10 nang cao",
       description: "Chuong trinh phan trang",
-      grade: 10,
+      grade: "10",
       subject: "Toán học",
       outcomes: ["Nam vung dai so"],
     }, "usr-manager");
     await service.publishCourse(course.id, "usr-manager");
 
     const coursesPage = await service.listCoursesPage({
-      grade: 10,
+      grade: "10",
       subject: "Toán học",
       query: "TOAN-10-PAGE",
       page: 1,
@@ -227,7 +227,7 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
     await service.assignInstructor(cls.id, "usr-instructor", "PRIMARY", "usr-manager");
 
     const managerPage = await service.listClassesPage("CENTER_MANAGER", "usr-manager", {
-      grade: 10,
+      grade: "10",
       subject: "Toán học",
       query: "CLS-10A1-PAGE",
       page: 1,
@@ -263,7 +263,8 @@ describe("API phân trang học liệu, câu hỏi, khóa học và lớp học 
     expect(() => contentController.listQuestionsPage({ pageSize: "101" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ difficulty: "9" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ status: "UNKNOWN" }, session)).toThrow(BadRequestException);
-    expect(() => courseController.listCoursesPage({ grade: "13" }, session)).toThrow(BadRequestException);
+    expect(() => courseController.listCoursesPage({ grade: "x".repeat(101) }, session)).toThrow(BadRequestException);
+    expect(() => courseController.listCoursesPage({ grade: ["10"] }, session)).toThrow(BadRequestException);
     expect(() => courseController.listCoursesPage({ status: "ACTIVE" }, session)).toThrow(BadRequestException);
     expect(() => courseController.listClassesPage({ status: "PUBLISHED" }, session)).toThrow(BadRequestException);
     expect(() => contentController.listQuestionsPage({ typeGroup: "INVALID" }, session)).toThrow(BadRequestException);

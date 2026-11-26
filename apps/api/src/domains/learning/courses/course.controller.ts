@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiTags } from "@nestjs/swagger";
-import { parseOptionalQueryInt, parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
+import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequireAuthentication, RequirePermissions } from "../../../auth/require-permissions.decorator.js";
@@ -38,11 +38,12 @@ export class CourseController {
   listCoursesPage(@Query() raw: Record<string, unknown>, @CurrentSession() session: AuthenticatedSession): Promise<PaginatedResult<LearningCourse>> {
     const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
     const requestedStatus = parseStatusFilter(raw.status, ["DRAFT", "PUBLISHED", "ARCHIVED"] as const);
+    const canManageCourse = Array.isArray(session.permissions) && session.permissions.includes("course:manage");
     return this.learning.listCoursesPage({
       query: parseOptionalQueryString(raw.query, "query", 255),
-      grade: parseOptionalQueryInt(raw.grade, "grade", 1, 12),
+      grade: parseOptionalQueryString(raw.grade, "grade", 100),
       subject: parseOptionalQueryString(raw.subject, "subject", 100),
-      status: session.permissions.includes("course:manage") ? requestedStatus : "PUBLISHED",
+      status: canManageCourse ? requestedStatus : "PUBLISHED",
       page,
       pageSize,
     });
@@ -78,7 +79,7 @@ export class CourseController {
     const { page, pageSize } = parsePageQuery(raw, { pageSize: 10, maxPageSize: 100 });
     return this.learning.listClassesPage(session.roleCode, session.user.id, {
       query: parseOptionalQueryString(raw.query, "query", 255),
-      grade: parseOptionalQueryInt(raw.grade, "grade", 1, 12),
+      grade: parseOptionalQueryString(raw.grade, "grade", 100),
       subject: parseOptionalQueryString(raw.subject, "subject", 100),
       courseId: parseOptionalQueryString(raw.courseId, "courseId", 191),
       status: parseStatusFilter(raw.status, ["DRAFT", "ACTIVE", "CLOSED"] as const),

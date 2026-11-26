@@ -220,7 +220,7 @@ export interface GradingQueueGroup {
   type: "ASSIGNMENT" | "EXAM";
   classId: string;
   classCode: string;
-  grade?: number | null;
+  grade?: string | null;
   subject?: string | null;
   title: string;
   maxScore: DecimalNumber;

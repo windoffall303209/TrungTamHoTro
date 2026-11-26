@@ -322,7 +322,7 @@ model Course {
   code        String          @unique @db.VarChar(50)
   name        String          @db.VarChar(200)
   description String          @db.Text
-  grade       Int?            @db.SmallInt
+  grade       String?         @db.VarChar(100)
   subject     String?         @db.VarChar(100)
   outcomes    Json
   status      CourseStatus    @default(DRAFT)
@@ -348,7 +348,7 @@ model CourseVersion {
   version     Int
   name        String   @db.VarChar(200)
   description String   @db.Text
-  grade       Int?     @db.SmallInt
+  grade       String?  @db.VarChar(100)
   subject     String?  @db.VarChar(100)
   outcomes    Json
   publishedBy String   @map("published_by") @db.VarChar(191)
@@ -379,13 +379,12 @@ model LearningClass {
   code          String            @db.VarChar(50)
   name          String            @db.VarChar(200)
   term          String            @db.VarChar(50)
-  grade         Int?              @db.SmallInt
+  grade         String?           @db.VarChar(100)
   subject       String?           @db.VarChar(100)
   startAt       DateTime          @map("start_at")
   endAt         DateTime          @map("end_at")
   capacity      Int
   timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
-  allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
   allowPeerGradeViewing Boolean   @default(false) @map("allow_peer_grade_viewing")
   allowLearnerFeedPosting Boolean @default(true) @map("allow_learner_feed_posting")
   avatarObjectKey String?         @unique @map("avatar_object_key") @db.VarChar(500)

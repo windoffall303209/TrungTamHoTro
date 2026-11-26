@@ -121,7 +121,7 @@ export async function seedDemoData({ prisma, passwordHashFor, questionHash }) {
     const learningClass = await prisma.learningClass.upsert({
       where: { code_term: { code, term } },
       update: { name, status, capacity, startAt: addDays(startOffset, 1), endAt: addDays(endOffset, 10) },
-      create: { id: `demo-class-${pad(index + 1)}`, courseId: course.id, courseVersion: 1, code, name, term, status, startAt: addDays(startOffset, 1), endAt: addDays(endOffset, 10), capacity, allowLateEnrollment: index % 3 === 0, closedAt: status === "CLOSED" ? addDays(endOffset, 12) : null, archivePolicy: status === "CLOSED" ? "READ_ONLY" : null },
+      create: { id: `demo-class-${pad(index + 1)}`, courseId: course.id, courseVersion: 1, code, name, term, status, startAt: addDays(startOffset, 1), endAt: addDays(endOffset, 10), capacity, closedAt: status === "CLOSED" ? addDays(endOffset, 12) : null, archivePolicy: status === "CLOSED" ? "READ_ONLY" : null },
     });
     classes.push({ ...learningClass, courseCode, index });
   }

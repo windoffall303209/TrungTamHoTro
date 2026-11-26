@@ -2,7 +2,17 @@
 import { usePagination } from "@/shared/ui/ui";
 import { hasEveryPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
-import type { Exam, ExamAttempt, ExamAttemptReview, GradingQueueGroup, LearningClass, LiveSession, RegradeRequest } from "@/lib/learning-types";
+import {
+  CUSTOM_OPTION_VALUE,
+  K12_GRADES,
+  type Exam,
+  type ExamAttempt,
+  type ExamAttemptReview,
+  type GradingQueueGroup,
+  type LearningClass,
+  type LiveSession,
+  type RegradeRequest,
+} from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -52,8 +62,13 @@ export function useTeachingModel() {
   const availableSubjects = useMemo(() => {
     const set = new Set<string>();
     instructorClasses.forEach((c) => {
-      if (!gradeFilter || String(c.grade) === gradeFilter) {
-        if (c.subject) set.add(c.subject);
+      const matchesGrade =
+        !gradeFilter ||
+        (gradeFilter === CUSTOM_OPTION_VALUE
+          ? Boolean(c.grade && !K12_GRADES.some((g) => g.value === String(c.grade)))
+          : String(c.grade) === gradeFilter);
+      if (matchesGrade && c.subject) {
+        set.add(c.subject);
       }
     });
     return Array.from(set);
@@ -68,13 +83,21 @@ export function useTeachingModel() {
       const itemGrade = item.grade ?? cls?.grade;
       const itemSubject = item.subject ?? cls?.subject;
 
-      if (
-        gradeFilter &&
-        itemGrade !== undefined &&
-        itemGrade !== null &&
-        String(itemGrade) !== gradeFilter
-      ) {
-        return false;
+      if (gradeFilter) {
+        if (gradeFilter === CUSTOM_OPTION_VALUE) {
+          if (
+            !itemGrade ||
+            K12_GRADES.some((g) => g.value === String(itemGrade))
+          ) {
+            return false;
+          }
+        } else if (
+          itemGrade !== undefined &&
+          itemGrade !== null &&
+          String(itemGrade) !== gradeFilter
+        ) {
+          return false;
+        }
       }
       if (subjectFilter && itemSubject && itemSubject !== subjectFilter) {
         return false;

@@ -56,7 +56,6 @@ export function mapClass(row: ClassWithMembers): LearningClass {
     endAt: row.endAt.toISOString(),
     capacity: row.capacity,
     timezone: row.timezone,
-    allowLateEnrollment: row.allowLateEnrollment,
     allowPeerGradeViewing: row.allowPeerGradeViewing,
     allowLearnerFeedPosting: row.allowLearnerFeedPosting,
     avatarUrl: row.avatarObjectKey

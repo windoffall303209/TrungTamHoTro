@@ -211,7 +211,6 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
         capacity: 60,
         allowPeerGradeViewing: true,
         allowLearnerFeedPosting: false,
-        allowLateEnrollment: true,
       },
       sessionInstructor,
     );
@@ -219,7 +218,7 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
     expect(updated.capacity).toBe(60);
     expect(updated.allowPeerGradeViewing).toBe(true);
     expect(updated.allowLearnerFeedPosting).toBe(false);
-    expect(updated.allowLateEnrollment).toBe(true);
+    expect("allowLateEnrollment" in updated).toBe(false);
 
     // Khi tắt allowLearnerFeedPosting: học viên bị chặn 403 khi tạo bài mới, giảng viên vẫn đăng được
     await expect(
@@ -235,6 +234,62 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
     await courseClass.updateClassSettings(classId, { allowLearnerFeedPosting: true }, sessionInstructor);
     const learnerPost = await feed.createPost(classId, "Học viên đăng bài sau khi mở lại", [], sessionLearner);
     expect(learnerPost.authorId).toBe(learnerId);
+  });
+
+  it("mở lớp mới trực tiếp theo Khối & Môn tùy chỉnh (Khác) trên PostgreSQL và cho phép ghi danh bất cứ lúc nào", async () => {
+    let customClassId: string | null = null;
+    let customCourseId: string | null = null;
+    try {
+      const created = await courseClass.createClass(
+        {
+          code: `${prefix.toUpperCase()}-CUSTOM`,
+          name: `Lớp AI Chuyên Đề ${prefix}`,
+          term: "2026-2027",
+          grade: "Ôn thi ĐGNL",
+          subject: `Trí tuệ nhân tạo ${prefix}`,
+          startAt: new Date(Date.now() - 14 * 86_400_000).toISOString(),
+          endAt: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+          capacity: 35,
+          timezone: "Asia/Bangkok",
+          allowPeerGradeViewing: true,
+          allowLearnerFeedPosting: true,
+        },
+        "usr-manager",
+      );
+      customClassId = created.id;
+      customCourseId = created.courseId;
+      expect(created.grade).toBe("Ôn thi ĐGNL");
+      expect(created.subject).toBe(`Trí tuệ nhân tạo ${prefix}`);
+      expect(created.courseId).toBeTruthy();
+      expect(created.courseVersion).toBe(1);
+
+      // Lọc theo Khác (__OTHER__) trả về đúng lớp vừa tạo
+      const otherGradePage = await courseClass.listClassesPage("CENTER_MANAGER", "usr-manager", {
+        grade: "__OTHER__",
+        subject: "__OTHER__",
+        query: `${prefix.toUpperCase()}-CUSTOM`,
+        page: 1,
+        pageSize: 10,
+      });
+      expect(otherGradePage.total).toBe(1);
+      expect(otherGradePage.items[0]?.id).toBe(created.id);
+
+      // Ghi danh học viên bất kỳ lúc nào kể cả khi thời điểm startAt đã ở quá khứ
+      await courseClass.assignInstructor(created.id, instructorId, "PRIMARY", "usr-manager");
+      await courseClass.activateClass(created.id, "usr-manager");
+      const afterEnroll = await courseClass.enrollLearner(created.id, learnerId, "usr-manager");
+      expect(afterEnroll.learnerIds).toContain(learnerId);
+    } finally {
+      if (customClassId) {
+        await prisma.notification.deleteMany({
+          where: { entityType: "CLASS", entityId: customClassId },
+        });
+        await prisma.learningClass.deleteMany({ where: { id: customClassId } });
+      }
+      if (customCourseId) {
+        await prisma.course.deleteMany({ where: { id: customCourseId } });
+      }
+    }
   });
 
   it("hỗ trợ tải/xem/xóa avatar lớp cho giảng viên phụ trách và trả submissionId/attemptId chỉ cho giảng viên trên bảng điểm", async () => {

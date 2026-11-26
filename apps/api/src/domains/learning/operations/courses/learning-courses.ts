@@ -17,13 +17,54 @@ import type {
 import type { LearningServiceContext } from "../../core/learning.context.js";
 import { readWithoutTransaction } from "../../../../database/read-without-transaction.js";
 
+export const STANDARD_K12_GRADES = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11",
+  "12",
+] as const;
+
+export const STANDARD_K12_SUBJECTS = [
+  "Toán",
+  "Ngữ văn",
+  "Tiếng Anh",
+  "Vật lí",
+  "Hóa học",
+  "Sinh học",
+  "Lịch sử",
+  "Địa lí",
+  "Tin học",
+  "Công nghệ",
+  "GDCD",
+  "Khoa học tự nhiên",
+  "Lịch sử và Địa lí",
+] as const;
+
 export interface CoursePageFilters {
   query?: string;
-  grade?: number;
+  grade?: string | number;
   subject?: string;
   status?: LearningCourse["status"];
   page?: number;
   pageSize?: number;
+}
+
+/** Chuẩn hóa giá trị khối học từ số hoặc chuỗi sang chuỗi đã cắt khoảng trắng. */
+export function normalizeGradeText(value?: string | number | null): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return undefined;
 }
 
 /** Liệt kê khóa học từ DB hoặc trả bản sao dữ liệu nhớ để tránh mutation ngoài service. */
@@ -49,8 +90,13 @@ export async function listCoursesPage(
   filters: CoursePageFilters = {},
 ): Promise<PaginatedResult<LearningCourse>> {
   const query = filters.query?.trim();
+  const grade = normalizeGradeText(filters.grade);
   const subject = filters.subject?.trim();
-  if ((query && query.length > 255) || (subject && subject.length > 255)) {
+  if (
+    (query && query.length > 255) ||
+    (grade && grade.length > 255) ||
+    (subject && subject.length > 255)
+  ) {
     throw new BadRequestException("Search filters must not exceed 255 characters.");
   }
   const page =
@@ -65,17 +111,35 @@ export async function listCoursesPage(
       : 20;
   const prisma = serviceContext.database();
   if (prisma) {
-    const where: Prisma.CourseWhereInput = {};
-    if (filters.grade !== undefined) where.grade = filters.grade;
-    if (subject) where.subject = subject;
-    if (filters.status) where.status = filters.status;
-    if (query) {
-      where.OR = [
-        { code: { contains: query, mode: "insensitive" } },
-        { name: { contains: query, mode: "insensitive" } },
-        { description: { contains: query, mode: "insensitive" } },
-      ];
+    const andConditions: Prisma.CourseWhereInput[] = [];
+    if (grade === "__OTHER__") {
+      andConditions.push(
+        { grade: { not: null } },
+        { grade: { notIn: ["", ...STANDARD_K12_GRADES] } },
+      );
+    } else if (grade !== undefined) {
+      andConditions.push({ grade });
     }
+    if (subject === "__OTHER__") {
+      andConditions.push(
+        { subject: { not: null } },
+        { subject: { notIn: ["", ...STANDARD_K12_SUBJECTS] } },
+      );
+    } else if (subject) {
+      andConditions.push({ subject });
+    }
+    if (filters.status) andConditions.push({ status: filters.status });
+    if (query) {
+      andConditions.push({
+        OR: [
+          { code: { contains: query, mode: "insensitive" } },
+          { name: { contains: query, mode: "insensitive" } },
+          { description: { contains: query, mode: "insensitive" } },
+        ],
+      });
+    }
+    const where: Prisma.CourseWhereInput =
+      andConditions.length > 0 ? { AND: andConditions } : {};
     const { rows, total, safePage, totalPages } = await readWithoutTransaction(prisma,
       async (transaction) => {
         const total = await transaction.course.count({ where });
@@ -103,16 +167,32 @@ export async function listCoursesPage(
   }
   const normalizedQuery = query?.toLowerCase() ?? "";
   const filtered = serviceContext.courses
-    .filter(
-      (item) =>
-        (filters.grade === undefined || item.grade === filters.grade) &&
-        (!subject || item.subject === subject) &&
-        (!filters.status || item.status === filters.status) &&
-        (!normalizedQuery ||
-          `${item.code} ${item.name} ${item.description}`
-            .toLowerCase()
-            .includes(normalizedQuery)),
-    )
+    .filter((item) => {
+      if (grade === "__OTHER__") {
+        if (!item.grade || (STANDARD_K12_GRADES as readonly string[]).includes(item.grade)) {
+          return false;
+        }
+      } else if (grade !== undefined && item.grade !== grade) {
+        return false;
+      }
+      if (subject === "__OTHER__") {
+        if (!item.subject || (STANDARD_K12_SUBJECTS as readonly string[]).includes(item.subject)) {
+          return false;
+        }
+      } else if (subject && item.subject !== subject) {
+        return false;
+      }
+      if (filters.status && item.status !== filters.status) return false;
+      if (
+        normalizedQuery &&
+        !`${item.code} ${item.name} ${item.description}`
+          .toLowerCase()
+          .includes(normalizedQuery)
+      ) {
+        return false;
+      }
+      return true;
+    })
     .map((item) => ({
       ...item,
       outcomes: [...item.outcomes],
@@ -123,11 +203,14 @@ export async function listCoursesPage(
 /** Tạo khóa học nháp sau khi chuẩn hóa mã và chống trùng, đồng thời ghi audit. */
 export async function createCourse(
   serviceContext: LearningServiceContext,
-  input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> &
-    Partial<Pick<LearningCourse, "grade" | "subject">>,
+  input: Pick<LearningCourse, "code" | "name" | "description" | "outcomes"> & {
+    grade?: string | number;
+    subject?: string;
+  },
   actorId: string,
 ): Promise<LearningCourse> {
   const code = input.code.trim().toUpperCase();
+  const normalizedGrade = normalizeGradeText(input.grade);
   const prisma = serviceContext.database();
   if (prisma) {
     try {
@@ -137,7 +220,7 @@ export async function createCourse(
           code,
           name: input.name.trim(),
           description: input.description.trim(),
-          grade: input.grade ?? null,
+          grade: normalizedGrade ?? null,
           subject: input.subject?.trim() || null,
           outcomes: input.outcomes.filter(Boolean),
           ownerId: actorId,
@@ -158,8 +241,8 @@ export async function createCourse(
     code,
     name: input.name.trim(),
     description: input.description.trim(),
-    grade: input.grade,
-    subject: input.subject?.trim(),
+    grade: normalizedGrade,
+    subject: input.subject?.trim() || undefined,
     outcomes: input.outcomes.filter(Boolean),
     status: "DRAFT",
     version: 1,
@@ -174,13 +257,17 @@ export async function createCourse(
 export async function updateCourse(
   serviceContext: LearningServiceContext,
   courseId: string,
-  input: Pick<LearningCourse, "name" | "description" | "outcomes"> &
-    Partial<Pick<LearningCourse, "grade" | "subject">>,
+  input: Pick<LearningCourse, "name" | "description" | "outcomes"> & {
+    grade?: string | number;
+    subject?: string;
+  },
   actorId: string,
 ): Promise<LearningCourse> {
   const name = input.name.trim();
   const description = input.description.trim();
   const outcomes = input.outcomes.map((item) => item.trim()).filter(Boolean);
+  const normalizedGrade =
+    input.grade !== undefined ? normalizeGradeText(input.grade) ?? null : undefined;
   if (!outcomes.length)
     throw new BadRequestException("Khóa học cần ít nhất một mục tiêu học tập.");
   const prisma = serviceContext.database();
@@ -200,7 +287,7 @@ export async function updateCourse(
           name,
           description,
           outcomes,
-          grade: input.grade !== undefined ? input.grade : current.grade,
+          grade: normalizedGrade !== undefined ? normalizedGrade : current.grade,
           subject: input.subject !== undefined ? input.subject?.trim() || null : current.subject,
           status: "DRAFT",
         },
@@ -228,6 +315,8 @@ export async function updateCourse(
     name,
     description,
     outcomes,
+    grade: normalizedGrade !== undefined ? normalizedGrade ?? undefined : current.grade,
+    subject: input.subject !== undefined ? input.subject?.trim() || undefined : current.subject,
     status: "DRAFT",
     updatedAt: now(),
   });
@@ -349,6 +438,8 @@ export async function publishCourse(
     version: course.version,
     name: course.name,
     description: course.description,
+    grade: course.grade,
+    subject: course.subject,
     outcomes: [...course.outcomes],
     publishedBy: actorId,
     publishedAt: now(),

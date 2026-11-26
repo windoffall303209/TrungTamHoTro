@@ -23,7 +23,6 @@ const classItem: LearningClass = {
   endAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
   capacity: 40,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: true,
   status: "ACTIVE",
   instructorIds: ["usr-instructor"],
   learnerIds: ["usr-learner"],

@@ -23,7 +23,6 @@ const classItem: LearningClass = {
   capacity: 30,
   timezone: "Asia/Bangkok",
   status: "ACTIVE",
-  allowLateEnrollment: true,
   instructorIds: ["teacher"],
   learnerIds: [],
 };

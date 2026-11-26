@@ -57,7 +57,6 @@ const dummyClass: LearningClass = {
   endAt: "2026-12-31T00:00:00Z",
   capacity: 40,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: true,
   status: "ACTIVE",
   instructorIds: ["ins-1"],
   learnerIds: ["lrn-1"],

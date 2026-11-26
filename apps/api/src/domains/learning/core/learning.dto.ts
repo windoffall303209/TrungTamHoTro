@@ -101,21 +101,35 @@ export class SubmitExamDto {
 
 /** Xác định việc công bố câu hỏi có thuộc luồng tạo nội dung đã xác nhận hay không. */
 
+/** Chuẩn hóa nhãn khối, môn hoặc mã tùy chọn từ số hay chuỗi sang chuỗi đã cắt khoảng trắng. */
+function normalizeOptionalLabel(value: unknown): unknown {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return value;
+}
+
 /** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */
 export class CreateCourseDto {
   @IsString() @MinLength(2) @MaxLength(50) code!: string;
   @IsString() @MinLength(3) @MaxLength(200) name!: string;
   @IsString() @MinLength(10) description!: string;
-  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
-  @IsOptional() @IsString() @MaxLength(100) subject?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
 }
 
 export class UpdateCourseDto {
   @IsString() @MinLength(3) @MaxLength(200) name!: string;
   @IsString() @MinLength(10) description!: string;
-  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
-  @IsOptional() @IsString() @MaxLength(100) subject?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
 }
 
@@ -123,19 +137,21 @@ export class ArchiveCourseDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
-/** Dữ liệu mở lớp từ một phiên bản khóa học cùng quy mô và lịch vận hành. */
+/** Dữ liệu mở lớp học theo Khối và Môn (hoặc từ phiên bản khóa học có sẵn) cùng quy mô và lịch vận hành. */
 export class CreateClassDto {
-  @IsString() courseId!: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191) courseId?: string;
   @IsString() @MinLength(2) code!: string;
-  @IsString() @MinLength(3) name!: string;
+  @IsString() @MinLength(2) name!: string;
   @IsString() term!: string;
-  @IsOptional() @IsInt() @Min(1) @Max(12) grade?: number;
-  @IsOptional() @IsString() @MaxLength(100) subject?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
   @IsDateString() startAt!: string;
   @IsDateString() endAt!: string;
   @IsInt() @Min(1) @Max(1000) capacity!: number;
   @IsOptional() @IsString() timezone = "Asia/Bangkok";
-  @IsOptional() @IsBoolean() allowLateEnrollment = false;
   @IsOptional() @IsBoolean() allowPeerGradeViewing = false;
   @IsOptional() @IsBoolean() allowLearnerFeedPosting = true;
 }
@@ -144,7 +160,6 @@ export class CreateClassDto {
 export class UpdateClassDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(200) name?: string;
   @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
-  @IsOptional() @IsBoolean() allowLateEnrollment?: boolean;
   @IsOptional() @IsBoolean() allowPeerGradeViewing?: boolean;
   @IsOptional() @IsBoolean() allowLearnerFeedPosting?: boolean;
 }

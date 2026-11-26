@@ -196,7 +196,6 @@ export function ManagerClassWorkspace({
     name: item.name,
     capacity: item.capacity ?? 40,
     description: "description" in item && typeof item.description === "string" ? item.description : "",
-    allowLateEnrollment: item.allowLateEnrollment ?? false,
     allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
     allowLearnerFeedPosting: item.allowLearnerFeedPosting ?? true,
   });
@@ -238,7 +237,6 @@ export function ManagerClassWorkspace({
       name: item.name,
       capacity: item.capacity ?? 40,
       description: "description" in item && typeof item.description === "string" ? item.description : "",
-      allowLateEnrollment: item.allowLateEnrollment ?? false,
       allowPeerGradeViewing: item.allowPeerGradeViewing ?? false,
       allowLearnerFeedPosting: item.allowLearnerFeedPosting ?? true,
     });
@@ -398,6 +396,11 @@ export function ManagerClassWorkspace({
   };
 
   const classGrade = currentClass.grade ?? course?.grade;
+  const classGradeLabel = classGrade
+    ? /^\d+$/.test(String(classGrade).trim())
+      ? `Khối ${String(classGrade).trim()}`
+      : String(classGrade).trim()
+    : "";
   const classSubject = currentClass.subject ?? course?.subject;
 
   /** Kích hoạt mở Chat Mini Size trực tiếp với một thành viên */
@@ -443,7 +446,6 @@ export function ManagerClassWorkspace({
         body: JSON.stringify({
           name: settingsForm.name.trim(),
           capacity: Number(settingsForm.capacity),
-          allowLateEnrollment: settingsForm.allowLateEnrollment,
           allowPeerGradeViewing: settingsForm.allowPeerGradeViewing,
           allowLearnerFeedPosting: settingsForm.allowLearnerFeedPosting,
         }),
@@ -565,9 +567,9 @@ export function ManagerClassWorkspace({
               Đã đóng lớp
             </span>
           )}
-          {classGrade && (
+          {classGradeLabel && (
             <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-xs font-semibold">
-              Khối {classGrade}
+              {classGradeLabel}
             </span>
           )}
           {classSubject && (
@@ -717,7 +719,7 @@ export function ManagerClassWorkspace({
                     Khối lớp:
                   </span>
                   <span className="font-bold text-purple-600 dark:text-purple-400">
-                    {classGrade ? `Khối ${classGrade}` : "Chưa xác định"}
+                    {classGradeLabel || "Chưa xác định"}
                   </span>
                 </div>
 
@@ -1696,19 +1698,6 @@ export function ManagerClassWorkspace({
             <span className="space-y-1">
               <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép học sinh đăng bài trên bảng tin</span>
               <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Khi bật, học sinh được đăng bài mới trên bảng tin lớp; khi tắt chỉ giảng viên và quản lý được đăng bài.</span>
-            </span>
-          </label>
-
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 accent-sky-600"
-              checked={settingsForm.allowLateEnrollment}
-              onChange={(event) => setSettingsForm((current) => ({ ...current, allowLateEnrollment: event.target.checked }))}
-            />
-            <span className="space-y-1">
-              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">Cho phép ghi danh muộn</span>
-              <span className="block text-xs leading-relaxed text-slate-500 dark:text-slate-400">Cho phép thêm học viên mới sau khi lớp đã bắt đầu diễn ra.</span>
             </span>
           </label>
 

@@ -7,9 +7,16 @@ import { InstructorMembersTab } from "@/roles/instructor/class/tabs/instructor-m
 import { InstructorRolesTab } from "@/roles/instructor/class/tabs/instructor-roles-tab";
 import { InstructorSettingsTab } from "@/roles/instructor/class/tabs/instructor-settings-tab";
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+vi.mock("@/providers/app-provider", () => ({
+  useApp: () => ({ notify: vi.fn() }),
+}));
+
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
 });
 
 const learners: DirectoryUser[] = [
@@ -52,14 +59,13 @@ const sampleClass: LearningClass = {
   name: "Toán 10A",
   courseId: "course-1",
   courseVersion: 1,
-  grade: 10,
+  grade: "10",
   subject: "Toán",
   term: "HK1",
   startAt: "2026-01-01T00:00:00Z",
   endAt: "2026-12-31T00:00:00Z",
   capacity: 30,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: false,
   status: "ACTIVE",
   instructorIds: ["inst-1"],
   learnerIds: ["lrn-1", "lrn-2"],

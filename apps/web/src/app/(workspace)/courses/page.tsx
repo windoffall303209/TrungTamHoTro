@@ -9,28 +9,45 @@ import { AccessDenied } from "@/shared/auth/access-denied";
 import { ClassAvatar } from "@/shared/ui/class-avatar";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SectionState } from "@/shared/ui/section-state";
-import { SearchableSelect } from "@/shared/ui/searchable-select";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { Button, Field, inputClass, Modal, Pagination, StatusBadge } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
-import { K12_GRADES, K12_SUBJECTS, type Course, type CourseVersionSnapshot, type LearningClass } from "@/lib/learning-types";
+import {
+  CUSTOM_OPTION_VALUE,
+  formatGradeLabel,
+  K12_GRADES,
+  K12_SUBJECTS,
+  type Course,
+  type CourseVersionSnapshot,
+  type LearningClass,
+} from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { hasPermission } from "@/lib/access-control";
 
-const blankCourse = { code: "", name: "", description: "", outcomes: "", grade: "", subject: "" };
+const blankCourse = {
+  code: "",
+  name: "",
+  description: "",
+  outcomes: "",
+  grade: "",
+  customGrade: "",
+  subject: "",
+  customSubject: "",
+};
+
 const blankClass = {
-  courseId: "",
   code: "",
   name: "",
   term: "2026-2027",
   grade: "",
+  customGrade: "",
   subject: "",
+  customSubject: "",
   startAt: "",
   endAt: "",
   capacity: 40,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: false,
   allowPeerGradeViewing: false,
   allowLearnerFeedPosting: true,
   description: "",
@@ -46,6 +63,18 @@ const GRADIENTS = [
   "from-amber-600 to-orange-600",
   "from-rose-600 to-pink-600",
 ];
+
+/** Kiểm tra một giá trị khối có nằm trong 12 khối chuẩn K-12 hay không. */
+function isStandardGrade(value?: string | null): boolean {
+  if (!value) return false;
+  return K12_GRADES.some((item) => item.value === value);
+}
+
+/** Kiểm tra một giá trị môn học có nằm trong danh sách môn chuẩn K-12 hay không. */
+function isStandardSubject(value?: string | null): boolean {
+  if (!value) return false;
+  return K12_SUBJECTS.includes(value);
+}
 
 /** Hiển thị môn học và lớp theo tab độc lập, kèm luồng tạo, phiên bản hóa và kích hoạt. */
 export default function CoursesPage() {
@@ -70,7 +99,7 @@ export default function CoursesPage() {
   const loadRequestId = useRef(0);
   const versionRequestId = useRef(0);
   
-  // Bộ lọc chuẩn K-12: Khối -> Môn -> Lớp/Môn học
+  // Bộ lọc chuẩn: Khối -> Môn -> Lớp/Môn học
   const [gradeFilter, setGradeFilter] = useState<string>("");
   const [subjectFilter, setSubjectFilter] = useState<string>("");
   const [courseFilter, setCourseFilter] = useState<string>("");
@@ -78,6 +107,24 @@ export default function CoursesPage() {
 
   const allowed = ["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR", "LEARNER"].includes(session.roleCode);
   const manager = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) && hasPermission(session, "course:manage");
+
+  const effectiveCourseGrade =
+    courseForm.grade === CUSTOM_OPTION_VALUE
+      ? courseForm.customGrade.trim()
+      : courseForm.grade.trim();
+  const effectiveCourseSubject =
+    courseForm.subject === CUSTOM_OPTION_VALUE
+      ? courseForm.customSubject.trim()
+      : courseForm.subject.trim();
+
+  const effectiveClassGrade =
+    classForm.grade === CUSTOM_OPTION_VALUE
+      ? classForm.customGrade.trim()
+      : classForm.grade.trim();
+  const effectiveClassSubject =
+    classForm.subject === CUSTOM_OPTION_VALUE
+      ? classForm.customSubject.trim()
+      : classForm.subject.trim();
 
   /** Mở modal tạo môn học mới với mã tự sinh */
   const openCreateCourseModal = () => {
@@ -135,20 +182,27 @@ export default function CoursesPage() {
 
   // Danh sách các môn học có thể chọn lọc (theo khối đang chọn hoặc toàn bộ)
   const availableSubjects = useMemo(() => {
-    const list = new Set<string>();
+    const list = new Set<string>(K12_SUBJECTS);
     courses.forEach((c) => {
-      if (!gradeFilter || String(c.grade) === gradeFilter) {
+      if (
+        !gradeFilter ||
+        (gradeFilter === CUSTOM_OPTION_VALUE
+          ? Boolean(c.grade && !isStandardGrade(String(c.grade)))
+          : String(c.grade) === gradeFilter)
+      ) {
         if (c.subject) list.add(c.subject);
       }
     });
     classes.forEach((cl) => {
-      if (!gradeFilter || String(cl.grade) === gradeFilter) {
+      if (
+        !gradeFilter ||
+        (gradeFilter === CUSTOM_OPTION_VALUE
+          ? Boolean(cl.grade && !isStandardGrade(String(cl.grade)))
+          : String(cl.grade) === gradeFilter)
+      ) {
         if (cl.subject) list.add(cl.subject);
       }
     });
-    if (list.size === 0) {
-      K12_SUBJECTS.forEach((s) => list.add(s));
-    }
     return Array.from(list);
   }, [courses, classes, gradeFilter]);
 
@@ -158,7 +212,7 @@ export default function CoursesPage() {
   const { page: classPage, pageSize: classPageSize, syncResponse: syncClassPage } = classPagination;
   const loadControllerRef = useRef<AbortController | null>(null);
 
-  /** Nạp danh sách môn học làm tùy chọn cho bộ lọc và biểu mẫu mở lớp của quản lý. */
+  /** Nạp danh sách môn học làm tùy chọn cho bộ lọc của quản lý. */
   const loadCourseOptions = useCallback(async () => {
     if (!allowed || !manager) return;
     try {
@@ -263,10 +317,14 @@ export default function CoursesPage() {
         : fallbackOutcomes;
 
       const payload = {
-        ...courseForm,
         code,
-        grade: courseForm.grade ? Number(courseForm.grade) : undefined,
-        subject: courseForm.subject?.trim() || undefined,
+        name: courseForm.name.trim(),
+        description:
+          courseForm.description.trim().length >= 10
+            ? courseForm.description.trim()
+            : `Chương trình đào tạo môn ${courseForm.name.trim()}`,
+        grade: effectiveCourseGrade || undefined,
+        subject: effectiveCourseSubject || undefined,
         outcomes: outcomes.length ? outcomes : ["Hoàn thành môn học"],
       };
       await apiRequest(
@@ -293,9 +351,13 @@ export default function CoursesPage() {
     }
   };
 
-  /** Mở lớp mới từ môn học đã chọn và chuẩn hóa thời gian sang ISO trước khi gửi. */
+  /** Mở lớp mới trực tiếp theo Khối & Môn học (kèm tùy chọn Khác) và chuẩn hóa thời gian sang ISO trước khi gửi. */
   const createClass = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!effectiveClassGrade || !effectiveClassSubject) {
+      notify("Vui lòng chọn hoặc nhập đầy đủ Khối và Môn học để mở lớp.", "error");
+      return;
+    }
     setSaving(true);
     try {
       const autoCode = classForm.code?.trim() || `LOP-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -308,12 +370,13 @@ export default function CoursesPage() {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          ...classForm,
           code: autoCode,
+          name: classForm.name.trim(),
           term: classForm.term || "2026-2027",
           timezone: classForm.timezone || "Asia/Bangkok",
-          grade: classForm.grade ? Number(classForm.grade) : undefined,
-          subject: classForm.subject?.trim() || undefined,
+          grade: effectiveClassGrade,
+          subject: effectiveClassSubject,
+          capacity: Number(classForm.capacity),
           allowPeerGradeViewing: classForm.allowPeerGradeViewing,
           allowLearnerFeedPosting: classForm.allowLearnerFeedPosting,
           startAt,
@@ -342,7 +405,7 @@ export default function CoursesPage() {
       setMode(null);
       clearNewClassAvatar();
       setClassForm(blankClass);
-      await load();
+      await Promise.all([load(), loadCourseOptions()]);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không tạo được lớp.", "error");
     } finally {
@@ -363,13 +426,17 @@ export default function CoursesPage() {
 
   /** Đưa dữ liệu môn học vào biểu mẫu để tạo bản nháp chỉnh sửa mới. */
   const editCourse = (course: Course) => {
+    const rawGrade = course.grade ? String(course.grade) : "";
+    const rawSubject = course.subject || "";
     setEditingCourseId(course.id);
     setCourseForm({
       code: course.code,
       name: course.name,
       description: course.description,
-      grade: course.grade ? String(course.grade) : "",
-      subject: course.subject || "",
+      grade: !rawGrade ? "" : isStandardGrade(rawGrade) ? rawGrade : CUSTOM_OPTION_VALUE,
+      customGrade: rawGrade && !isStandardGrade(rawGrade) ? rawGrade : "",
+      subject: !rawSubject ? "" : isStandardSubject(rawSubject) ? rawSubject : CUSTOM_OPTION_VALUE,
+      customSubject: rawSubject && !isStandardSubject(rawSubject) ? rawSubject : "",
       outcomes: course.outcomes.join("\n"),
     });
     setMode("course");
@@ -556,6 +623,7 @@ export default function CoursesPage() {
                       {g.label}
                     </option>
                   ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác</option>
                 </select>
               </div>
             )}
@@ -578,6 +646,7 @@ export default function CoursesPage() {
                       {s}
                     </option>
                   ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác (tùy chỉnh)</option>
                 </select>
               </div>
             )}
@@ -664,7 +733,7 @@ export default function CoursesPage() {
                               </span>
                               {course.grade && (
                                 <span className="inline-flex items-center rounded-md bg-purple-50 dark:bg-purple-950/50 border border-purple-200/80 dark:border-purple-800/60 px-2 py-0.5 text-xs font-bold text-purple-700 dark:text-purple-300">
-                                  {`Khối ${course.grade}`}
+                                  {formatGradeLabel(course.grade)}
                                 </span>
                               )}
                               {course.subject && (
@@ -780,7 +849,7 @@ export default function CoursesPage() {
                                   </span>
                                   {classGrade && (
                                     <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 dark:border-purple-800/60 text-purple-700 dark:text-purple-300 text-[10px] font-bold">
-                                      {`Khối ${classGrade}`}
+                                      {formatGradeLabel(classGrade)}
                                     </span>
                                   )}
                                   {classSubject && (
@@ -873,37 +942,85 @@ export default function CoursesPage() {
             />
           </Field>
 
-          {/* Phân cấp chuẩn K-12: Khối lớp & Môn học */}
+          {/* Phân cấp Khối & Môn học (12 khối + Khác, các môn + Khác) */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Khối lớp (K-12)">
-              <select
-                className={inputClass}
-                required
-                value={courseForm.grade}
-                onChange={(e) => setCourseForm({ ...courseForm, grade: e.target.value })}
-              >
-                <option value="">-- Chọn khối --</option>
-                {K12_GRADES.map((g) => (
-                  <option key={g.value} value={g.value}>
-                    {g.label}
-                  </option>
-                ))}
-              </select>
+            <Field label="Khối">
+              <div className="space-y-2">
+                <select
+                  className={inputClass}
+                  required
+                  value={courseForm.grade}
+                  onChange={(e) =>
+                    setCourseForm({
+                      ...courseForm,
+                      grade: e.target.value,
+                      customGrade:
+                        e.target.value === CUSTOM_OPTION_VALUE ? courseForm.customGrade : "",
+                    })
+                  }
+                >
+                  <option value="">-- Chọn khối --</option>
+                  {K12_GRADES.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác</option>
+                </select>
+                {courseForm.grade === CUSTOM_OPTION_VALUE && (
+                  <input
+                    type="text"
+                    className={inputClass}
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    placeholder="Nhập tên khối bất kỳ..."
+                    value={courseForm.customGrade}
+                    onChange={(e) =>
+                      setCourseForm({ ...courseForm, customGrade: e.target.value })
+                    }
+                  />
+                )}
+              </div>
             </Field>
             <Field label="Môn học">
-              <select
-                className={inputClass}
-                required
-                value={courseForm.subject}
-                onChange={(e) => setCourseForm({ ...courseForm, subject: e.target.value })}
-              >
-                <option value="">-- Chọn môn học --</option>
-                {K12_SUBJECTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-2">
+                <select
+                  className={inputClass}
+                  required
+                  value={courseForm.subject}
+                  onChange={(e) =>
+                    setCourseForm({
+                      ...courseForm,
+                      subject: e.target.value,
+                      customSubject:
+                        e.target.value === CUSTOM_OPTION_VALUE ? courseForm.customSubject : "",
+                    })
+                  }
+                >
+                  <option value="">-- Chọn môn học --</option>
+                  {K12_SUBJECTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác</option>
+                </select>
+                {courseForm.subject === CUSTOM_OPTION_VALUE && (
+                  <input
+                    type="text"
+                    className={inputClass}
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    placeholder="Nhập tên môn học bất kỳ..."
+                    value={courseForm.customSubject}
+                    onChange={(e) =>
+                      setCourseForm({ ...courseForm, customSubject: e.target.value })
+                    }
+                  />
+                )}
+              </div>
             </Field>
           </div>
 
@@ -924,45 +1041,91 @@ export default function CoursesPage() {
       {/* MODAL MỞ LỚP HỌC */}
       <Modal open={mode === "class"} onClose={() => setMode(null)} title="Mở lớp học">
         <form className="space-y-4" onSubmit={(e) => void createClass(e)}>
-          <Field label="Môn học">
-            <SearchableSelect
-              aria-label="Tìm và chọn môn học"
-              onChange={(value) => {
-                const selectedCrs = courses.find((c) => c.id === value);
-                setClassForm({
-                  ...classForm,
-                  courseId: value,
-                  grade: selectedCrs?.grade ? String(selectedCrs.grade) : "",
-                  subject: selectedCrs?.subject || "",
-                });
-              }}
-              options={courses.filter((course) => course.status === "PUBLISHED").map((course) => ({
-                value: course.id,
-                label: `${course.code} — ${course.name}`,
-                description: `Khối ${course.grade ?? "?"} · Môn ${course.subject ?? "?"} · v${course.version}`,
-                keywords: `${course.id} ${course.subject ?? ""} ${course.grade ?? ""}`
-              }))}
-              placeholder="Gõ mã hoặc tên môn học để lọc…"
-              value={classForm.courseId}
-            />
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Khối">
+              <div className="space-y-2">
+                <select
+                  aria-label="Chọn khối"
+                  className={inputClass}
+                  required
+                  value={classForm.grade}
+                  onChange={(e) =>
+                    setClassForm({
+                      ...classForm,
+                      grade: e.target.value,
+                      customGrade:
+                        e.target.value === CUSTOM_OPTION_VALUE ? classForm.customGrade : "",
+                    })
+                  }
+                >
+                  <option value="">-- Chọn khối --</option>
+                  {K12_GRADES.map((g) => (
+                    <option key={g.value} value={g.value}>
+                      {g.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác</option>
+                </select>
+                {classForm.grade === CUSTOM_OPTION_VALUE && (
+                  <input
+                    type="text"
+                    aria-label="Tên khối tùy chỉnh"
+                    className={inputClass}
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    placeholder="Nhập tên khối bất kỳ..."
+                    value={classForm.customGrade}
+                    onChange={(e) =>
+                      setClassForm({ ...classForm, customGrade: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            </Field>
 
-          {/* Hiển thị Khối & Môn theo môn học được chọn */}
-          {classForm.courseId && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-800 text-xs">
-              <span className="font-bold text-slate-500 dark:text-slate-600">Phân cấp K-12 kế thừa:</span>
-              {classForm.grade ? (
-                <span className="px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 border border-purple-200/80 text-purple-700 dark:text-purple-300 font-bold">
-                  Khối {classForm.grade}
-                </span>
-              ) : null}
-              {classForm.subject ? (
-                <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 text-emerald-700 dark:text-emerald-300 font-bold">
-                  Môn {classForm.subject}
-                </span>
-              ) : null}
-            </div>
-          )}
+            <Field label="Môn học">
+              <div className="space-y-2">
+                <select
+                  aria-label="Chọn môn học"
+                  className={inputClass}
+                  required
+                  value={classForm.subject}
+                  onChange={(e) =>
+                    setClassForm({
+                      ...classForm,
+                      subject: e.target.value,
+                      customSubject:
+                        e.target.value === CUSTOM_OPTION_VALUE ? classForm.customSubject : "",
+                    })
+                  }
+                >
+                  <option value="">-- Chọn môn học --</option>
+                  {K12_SUBJECTS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_OPTION_VALUE}>Khác</option>
+                </select>
+                {classForm.subject === CUSTOM_OPTION_VALUE && (
+                  <input
+                    type="text"
+                    aria-label="Tên môn học tùy chỉnh"
+                    className={inputClass}
+                    required
+                    minLength={1}
+                    maxLength={100}
+                    placeholder="Nhập tên môn học bất kỳ..."
+                    value={classForm.customSubject}
+                    onChange={(e) =>
+                      setClassForm({ ...classForm, customSubject: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            </Field>
+          </div>
 
           <Field label="Tên lớp">
             <input
@@ -1086,7 +1249,13 @@ export default function CoursesPage() {
             </label>
           </div>
 
-          <Button disabled={!classForm.courseId} loading={saving} type="submit">Mở lớp</Button>
+          <Button
+            disabled={!effectiveClassGrade || !effectiveClassSubject || classForm.name.trim().length < 2}
+            loading={saving}
+            type="submit"
+          >
+            Mở lớp
+          </Button>
         </form>
       </Modal>
 

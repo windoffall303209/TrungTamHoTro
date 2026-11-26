@@ -120,7 +120,6 @@ export async function updateClassSettings(
   input: {
     name?: string;
     capacity?: number;
-    allowLateEnrollment?: boolean;
     allowPeerGradeViewing?: boolean;
     allowLearnerFeedPosting?: boolean;
   },

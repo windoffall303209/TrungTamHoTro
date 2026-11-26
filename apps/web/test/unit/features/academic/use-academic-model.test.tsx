@@ -21,7 +21,7 @@ vi.mock("@/shared/ui/ui", () => ({ usePagination: () => ({ resetPage: vi.fn() })
 const classes: LearningClass[] = ["a", "b"].map((id) => ({
   id, courseId: `course-${id}`, courseVersion: 1, code: id, name: id,
   term: "2026-FALL", startAt: "2026-09-01T00:00:00Z", endAt: "2026-12-01T00:00:00Z",
-  capacity: 30, timezone: "Asia/Bangkok", allowLateEnrollment: false,
+  capacity: 30, timezone: "Asia/Bangkok",
   status: "ACTIVE", instructorIds: [], learnerIds: [],
 }));
 

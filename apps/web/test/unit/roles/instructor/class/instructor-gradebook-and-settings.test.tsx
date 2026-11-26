@@ -35,13 +35,12 @@ const baseClass: LearningClass = {
   code: "TOAN-10A1",
   name: "Lớp Toán 10A1",
   term: "2026-2027",
-  grade: 10,
+  grade: "10",
   subject: "Toán học",
   startAt: "2026-09-01T00:00:00.000Z",
   endAt: "2027-05-30T00:00:00.000Z",
   capacity: 40,
   timezone: "Asia/Bangkok",
-  allowLateEnrollment: false,
   allowPeerGradeViewing: false,
   allowLearnerFeedPosting: true,
   avatarUrl: null,
@@ -184,6 +183,7 @@ describe("Bảng điểm tương tác giảng viên, bảng điểm chỉ xem h�
       />,
     );
 
+    expect(screen.queryByText(/Cho phép ghi danh muộn/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText(/Cho phép học sinh xem bảng điểm/));
     fireEvent.click(screen.getByLabelText(/Cho phép học sinh đăng bài trên bảng tin/));
     await act(async () => {
@@ -195,7 +195,6 @@ describe("Bảng điểm tương tác giảng viên, bảng điểm chỉ xem h�
       body: JSON.stringify({
         name: "Lớp Toán 10A1",
         capacity: 40,
-        allowLateEnrollment: false,
         allowPeerGradeViewing: true,
         allowLearnerFeedPosting: false,
       }),
