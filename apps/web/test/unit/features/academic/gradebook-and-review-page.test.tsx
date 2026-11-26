@@ -356,7 +356,7 @@ describe("Gradebook UI, question parser, document viewer, and essay review page"
 
     render(<AssignmentSubmissionReviewScreen classId="cls-1" assignmentId="asg-1" initialSubmissionId="sub-a" />);
 
-    expect(await screen.findByText("Toàn bộ câu hỏi & Đề bài")).toBeInTheDocument();
+    expect(await screen.findByText("Đề bài")).toBeInTheDocument();
     expect(screen.getByText("Câu 1")).toBeInTheDocument();
     expect(screen.getByText("Câu 2")).toBeInTheDocument();
     expect(screen.getByText(/1 học viên chưa nộp/)).toBeInTheDocument();

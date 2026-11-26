@@ -2296,7 +2296,13 @@ export function LearnerClassWorkspace({
               <div className="flex-1 overflow-y-auto px-6 py-6">
                 <div className="mx-auto grid w-full max-w-6xl grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                   <div className="lg:col-span-5 space-y-4">
-                    {activeEssayAssignment.description && <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">{activeEssayAssignment.description}</p>}
+                    {activeEssayAssignment.description &&
+                      activeEssayAssignment.description.trim() !==
+                        `Bài tập tự luận: ${activeEssayAssignment.title.trim()}` && (
+                        <p className="whitespace-pre-wrap break-words text-sm text-slate-700 dark:text-slate-300">
+                          {activeEssayAssignment.description}
+                        </p>
+                      )}
                     {activeEssayAssignment.instructions && <div className="rounded-2xl bg-slate-50 p-5 border border-slate-200/80 dark:border-slate-700 dark:bg-slate-800/70"><h3 className="mb-1.5 font-semibold text-slate-900 dark:text-white">Hướng dẫn</h3><p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700 dark:text-slate-300">{activeEssayAssignment.instructions}</p></div>}
                     {activeEssayAssignment.sourceMaterial && (
                       <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 dark:border-sky-900 dark:bg-sky-950/30">
@@ -2365,8 +2371,36 @@ export function LearnerClassWorkspace({
                     )}
                     {editable && (
                       <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4">
-                        <label htmlFor="essay-submission-files" className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Tệp đính kèm (tối đa 5 tệp, 20 MB/tệp)</label>
-                        <input id="essay-submission-files" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt" disabled={essaySubmitting || keptAttachments.length + essayFiles.length >= 5} onChange={(event) => { chooseEssayFiles(event.target.files); event.target.value = ""; }} className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:font-semibold file:text-sky-800 dark:text-slate-300" />
+                        <span className="mb-2 block text-sm font-semibold text-slate-800 dark:text-slate-100">Tệp đính kèm (tối đa 5 tệp, 20 MB/tệp)</span>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <label
+                            htmlFor="essay-submission-files"
+                            className={`inline-flex items-center gap-2 rounded-lg bg-sky-100 px-3.5 py-2 text-sm font-semibold text-sky-800 transition hover:bg-sky-200 dark:bg-sky-950/60 dark:text-sky-200 dark:hover:bg-sky-900/60 ${
+                              essaySubmitting || keptAttachments.length + essayFiles.length >= 5
+                                ? "pointer-events-none opacity-50"
+                                : "cursor-pointer"
+                            }`}
+                          >
+                            <span>Chọn tệp</span>
+                            <input
+                              id="essay-submission-files"
+                              type="file"
+                              multiple
+                              accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt"
+                              disabled={essaySubmitting || keptAttachments.length + essayFiles.length >= 5}
+                              onChange={(event) => {
+                                chooseEssayFiles(event.target.files);
+                                event.target.value = "";
+                              }}
+                              className="sr-only"
+                            />
+                          </label>
+                          <span className="text-sm text-slate-500 dark:text-slate-400">
+                            {essayFiles.length === 0
+                              ? "Chưa có tệp nào được chọn"
+                              : `Đã chọn ${essayFiles.length} tệp`}
+                          </span>
+                        </div>
                         {essayFiles.map((file, index) => <div key={`${file.name}-${index}`} className="mt-2 flex items-center justify-between gap-2 text-sm text-slate-600 dark:text-slate-300"><span className="min-w-0 truncate">{file.name}</span><button type="button" disabled={essaySubmitting} onClick={() => setEssayFiles((current) => current.filter((_, position) => position !== index))} className="shrink-0 text-rose-600 hover:underline">Bỏ tệp</button></div>)}
                       </div>
                     )}

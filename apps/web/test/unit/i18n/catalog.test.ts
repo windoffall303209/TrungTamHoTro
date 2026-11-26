@@ -133,5 +133,29 @@ describe("i18n catalog", () => {
     expect(returnedExam).toContain("Exam");
     expect(returnedExam.toLowerCase()).not.toContain("topic");
   });
+
+  it("dịch đầy đủ hướng dẫn nhiều dòng, trạng thái chấm học sinh và thông báo thang điểm tự luận", () => {
+    expect(
+      translateText(
+        "Câu 1: test câu hỏi tiếng anh\n\nNhập nội dung bài làm hoặc tải lên tệp câu trả lời.",
+        "en-US",
+      ),
+    ).toBe("Question 1: test câu hỏi tiếng anh\n\nType your response or upload an answer file.");
+    expect(translateText("Bài tập tự luận: test eng", "en-US")).toBe("Essay assignment: test eng");
+    expect(translateText("Chọn tệp", "en-US")).toBe("Choose files");
+    expect(translateText("Chưa có tệp nào được chọn", "en-US")).toBe("No file chosen");
+    expect(translateText("Đã chọn 2 tệp", "en-US")).toBe("2 files selected");
+    expect(translateText("1. Nguyễn Văn A — Chờ chấm", "en-US")).toBe("1. Nguyễn Văn A — Pending");
+    expect(translateText("2. Trần Thị B — Đã chấm (8.5/10)", "en-US")).toBe(
+      "2. Trần Thị B — Graded (8.5/10)",
+    );
+    expect(translateText("Vui lòng nhập điểm cho Phần tự luận.", "en-US")).toBe(
+      "Please enter a score for Essay.",
+    );
+    expect(translateText("Điểm Phần trắc nghiệm phải nằm trong khoảng từ 0 đến 7.", "en-US")).toBe(
+      "Multiple choice score must be between 0 and 7.",
+    );
+    expect(translateText("Đề bài", "en-US")).toBe("Prompt");
+  });
 });
 

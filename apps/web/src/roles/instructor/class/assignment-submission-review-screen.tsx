@@ -835,29 +835,27 @@ export function AssignmentSubmissionReviewScreen({
               : "grid gap-5 lg:grid-cols-[288px_minmax(0,1fr)] items-start"
           }
         >
-          {/* Cột Trái (hoặc hàng trên khi tập trung tài liệu): Note rõ TOÀN BỘ CÂU HỎI & Tệp đề */}
+          {/* Cột Trái (hoặc hàng trên khi tập trung tài liệu): Đề bài & tệp đề */}
           <section
-            aria-label="Đề bài và toàn bộ câu hỏi"
+            aria-label="Đề bài"
             className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 p-3.5 sm:p-4 shadow-xs space-y-4 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto"
           >
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <h2 className="text-sm font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                 <ClipboardList size={16} className="text-sky-600" />
-                <span>Toàn bộ câu hỏi & Đề bài</span>
+                <span>Đề bài</span>
               </h2>
-              <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                {parsedQuestions.filter((item) => !item.isGeneral).length || 1} phần
-              </span>
             </div>
 
-            {assignment.description.trim() && (
-              <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-3 space-y-1">
-                <p className="text-[11px] font-extrabold uppercase text-slate-500">Mô tả chung</p>
-                <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
-                  {assignment.description}
-                </p>
-              </div>
-            )}
+            {assignment.description.trim() &&
+              assignment.description.trim() !== `Bài tập tự luận: ${assignment.title.trim()}` && (
+                <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-3 space-y-1">
+                  <p className="text-[11px] font-extrabold uppercase text-slate-500">Mô tả chung</p>
+                  <p className="text-xs leading-relaxed text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                    {assignment.description}
+                  </p>
+                </div>
+              )}
 
             <ol className="space-y-3">
               {parsedQuestions.map((question, idx) => (

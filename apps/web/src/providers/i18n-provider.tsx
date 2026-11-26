@@ -26,15 +26,20 @@ const sourceAttributes = new WeakMap<Element, Map<string, string>>();
 const localizedAttributes = new WeakMap<Element, Map<string, string>>();
 const translatedAttributes = ["aria-label", "placeholder", "title", "alt"] as const;
 
-/** Bỏ qua nội dung do người dùng tạo hoặc vùng mã, nơi dịch tự động sẽ làm sai dữ liệu. */
-function shouldSkip(node: Node): boolean {
+/** Bỏ qua nội dung văn bản do người dùng tạo hoặc vùng mã, nơi dịch tự động sẽ làm sai dữ liệu. */
+function shouldSkipTextNode(node: Node): boolean {
   const parent = node instanceof Element ? node : node.parentElement;
-  return Boolean(parent?.closest("[data-i18n-skip],script,style,code,pre,textarea"));
+  return Boolean(parent?.closest('[data-i18n-skip],[translate="no"],script,style,code,pre,textarea'));
+}
+
+/** Bỏ qua vùng mã hoặc đánh dấu không dịch khi dịch các thuộc tính giao diện (placeholder, aria-label, title). */
+function shouldSkipElement(element: Element): boolean {
+  return Boolean(element.closest('[data-i18n-skip],[translate="no"],script,style,code,pre'));
 }
 
 /** Dịch một text node và giữ nguồn tiếng Việt để chuyển ngược không mất dữ liệu. */
 function localizeTextNode(node: Text, locale: SupportedLocale): void {
-  if (shouldSkip(node)) return;
+  if (shouldSkipTextNode(node)) return;
   const remembered = sourceText.get(node);
   if (!remembered) sourceText.set(node, node.data);
   else if (localizedText.has(node) && node.data !== localizedText.get(node)) sourceText.set(node, node.data);
@@ -44,9 +49,9 @@ function localizeTextNode(node: Text, locale: SupportedLocale): void {
   localizedText.set(node, translated);
 }
 
-/** Dịch các thuộc tính hỗ trợ và placeholder, đồng thời bảo toàn giá trị nguồn. */
+/** Dịch các thuộc tính hỗ trợ và placeholder (kể cả trên textarea), đồng thời bảo toàn giá trị nguồn. */
 function localizeElement(element: Element, locale: SupportedLocale): void {
-  if (shouldSkip(element)) return;
+  if (shouldSkipElement(element)) return;
   const remembered = sourceAttributes.get(element) ?? new Map<string, string>();
   const previousTranslations = localizedAttributes.get(element) ?? new Map<string, string>();
   for (const attribute of translatedAttributes) {
@@ -64,9 +69,15 @@ function localizeElement(element: Element, locale: SupportedLocale): void {
 
 /** Áp locale lên toàn bộ cây DOM hiện hữu trong một lượt duyệt. */
 function localizeTree(root: Node, locale: SupportedLocale): void {
-  if (shouldSkip(root)) return;
-  if (root instanceof Text) localizeTextNode(root, locale);
-  if (root instanceof Element) localizeElement(root, locale);
+  if (root instanceof Text) {
+    localizeTextNode(root, locale);
+    return;
+  }
+  if (root instanceof Element) {
+    if (shouldSkipElement(root)) return;
+    localizeElement(root, locale);
+    if (shouldSkipTextNode(root)) return;
+  }
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
   let current = walker.nextNode();
   while (current) {

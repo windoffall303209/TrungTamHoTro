@@ -1597,6 +1597,24 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Thang điểm ({{0}}đ)": "Grading scale ({{0}} pts)",
   "Tổng điểm:": "Total score:",
   "Tổng điểm: {{0}} điểm": "Total score: {{0}} points",
+  "Chọn tệp": "Choose files",
+  "Chưa có tệp nào được chọn": "No file chosen",
+  "Đã chọn": "Selected",
+  "Đã chọn {{0}} tệp": "{{0}} files selected",
+  "Nhập nội dung bài làm của bạn...": "Enter your answer...",
+  "Xem hoặc tải tệp đề đính kèm để làm bài.": "View or download the attached prompt file to complete the assignment.",
+  "Nội dung bài tự luận": "Essay content",
+  "Nội dung bài trắc nghiệm": "Multiple-choice content",
+  "· Thang": "· Scale",
+  "GV:": "Instructor:",
+  "· GV:": "· Instructor:",
+  "trang": "pages",
+  "từ": "words",
+  "Ghi danh": "Enroll",
+  "Ghi danh ngay": "Enroll now",
+  "P1 — Cao": "P1 — High",
+  "Link Google Meet": "Google Meet link",
+  "Đề bài": "Prompt",
 };
 
 
@@ -1648,10 +1666,24 @@ const STRICT_NUMERIC_TEMPLATES = new Set([
   "{{0}} bài nộp",
   "{{0}} học viên",
   "Bước {{0}}/5",
+  "Đã chọn {{0}} tệp",
 ]);
 
 const strictDomainPatterns: ReadonlyArray<readonly [RegExp, (...groups: string[]) => string]> = [
   [/^(\d+(?:[.,]\d+)?) điểm$/, (n = "0") => formatCount(n, "point", "points")],
+  [/^(\d+(?:[.,]\d+)?)đ$/, (n = "0") => `${n} pts`],
+  [/^(\d+) phần$/, (n = "0") => formatCount(n, "section", "sections")],
+  [/^Đã chọn (\d+) tệp$/, (n = "0") => `${formatCount(n, "file", "files")} selected`],
+  [/^\((\d+) học viên chưa nộp\)$/, (n = "0") => `(${formatCount(n, "unsubmitted student", "unsubmitted students")})`],
+  [/^(\d+)\.\s*(.+?)\s*—\s*Chờ chấm$/, (idx = "1", name = "") => `${idx}. ${name} — Pending`],
+  [/^(\d+)\.\s*(.+?)\s*—\s*Đã chấm \((.+)\)$/, (idx = "1", name = "", sc = "") => `${idx}. ${name} — Graded (${sc})`],
+  [/^Bài tập tự luận:\s*(.+)$/, (title = "") => `Essay assignment: ${title}`],
+  [/^Chỉnh sửa bài tập tự luận:\s*(.+)$/, (title = "") => `Edit essay assignment: ${title}`],
+  [/^Câu (\d+):\s*(.+)$/, (num = "1", rest = "") => `Question ${num}: ${englishCatalog[rest] ?? rest}`],
+  [/^Vui lòng nhập điểm cho (.+)\.$/, (label = "") => `Please enter a score for ${curatedEnglishCatalog[label] ?? label}.`],
+  [/^Điểm (.+?) phải nằm trong khoảng từ (\d+(?:[.,]\d+)?) đến (\d+(?:[.,]\d+)?)\.$/, (label = "", min = "0", max = "0") => `${curatedEnglishCatalog[label] ?? label} score must be between ${min} and ${max}.`],
+  [/^Điểm (.+?) hỗ trợ tối đa 2 chữ số thập phân\.$/, (label = "") => `${curatedEnglishCatalog[label] ?? label} score supports at most 2 decimal places.`],
+  [/^Điểm (Phần trắc nghiệm|Phần tự luận)$/, (label = "") => `${curatedEnglishCatalog[label] ?? label} score`],
   [/^(\d+(?:[.,]\d+)?) \/ (\d+(?:[.,]\d+)?) điểm$/, (a = "0", b = "0") => `${a} / ${formatCount(b, "point", "points")}`],
   [/^(\d+(?:[.,]\d+)?) điểm tự động tạm tính$/, (n = "0") => formatCount(n, "auto-graded point", "auto-graded points")],
   [/^· Điểm (\d+(?:[.,]\d+)?)$/, (n = "0") => `· Score ${n}`],
@@ -1723,8 +1755,15 @@ function templatePattern(source: string): RegExp {
   return new RegExp(`^${escaped.join("(.+?)")}$`);
 }
 
+const curatedTemplateCatalog = Object.fromEntries(
+  Object.entries(curatedEnglishCatalog).filter(([key]) => /\{\{\d+\}\}/.test(key)),
+);
+
 // Ưu tiên mẫu có phần chữ tĩnh dài hơn trước để mẫu tiền tố ngắn không nuốt nhầm câu dài.
-const templateEnglishCatalog = Object.entries(generatedTemplateEnglishCatalog)
+const templateEnglishCatalog = Object.entries({
+  ...generatedTemplateEnglishCatalog,
+  ...curatedTemplateCatalog,
+})
   .filter(([source]) => !STRICT_NUMERIC_TEMPLATES.has(source))
   .sort(([left], [right]) => {
     const leftStatic = left.replace(/\{\{\d+\}\}/g, "").length;
@@ -1758,10 +1797,8 @@ const englishPatterns: Array<[RegExp, (...matches: string[]) => string]> = [
   [/^Khôi phục (.+)$/, (name) => `Restore ${name}`],
 ];
 
-
-
-/** Dịch một chuỗi tiếng Việt sang tiếng Anh theo bảng biên tập, mẫu sinh tự động và quy tắc số nhiều. */
-export function translateToEnglish(value: string): string {
+// Dịch một dòng đơn sang tiếng Anh theo từ điển chính xác, mẫu miền nghiêm ngặt và template động.
+function translateSingleLine(value: string): string {
   if (!value.trim()) return value;
   const leading = value.match(/^\s*/)?.[0] ?? "";
   const trailing = value.match(/\s*$/)?.[0] ?? "";
@@ -1783,4 +1820,15 @@ export function translateToEnglish(value: string): string {
     return `${leading}${rendered}${trailing}`;
   }
   return value;
+}
+
+/** Dịch một chuỗi tiếng Việt sang tiếng Anh theo bảng biên tập, mẫu sinh tự động, quy tắc số nhiều và khối nhiều dòng. */
+export function translateToEnglish(value: string): string {
+  if (!value.trim()) return value;
+  const singlePass = translateSingleLine(value);
+  if (singlePass !== value || !value.includes("\n")) return singlePass;
+  return value
+    .split("\n")
+    .map((line) => (line.trim() ? translateSingleLine(line) : line))
+    .join("\n");
 }

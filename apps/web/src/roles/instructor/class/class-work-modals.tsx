@@ -423,7 +423,11 @@ export function ClassAssignmentPreviewModal({
                 {assignment.rubric.map((criterion) => (
                   <div key={criterion.id} className="flex items-center justify-between gap-4 py-2 text-xs">
                     <div>
-                      <p className="font-bold text-slate-800 dark:text-slate-200">{criterion.title}</p>
+                      <p className="font-bold text-slate-800 dark:text-slate-200">
+                        {criterion.title === "Mức độ hoàn thành" || criterion.title === "Nội dung"
+                          ? "Phần tự luận"
+                          : criterion.title}
+                      </p>
                       {criterion.description && (
                         <p className="text-slate-500 dark:text-slate-400">{criterion.description}</p>
                       )}
@@ -669,21 +673,32 @@ export function ClassAssignmentTrialModal({
                   </div>
 
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4">
-                    <label htmlFor="essay-trial-files" className="mb-2 block text-xs font-bold text-slate-800 dark:text-slate-100">
+                    <span className="mb-2 block text-xs font-bold text-slate-800 dark:text-slate-100">
                       Tệp đính kèm
-                    </label>
-                    <input
-                      id="essay-trial-files"
-                      type="file"
-                      multiple
-                      accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt"
-                      onChange={(event) => {
-                        const picked = Array.from(event.target.files ?? []);
-                        if (picked.length) setFiles((prev) => [...prev, ...picked].slice(0, 5));
-                        event.target.value = "";
-                      }}
-                      className="block w-full text-xs text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-sky-100 file:px-3 file:py-1.5 file:font-semibold file:text-sky-800 dark:text-slate-300"
-                    />
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label
+                        htmlFor="essay-trial-files"
+                        className="inline-flex items-center gap-2 rounded-lg bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-800 hover:bg-sky-200 dark:bg-sky-950/60 dark:text-sky-200 cursor-pointer"
+                      >
+                        <span>Chọn tệp</span>
+                        <input
+                          id="essay-trial-files"
+                          type="file"
+                          multiple
+                          accept=".jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.txt"
+                          onChange={(event) => {
+                            const picked = Array.from(event.target.files ?? []);
+                            if (picked.length) setFiles((prev) => [...prev, ...picked].slice(0, 5));
+                            event.target.value = "";
+                          }}
+                          className="sr-only"
+                        />
+                      </label>
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        {files.length === 0 ? "Chưa có tệp nào được chọn" : `Đã chọn ${files.length} tệp`}
+                      </span>
+                    </div>
                     {files.map((file, index) => (
                       <div key={`${file.name}-${index}`} className="mt-2 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
                         <span className="truncate">{file.name}</span>
