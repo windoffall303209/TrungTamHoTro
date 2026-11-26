@@ -172,6 +172,7 @@ export interface LearningNotification {
   title: string;
   entityType: string;
   entityId: string;
+  classId?: string;
   readAt?: IsoDateTimeString;
   createdAt: IsoDateTimeString;
 }

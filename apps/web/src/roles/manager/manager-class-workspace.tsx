@@ -196,6 +196,18 @@ export function ManagerClassWorkspace({
     }
     return "overview";
   });
+
+  useEffect(() => {
+    // Chuyển thẳng sang tab Lịch học khi người dùng mở thông báo buổi học ngay trong lớp đang xem.
+    const handleExternalTabSelect = (event: Event) => {
+      const detail = (event as CustomEvent<{ classId?: string; tab?: string }>).detail;
+      if (detail?.classId === item.id && detail.tab === "schedule") {
+        setActiveTab("schedule");
+      }
+    };
+    window.addEventListener("select-class-tab", handleExternalTabSelect);
+    return () => window.removeEventListener("select-class-tab", handleExternalTabSelect);
+  }, [item.id]);
   const [copiedLink, setCopiedLink] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyRequest = useRef(0);

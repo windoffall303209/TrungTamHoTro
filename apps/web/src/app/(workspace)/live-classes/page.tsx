@@ -93,8 +93,9 @@ export default function LiveClassesPage() {
   );
   const instructor = session.roleCode === "INSTRUCTOR";
   const classIdParam = searchParams.get("classId")?.trim() ?? "";
+  const sessionIdParam = searchParams.get("sessionId")?.trim() ?? "";
   const redirectHref = classIdParam
-    ? `/courses/classes/${encodeURIComponent(classIdParam)}?tab=schedule`
+    ? `/courses/classes/${encodeURIComponent(classIdParam)}?tab=schedule${sessionIdParam ? `&sessionId=${encodeURIComponent(sessionIdParam)}` : ""}`
     : "/courses";
 
   const [items, setItems] = useState<LiveSession[]>([]);
@@ -178,10 +179,32 @@ export default function LiveClassesPage() {
   };
 
   useEffect(() => {
-    if (knownWorkspaceRole && !instructor) {
+    if (!knownWorkspaceRole || instructor) return;
+    if (classIdParam || !sessionIdParam) {
       router.replace(redirectHref);
+      return;
     }
-  }, [instructor, knownWorkspaceRole, redirectHref, router]);
+    const controller = new AbortController();
+    void apiRequest<LiveSession[]>("/sessions", {
+      roleCode: session.roleCode,
+      signal: controller.signal,
+    })
+      .then((rows) => {
+        if (controller.signal.aborted) return;
+        const matched = Array.isArray(rows)
+          ? rows.find((entry) => entry.id === sessionIdParam)
+          : undefined;
+        router.replace(
+          matched
+            ? `/courses/classes/${encodeURIComponent(matched.classId)}?tab=schedule&sessionId=${encodeURIComponent(sessionIdParam)}`
+            : "/courses",
+        );
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) router.replace("/courses");
+      });
+    return () => controller.abort();
+  }, [classIdParam, instructor, knownWorkspaceRole, redirectHref, router, session.roleCode, sessionIdParam]);
 
   /** Nạp danh sách lớp phụ trách và các buổi học trong cửa sổ tuần hoặc tháng của giáo viên. */
   const load = useCallback(async (signal?: AbortSignal) => {

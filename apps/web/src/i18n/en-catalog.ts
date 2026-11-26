@@ -1568,6 +1568,7 @@ const curatedEnglishCatalog: Record<string, string> = {
   "Đổi lịch": "Reschedule",
   "Xác nhận lịch": "Confirm schedule",
   "Mở lớp đang theo học, chọn tab Lịch học để kiểm tra khung giờ theo tuần hoặc tháng và bấm vào phòng Google Meet của buổi học.": "Open your enrolled class, select the Schedule tab to check the weekly or monthly timetable, and join the session's Google Meet room.",
+  "Chuyển đổi vai trò": "Switch role",
 };
 
 

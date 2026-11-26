@@ -285,6 +285,18 @@ export function LearnerClassWorkspace({
     if (!item.allowPeerGradeViewing && activeTab === "gradebook") handleSelectTab("feed");
   }, [activeTab, handleSelectTab, item.allowPeerGradeViewing]);
 
+  useEffect(() => {
+    // Chuyển nhanh sang tab Lịch học khi người dùng mở thông báo buổi học ngay trong lớp đang xem.
+    const handleExternalTabSelect = (event: Event) => {
+      const detail = (event as CustomEvent<{ classId?: string; tab?: string }>).detail;
+      if (detail?.classId === item.id && detail.tab === "schedule") {
+        handleSelectTab("schedule");
+      }
+    };
+    window.addEventListener("select-class-tab", handleExternalTabSelect);
+    return () => window.removeEventListener("select-class-tab", handleExternalTabSelect);
+  }, [handleSelectTab, item.id]);
+
   // Xóa dữ liệu theo lớp khi chuyển sang lớp khác để tránh hiển thị dữ liệu cũ giữa hai lớp.
   useEffect(() => {
     assignmentsLoadedClassRef.current = null;

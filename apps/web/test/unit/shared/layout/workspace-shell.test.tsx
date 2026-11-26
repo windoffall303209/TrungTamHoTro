@@ -149,6 +149,82 @@ describe("WorkspaceShell", () => {
     expect(screen.queryAllByRole("link", { name: /Nghiệp vụ giảng dạy/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch & bài tập/i })).toHaveLength(0);
     expect(screen.queryAllByRole("link", { name: /Lịch sử học tập/i })).toHaveLength(0);
+    expect(screen.queryByText("Quản trị hệ thống")).not.toBeInTheDocument();
+  });
+
+  it("đặt mục chuyển đổi vai trò ngay phía trên Hướng dẫn sử dụng trong menu avatar và mở danh sách vai trò khi bấm", async () => {
+    const setRole = vi.fn();
+    useApp.mockReturnValue({
+      session: {
+        roleCode: "SYSTEM_ADMIN",
+        permissions: ["user:view", "class:view", "class:manage", "system:configure"],
+        availableRoles: [
+          { code: "SYSTEM_ADMIN", name: "Quản trị hệ thống" },
+          { code: "CENTER_MANAGER", name: "Quản lý trung tâm" },
+          { code: "INSTRUCTOR", name: "Giảng viên" },
+        ],
+        user: { id: "usr-admin", name: "Hoàng Thanh Mai", roleName: "Quản trị hệ thống" },
+      },
+      setRole,
+      logout: vi.fn(),
+      notify,
+    });
+
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    expect(screen.queryByRole("combobox", { name: "Chọn vai trò sử dụng" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mở menu tài khoản" }));
+    const roleMenuTrigger = screen.getByRole("menuitem", { name: /Chuyển đổi vai trò/i });
+    const guideLink = screen.getByRole("menuitem", { name: "Hướng dẫn sử dụng" });
+    expect(roleMenuTrigger.compareDocumentPosition(guideLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("menu", { name: "Chọn vai trò sử dụng" })).not.toBeInTheDocument();
+
+    fireEvent.click(roleMenuTrigger);
+    const roleSubmenu = screen.getByRole("menu", { name: "Chọn vai trò sử dụng" });
+    expect(roleSubmenu.parentElement?.className).toContain("sm:right-full");
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Giảng viên" }));
+    expect(setRole).toHaveBeenCalledWith("INSTRUCTOR");
+  });
+
+  it("gắn liên kết thông báo lịch học vào thẳng tab Lịch học của lớp cho quản lý trung tâm", async () => {
+    apiRequest.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === "/notifications"
+          ? [
+              {
+                id: "notice-live-1",
+                recipientId: "usr-manager",
+                type: "LIVE_SESSION_SCHEDULED",
+                title: "Đã lên lịch: Buổi ôn tập tuần 4",
+                entityType: "LIVE_SESSION",
+                entityId: "ses-04",
+                classId: "cls-12",
+                createdAt: "2026-11-26T08:00:00.000Z",
+              },
+            ]
+          : [],
+      ),
+    );
+    useApp.mockReturnValue({
+      session: {
+        roleCode: "CENTER_MANAGER",
+        permissions: ["class:view", "class:manage"],
+        availableRoles: [{ code: "CENTER_MANAGER", name: "Quản lý trung tâm" }],
+        user: { id: "usr-manager", name: "Quản lý", roleName: "Quản lý trung tâm" },
+      },
+      setRole: vi.fn(),
+      logout: vi.fn(),
+      notify,
+    });
+
+    render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    fireEvent.click(await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" }));
+    const notificationLink = screen.getByRole("link", { name: /Đã lên lịch: Buổi ôn tập tuần 4/i });
+    expect(notificationLink).toHaveAttribute(
+      "href",
+      "/courses/classes/cls-12?tab=schedule&sessionId=ses-04",
+    );
   });
 
   it("không hiển thị nghiệp vụ giảng dạy cho quản lý trung tâm", () => {

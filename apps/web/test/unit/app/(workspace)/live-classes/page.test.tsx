@@ -161,4 +161,25 @@ describe("LiveClassesPage aggregated instructor schedule", () => {
       expect(screen.queryByText("Lớp học online")).not.toBeInTheDocument();
     },
   );
+
+  it("tra cứu classId từ sessionId để mở thẳng tab Lịch học trong lớp khi thông báo chỉ mang sessionId", async () => {
+    currentRole.code = "LEARNER";
+    searchParamsState.values.set("sessionId", "ses-77");
+    apiMock.mockImplementation((path: string) => {
+      if (path === "/sessions") {
+        return Promise.resolve([
+          buildTodaySession({ id: "ses-77", classId: "cls-55" }),
+        ]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<LiveClassesPage />);
+
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith(
+        "/courses/classes/cls-55?tab=schedule&sessionId=ses-77",
+      ),
+    );
+  });
 });

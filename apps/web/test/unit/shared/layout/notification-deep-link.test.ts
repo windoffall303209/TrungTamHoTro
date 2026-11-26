@@ -19,12 +19,25 @@ describe("ánh xạ deep-link thông báo theo từng loại thực thể (D07)"
     expect(resolveNotificationHref(item)).toBe(expected);
   });
 
-  it("chỉ điều hướng thông báo buổi học sang /live-classes cho giảng viên, các vai trò khác về /courses", () => {
-    const liveItem = { entityType: "LIVE_SESSION", entityId: "ses-01", type: "LIVE_SESSION_SCHEDULED" };
-    expect(resolveNotificationHref(liveItem, "INSTRUCTOR")).toBe("/live-classes?sessionId=ses-01");
-    expect(resolveNotificationHref(liveItem, "LEARNER")).toBe("/courses");
-    expect(resolveNotificationHref(liveItem, "CENTER_MANAGER")).toBe("/courses");
-    expect(resolveNotificationHref(liveItem, "SYSTEM_ADMIN")).toBe("/courses");
+  it("điều hướng thông báo lịch học vào tab Lịch học trong lớp cho học sinh, quản lý và quản trị viên", () => {
+    const liveItem = {
+      entityType: "LIVE_SESSION",
+      entityId: "ses-01",
+      classId: "cls-01",
+      type: "LIVE_SESSION_SCHEDULED",
+    };
+    expect(resolveNotificationHref(liveItem, "INSTRUCTOR")).toBe(
+      "/live-classes?classId=cls-01&sessionId=ses-01",
+    );
+    expect(resolveNotificationHref(liveItem, "LEARNER")).toBe(
+      "/courses/classes/cls-01?tab=schedule&sessionId=ses-01",
+    );
+    expect(resolveNotificationHref(liveItem, "CENTER_MANAGER")).toBe(
+      "/courses/classes/cls-01?tab=schedule&sessionId=ses-01",
+    );
+    expect(resolveNotificationHref(liveItem, "SYSTEM_ADMIN")).toBe(
+      "/courses/classes/cls-01?tab=schedule&sessionId=ses-01",
+    );
   });
 
   it("mã hóa an toàn entityId chứa ký tự đặc biệt và xử lý fallback hợp lệ", () => {

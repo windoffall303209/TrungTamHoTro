@@ -127,6 +127,15 @@ export function ClassSchedulePanel({
             )
         : [];
       setSessions(matched);
+      if (typeof window !== "undefined") {
+        const targetSessionId = new URLSearchParams(window.location.search).get("sessionId")?.trim();
+        if (targetSessionId) {
+          const targetSession = matched.find((entry) => entry.id === targetSessionId);
+          if (targetSession) {
+            setCurrentDate(new Date(targetSession.startsAt));
+          }
+        }
+      }
     } catch (error) {
       if (!controller.signal.aborted && requestId === requestCounterRef.current) {
         setSessions([]);

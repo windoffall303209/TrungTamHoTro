@@ -2,10 +2,14 @@
 
 import {
   Archive,
+  ArrowLeftRight,
   Bell,
   BookOpenCheck,
   CalendarDays,
+  Check,
   CheckCheck,
+  ChevronDown,
+  ChevronLeft,
   ClipboardCheck,
   Database,
   FileQuestion,
@@ -15,21 +19,20 @@ import {
   LayoutDashboard,
   ListChecks,
   LoaderCircle,
+  LogOut,
   Menu,
   MessageSquareText,
   Presentation,
   Settings,
   ShieldCheck,
   ShieldEllipsis,
-  Users,
-  LogOut,
   UserRound,
-  ChevronDown,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "@/lib/api-client";
 import { realtimeClient } from "@/lib/realtime-client";
 import { useApp } from "@/providers/app-provider";
@@ -60,12 +63,26 @@ interface NavSection {
 
 /** Ánh xạ thông báo sang đường dẫn deep-link đúng thực thể theo vai trò và mã hóa an toàn entityId. */
 export function resolveNotificationHref(
-  item: Pick<LearningNotification, "entityType" | "entityId" | "type">,
+  item: Pick<LearningNotification, "entityType" | "entityId" | "type"> & {
+    classId?: string;
+  },
   roleCode: RoleCode = "INSTRUCTOR",
 ): string {
   const entityType = item.entityType.trim().toUpperCase();
   const entityId = encodeURIComponent(item.entityId);
-  const sessionHref = roleCode === "INSTRUCTOR" ? `/live-classes?sessionId=${entityId}` : "/courses";
+  const classId = item.classId?.trim();
+  if (
+    entityType === "LIVE_SESSION" &&
+    (item.type.includes("FORUM") || item.type.includes("MENTION"))
+  ) {
+    return `/forum?topicId=${entityId}`;
+  }
+  const sessionHref =
+    roleCode === "INSTRUCTOR"
+      ? `/live-classes?${classId ? `classId=${encodeURIComponent(classId)}&` : ""}sessionId=${entityId}`
+      : classId
+        ? `/courses/classes/${encodeURIComponent(classId)}?tab=schedule&sessionId=${entityId}`
+        : `/live-classes?sessionId=${entityId}`;
   const destinations: Record<string, string> = {
     CLASS: `/courses/classes/${entityId}`,
     MATERIAL: `/materials?materialId=${entityId}`,
@@ -84,10 +101,7 @@ export function resolveNotificationHref(
   if (item.type.includes("SUPPORT")) return `/support?ticketId=${entityId}`;
   if (item.type.includes("FORUM") || item.type.includes("MENTION"))
     return `/forum?topicId=${entityId}`;
-  if (
-    item.type.includes("SESSION") ||
-    item.type.includes("RECORDING")
-  )
+  if (item.type.includes("SESSION") || item.type.includes("RECORDING"))
     return sessionHref;
   if (item.type.includes("EXAM") || item.type.includes("GRADE"))
     return `/exams?examId=${entityId}`;
@@ -225,15 +239,29 @@ const allNavItems: NavigationItem[] = [
 /** Giữ nguyên cách xác định mục đang mở, kể cả nhóm tuyến đặc biệt của quản trị viên. */
 function isMobileRoleNavActive(roleCode: RoleCode, href: string, pathname: string): boolean {
   if (href === "/dashboard") return pathname === "/dashboard";
-  if (href === "/materials") return pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/");
+  if (href === "/materials")
+    return (
+      pathname === "/materials" ||
+      pathname.startsWith("/materials/") ||
+      pathname === "/exams" ||
+      pathname.startsWith("/exams/")
+    );
   if (roleCode === "SYSTEM_ADMIN") {
     if (href === "/admin/users") return pathname.startsWith("/admin");
     if (href === "/admin/settings") return pathname.startsWith("/admin");
-    if (href === "/exams") return pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/materials" || pathname.startsWith("/materials/");
-    if (href === "/class-operations") return pathname === "/class-operations" || pathname === "/class-lifecycle";
+    if (href === "/exams")
+      return (
+        pathname === "/exams" ||
+        pathname.startsWith("/exams/") ||
+        pathname === "/materials" ||
+        pathname.startsWith("/materials/")
+      );
+    if (href === "/class-operations")
+      return pathname === "/class-operations" || pathname === "/class-lifecycle";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
+
 // Bố cục ứng dụng hoàn toàn mới: Thanh điều hướng Top-Nav đa tầng tối ưu không gian chiều ngang và đồng bộ song ngữ.
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -244,6 +272,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<LearningNotification[]>([]);
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [notificationError, setNotificationError] = useState("");
@@ -251,6 +280,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const notificationRevision = useRef(0);
 
   const unreadCount = notifications.filter((item) => !item.readAt).length;
+
+  // Đóng menu tài khoản đồng thời thu gọn menu chọn vai trò bên trái.
+  const closeProfileMenus = useCallback(() => {
+    setProfileOpen(false);
+    setRoleMenuOpen(false);
+  }, []);
 
   // Lọc quyền người dùng
   const availableItems = useMemo(() => {
@@ -354,7 +389,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [],
   );
 
-
   const mobileRoleNavigation =
     session.roleCode === "CENTER_MANAGER"
       ? { title: "Menu quản lý trung tâm", items: centerManagerNavItems }
@@ -365,6 +399,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           : session.roleCode === "SYSTEM_ADMIN"
             ? { title: "Menu quản trị hệ thống", items: adminNavItems }
             : null;
+
   // Tải danh sách thông báo
   const loadNotifications = useCallback(async (quiet = false) => {
     const revision = ++notificationRevision.current;
@@ -374,8 +409,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
     try {
       const data = await apiRequest<LearningNotification[]>("/notifications", {
-          roleCode: session.roleCode,
-        });
+        roleCode: session.roleCode,
+      });
       if (revision === notificationRevision.current) setNotifications(data);
     } catch (error) {
       if (!quiet && revision === notificationRevision.current) {
@@ -384,7 +419,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         );
       }
     } finally {
-      if (!quiet && revision === notificationRevision.current) setNotificationLoading(false);
+      if (!quiet && revision === notificationRevision.current) {
+        setNotificationLoading(false);
+      }
     }
   }, [session.roleCode]);
 
@@ -394,28 +431,45 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     window.queueMicrotask(() => {
       if (active) void loadNotifications();
     });
-    return () => { active = false; revision.current++; };
+    return () => {
+      active = false;
+      revision.current++;
+    };
   }, [loadNotifications, session.sessionId, session.user.id]);
 
   // Dùng kênh thông báo chung; reconnect tự tải snapshot, không polling dự phòng.
-  useEffect(() => realtimeClient.subscribe(
-    { sessionId: session.sessionId, userId: session.user.id, roleCode: session.roleCode },
-    { channel: "notifications" }, {
-      next: (payload) => {
-        notificationRevision.current++;
-        setNotifications(payload as LearningNotification[]);
-        setNotificationLoading(false);
-        setNotificationError("");
-      },
-      error: () => setNotificationError("Kết nối thông báo đang gián đoạn. Bạn có thể tải lại."),
-    }), [session.sessionId, session.user.id, session.roleCode]);
+  useEffect(
+    () =>
+      realtimeClient.subscribe(
+        {
+          sessionId: session.sessionId,
+          userId: session.user.id,
+          roleCode: session.roleCode,
+        },
+        { channel: "notifications" },
+        {
+          next: (payload) => {
+            notificationRevision.current++;
+            setNotifications(payload as LearningNotification[]);
+            setNotificationLoading(false);
+            setNotificationError("");
+          },
+          error: () =>
+            setNotificationError(
+              "Kết nối thông báo đang gián đoạn. Bạn có thể tải lại.",
+            ),
+        },
+      ),
+    [session.sessionId, session.user.id, session.roleCode],
+  );
+
   useEffect(() => {
     if (!notificationOpen && !profileOpen && !menuOpen) return;
     /** Đóng các lớp phủ của shell khi người dùng nhấn Escape. */
     const closeOverlay = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setNotificationOpen(false);
-        setProfileOpen(false);
+        closeProfileMenus();
         setMenuOpen(false);
       }
     };
@@ -423,11 +477,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return () => {
       document.removeEventListener("keydown", closeOverlay);
     };
-  }, [menuOpen, notificationOpen, profileOpen]);
+  }, [closeProfileMenus, menuOpen, notificationOpen, profileOpen]);
 
   useEffect(() => {
     if (!notificationOpen) return;
-/** Đảm nhiệm closeOnOutsidePointer trong phạm vi module hiện tại. */
+    /** Đảm nhiệm closeOnOutsidePointer trong phạm vi module hiện tại. */
     const closeOnOutsidePointer = (event: PointerEvent) => {
       if (!notificationRef.current?.contains(event.target as Node)) {
         setNotificationOpen(false);
@@ -439,7 +493,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     };
   }, [notificationOpen]);
 
-/** Đảm nhiệm markRead trong phạm vi module hiện tại. */
+  /** Đảm nhiệm markRead trong phạm vi module hiện tại. */
   async function markRead(item: LearningNotification): Promise<void> {
     if (item.readAt) return;
     try {
@@ -449,7 +503,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       );
       setNotifications((current) =>
         current.map((notification) =>
-          notification.id === updated.id ? updated : notification,
+          notification.id === updated.id
+            ? { ...notification, ...updated }
+            : notification,
         ),
       );
     } catch (error) {
@@ -460,20 +516,25 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     }
   }
 
-/** Đảm nhiệm markAllRead trong phạm vi module hiện tại. */
+  /** Đảm nhiệm markAllRead trong phạm vi module hiện tại. */
   async function markAllRead(): Promise<void> {
     const unread = notifications.filter((item) => !item.readAt);
     if (!unread.length) return;
     try {
       // Một request gộp thay cho N lệnh PATCH song song (dễ chạm giới hạn 6 kết nối/origin và rate limit).
-      const updated = await apiRequest<LearningNotification[]>("/notifications/read-all", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-      });
+      const updated = await apiRequest<LearningNotification[]>(
+        "/notifications/read-all",
+        {
+          method: "PATCH",
+          roleCode: session.roleCode,
+        },
+      );
       setNotifications(updated);
     } catch (error) {
       notify(
-        error instanceof Error ? error.message : "Không thể đánh dấu toàn bộ thông báo.",
+        error instanceof Error
+          ? error.message
+          : "Không thể đánh dấu toàn bộ thông báo.",
         "error",
       );
     }
@@ -484,38 +545,100 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     return resolveNotificationHref(item, session.roleCode);
   }
 
-/** Đảm nhiệm signOut trong phạm vi module hiện tại. */
+  /** Đảm nhiệm signOut trong phạm vi module hiện tại. */
   async function signOut(): Promise<void> {
     await logout();
     router.replace("/login");
   }
 
-  // Khối Action Bar bên phải: Điều khiển vai trò, theme, ngôn ngữ, thông báo và menu người dùng
+  // Hiển thị mục chuyển đổi vai trò ngay phía trên Hướng dẫn sử dụng và mở bảng chọn vai trò bên trái khi bấm.
+  const renderRoleSubmenu = () => {
+    if (session.availableRoles.length <= 1) return null;
+    return (
+      <div className="relative">
+        <button
+          aria-expanded={roleMenuOpen}
+          aria-haspopup="menu"
+          className={`flex min-h-8.5 w-full items-center justify-between gap-2.5 rounded-lg px-3 text-xs font-semibold transition-colors cursor-pointer ${
+            roleMenuOpen
+              ? "bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300"
+              : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+          }`}
+          onClick={() => setRoleMenuOpen((open) => !open)}
+          role="menuitem"
+          type="button"
+        >
+          <span className="flex items-center gap-2.5 min-w-0">
+            <ArrowLeftRight
+              size={15}
+              className={
+                roleMenuOpen
+                  ? "text-sky-600 dark:text-sky-400"
+                  : "text-slate-500"
+              }
+            />
+            <span className="truncate">{t("Chuyển đổi vai trò")}</span>
+          </span>
+          <ChevronLeft
+            size={14}
+            className={`shrink-0 transition-transform ${
+              roleMenuOpen
+                ? "text-sky-600 dark:text-sky-400 -translate-x-0.5"
+                : "text-slate-400"
+            }`}
+          />
+        </button>
+
+        {roleMenuOpen ? (
+          <div className="max-sm:mt-1 sm:absolute sm:right-full sm:top-1/2 sm:-translate-y-1/2 sm:pr-2 z-50">
+            <div
+              aria-label={t("Chọn vai trò sử dụng")}
+              className="w-full sm:w-56 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-2xl space-y-0.5"
+              role="menu"
+            >
+              <p className="px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                {t("Chọn vai trò sử dụng")}
+              </p>
+              {session.availableRoles.map((role) => {
+                const isCurrentRole = role.code === session.roleCode;
+                return (
+                  <button
+                    aria-checked={isCurrentRole}
+                    className={`flex min-h-8.5 w-full items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 text-left text-xs font-semibold transition-colors cursor-pointer ${
+                      isCurrentRole
+                        ? "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 font-bold"
+                        : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                    key={role.code}
+                    onClick={() => {
+                      closeProfileMenus();
+                      if (!isCurrentRole) {
+                        void setRole(role.code);
+                      }
+                    }}
+                    role="menuitemradio"
+                    type="button"
+                  >
+                    <span className="truncate">{t(role.name)}</span>
+                    {isCurrentRole ? (
+                      <Check
+                        size={14}
+                        className="shrink-0 text-sky-600 dark:text-sky-400"
+                      />
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  // Khối Action Bar bên phải: Điều khiển theme, ngôn ngữ, thông báo và menu người dùng
   const renderRightActionBar = (includeMobileTrigger = true) => (
     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-      {/* Role indicator pill chỉ cho Quản trị viên hệ thống */}
-      {session.roleCode === "SYSTEM_ADMIN" && (
-        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-950/50 border border-sky-200/80 dark:border-sky-800/60 text-sky-800 dark:text-sky-300 text-[13px] font-semibold shadow-2xs">
-          <span className="size-1.5 rounded-full bg-sky-500 animate-pulse" />
-          {t(session.user.roleName)}
-        </div>
-      )}
-
-      {session.availableRoles.length > 1 ? (
-        <select
-          aria-label={t("Chọn vai trò sử dụng")}
-          className="min-h-9.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2.5 py-1 text-[13px] font-semibold text-slate-800 dark:text-slate-200 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 shadow-2xs cursor-pointer"
-          onChange={(event) => void setRole(event.target.value as RoleCode)}
-          value={session.roleCode}
-        >
-          {session.availableRoles.map((role) => (
-            <option key={role.code} value={role.code}>
-              {t(role.name)}
-            </option>
-          ))}
-        </select>
-      ) : null}
-
       <ThemeToggle />
       <LanguageSwitcher compact />
 
@@ -532,7 +655,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           className="relative grid size-[40px] place-items-center rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 bg-white dark:bg-slate-900/90 transition-colors shadow-2xs active:scale-95"
           onClick={() => {
             setNotificationOpen((open) => !open);
-            setProfileOpen(false);
+            closeProfileMenus();
           }}
           type="button"
         >
@@ -594,41 +717,64 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               ) : notifications.length ? (
-                notifications.map((item) => (
-                  <Link
-                    className={`block px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                      item.readAt
-                        ? "bg-white dark:bg-slate-900"
-                        : "bg-sky-50/50 dark:bg-sky-950/20"
-                    }`}
-                    href={notificationHref(item)}
-                    key={item.id}
-                    onClick={() => {
-                      void markRead(item);
-                      setNotificationOpen(false);
-                    }}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      <span
-                        className={`mt-1.5 size-2 shrink-0 rounded-full ${
-                          item.readAt ? "bg-slate-300 dark:bg-slate-700" : "bg-sky-500"
-                        }`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
-                          {t(item.title)}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-                          {formatDateTime(item.createdAt)}
-                        </p>
+                notifications.map((item) => {
+                  const targetHref = notificationHref(item);
+                  return (
+                    <Link
+                      className={`block px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
+                        item.readAt
+                          ? "bg-white dark:bg-slate-900"
+                          : "bg-sky-50/50 dark:bg-sky-950/20"
+                      }`}
+                      href={targetHref}
+                      key={item.id}
+                      onClick={() => {
+                        void markRead(item);
+                        setNotificationOpen(false);
+                        if (
+                          item.classId &&
+                          session.roleCode !== "INSTRUCTOR" &&
+                          targetHref.includes("tab=schedule")
+                        ) {
+                          window.dispatchEvent(
+                            new CustomEvent("select-class-tab", {
+                              detail: {
+                                classId: item.classId,
+                                tab: "schedule",
+                                sessionId: item.entityId,
+                              },
+                            }),
+                          );
+                        }
+                      }}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <span
+                          className={`mt-1.5 size-2 shrink-0 rounded-full ${
+                            item.readAt
+                              ? "bg-slate-300 dark:bg-slate-700"
+                              : "bg-sky-500"
+                          }`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 line-clamp-2">
+                            {t(item.title)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+                            {formatDateTime(item.createdAt)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                ))
+                    </Link>
+                  );
+                })
               ) : (
                 <div className="grid min-h-36 place-items-center px-4 text-center">
                   <div>
-                    <Bell className="mx-auto text-slate-300 dark:text-slate-700" size={24} />
+                    <Bell
+                      className="mx-auto text-slate-300 dark:text-slate-700"
+                      size={24}
+                    />
                     <p className="mt-2 text-xs font-semibold text-slate-500">
                       {t("Chưa có thông báo")}
                     </p>
@@ -645,18 +791,26 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         className="relative"
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) {
-            setProfileOpen(false);
+            closeProfileMenus();
           }
         }}
         onMouseEnter={() => setProfileOpen(true)}
-        onMouseLeave={() => setProfileOpen(false)}
+        onMouseLeave={() => closeProfileMenus()}
       >
-        {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN" ? (
+        {session.roleCode === "LEARNER" ||
+        session.roleCode === "INSTRUCTOR" ||
+        session.roleCode === "CENTER_MANAGER" ||
+        session.roleCode === "SYSTEM_ADMIN" ? (
           <button
             aria-expanded={profileOpen}
             aria-label={t("Mở menu tài khoản")}
             className="flex min-h-[38px] items-center gap-2 rounded-full pl-1.5 pr-3 py-1 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors cursor-pointer"
-            onClick={() => setProfileOpen((open) => !open)}
+            onClick={() => {
+              setProfileOpen((open) => {
+                if (open) setRoleMenuOpen(false);
+                return !open;
+              });
+            }}
             type="button"
           >
             <UserAvatar
@@ -680,10 +834,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             aria-expanded={profileOpen}
             aria-label={t("Mở menu tài khoản")}
             className="flex min-h-[40px] items-center gap-2.5 rounded-xl px-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800 sm:pr-2.5"
-            onClick={() => setProfileOpen((open) => !open)}
+            onClick={() => {
+              setProfileOpen((open) => {
+                if (open) setRoleMenuOpen(false);
+                return !open;
+              });
+            }}
             type="button"
           >
-            <UserAvatar avatarUrl={session.user.avatarUrl} name={session.user.name} priority className="size-8 rounded-full text-[13px]" />
+            <UserAvatar
+              avatarUrl={session.user.avatarUrl}
+              name={session.user.name}
+              priority
+              className="size-8 rounded-full text-[13px]"
+            />
             <span className="hidden sm:inline-block text-[13px] font-semibold text-slate-700 dark:text-slate-200 truncate max-w-28">
               {session.user.name}
             </span>
@@ -698,9 +862,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
         {profileOpen ? (
           <div className="absolute right-0 top-full z-50 pt-1.5">
-            {session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN" ? (
+            {session.roleCode === "LEARNER" ||
+            session.roleCode === "INSTRUCTOR" ||
+            session.roleCode === "CENTER_MANAGER" ||
+            session.roleCode === "SYSTEM_ADMIN" ? (
               <section
-                className="w-80 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
+                className="w-80 overflow-visible rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-2xl"
                 role="menu"
               >
                 <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl mb-1.5">
@@ -712,10 +879,24 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5">
-                      <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
-                        session.roleCode === "SYSTEM_ADMIN" ? "bg-rose-600" : session.roleCode === "CENTER_MANAGER" ? "bg-indigo-600" : session.roleCode === "INSTRUCTOR" ? "bg-blue-600" : "bg-emerald-600"
-                      }`}>
-                        {session.roleCode === "SYSTEM_ADMIN" ? "Quản trị viên" : session.roleCode === "CENTER_MANAGER" ? "Quản lý trung tâm" : session.roleCode === "INSTRUCTOR" ? "Giáo viên" : "Học sinh"}
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold shrink-0 ${
+                          session.roleCode === "SYSTEM_ADMIN"
+                            ? "bg-rose-600"
+                            : session.roleCode === "CENTER_MANAGER"
+                              ? "bg-indigo-600"
+                              : session.roleCode === "INSTRUCTOR"
+                                ? "bg-blue-600"
+                                : "bg-emerald-600"
+                        }`}
+                      >
+                        {session.roleCode === "SYSTEM_ADMIN"
+                          ? "Quản trị viên"
+                          : session.roleCode === "CENTER_MANAGER"
+                            ? "Quản lý trung tâm"
+                            : session.roleCode === "INSTRUCTOR"
+                              ? "Giáo viên"
+                              : "Học sinh"}
                       </span>
                       <strong className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
                         {session.user.name || "Quản trị viên"}
@@ -732,7 +913,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     aria-label={t("Thông tin")}
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
                     href="/account"
-                    onClick={() => setProfileOpen(false)}
+                    onClick={closeProfileMenus}
                     role="menuitem"
                   >
                     <div className="size-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 grid place-items-center shrink-0">
@@ -751,7 +932,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   <Link
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
                     href="/account?tab=security"
-                    onClick={() => setProfileOpen(false)}
+                    onClick={closeProfileMenus}
                     role="menuitem"
                   >
                     <div className="size-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 grid place-items-center shrink-0">
@@ -770,7 +951,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     <Link
                       className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
                       href="/admin/users"
-                      onClick={() => setProfileOpen(false)}
+                      onClick={closeProfileMenus}
                       role="menuitem"
                     >
                       <div className="size-7 rounded-lg bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 grid place-items-center shrink-0">
@@ -791,10 +972,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                 <div className="space-y-0.5">
+                  {renderRoleSubmenu()}
+
                   <Link
                     className="flex min-h-8.5 w-full items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     href="/guide"
-                    onClick={() => setProfileOpen(false)}
+                    onClick={closeProfileMenus}
                     role="menuitem"
                   >
                     <BookOpenCheck size={15} className="text-slate-500" />
@@ -804,7 +987,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   <Link
                     className="flex min-h-8.5 items-center gap-2.5 rounded-lg px-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     href="/support"
-                    onClick={() => setProfileOpen(false)}
+                    onClick={closeProfileMenus}
                     role="menuitem"
                   >
                     <Headphones size={15} className="text-slate-500" />
@@ -826,7 +1009,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </section>
             ) : (
               <section
-                className="w-56 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
+                className="w-56 overflow-visible rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-xl dark:shadow-2xl"
                 role="menu"
               >
                 <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
@@ -841,7 +1024,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   aria-label={t("Thông tin")}
                   className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   href="/account"
-                  onClick={() => setProfileOpen(false)}
+                  onClick={closeProfileMenus}
                   role="menuitem"
                 >
                   <UserRound size={14} className="text-slate-500" />
@@ -850,16 +1033,17 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <Link
                   className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   href="/account?tab=security"
-                  onClick={() => setProfileOpen(false)}
+                  onClick={closeProfileMenus}
                   role="menuitem"
                 >
                   <ShieldCheck size={14} className="text-slate-500" />
                   <span>{t("Bảo mật")}</span>
                 </Link>
+                {renderRoleSubmenu()}
                 <Link
                   className="flex min-h-8.5 items-center gap-2 rounded-lg px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   href="/guide"
-                  onClick={() => setProfileOpen(false)}
+                  onClick={closeProfileMenus}
                   role="menuitem"
                 >
                   <BookOpenCheck size={14} className="text-slate-500" />
@@ -902,22 +1086,26 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         <div className="flex h-[70px] w-full items-center justify-between px-3 sm:px-5 lg:px-6 gap-2 sm:gap-4">
           {/* Logo & Category Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 shrink-0">
-            <Link aria-label="Wind EDU — về trang lớp học" className="flex items-center gap-2.5 shrink-0" href="/courses">
+            <Link
+              aria-label="Wind EDU — về trang lớp học"
+              className="flex items-center gap-2.5 shrink-0"
+              href="/courses"
+            >
               <BrandLogo className="shadow-sm shadow-sky-600/25" priority size={42} />
               <div className="hidden sm:block">
                 <span className="font-extrabold text-[17.5px] tracking-tight text-slate-900 dark:text-white">
                   Wind EDU
                 </span>
-                <span className="block text-[11px] font-semibold text-sky-800 dark:text-sky-300 -mt-0.5">
-                </span>
+                <span className="block text-[11px] font-semibold text-sky-800 dark:text-sky-300 -mt-0.5"></span>
               </div>
             </Link>
-
-            
           </div>
 
-          {/* Điều hướng trung tâm dành cho Học sinh, Giáo viên & Quản lý trung tâm (Chức năng cha trên Header ngang) */}
-          {(session.roleCode === "LEARNER" || session.roleCode === "INSTRUCTOR" || session.roleCode === "CENTER_MANAGER" || session.roleCode === "SYSTEM_ADMIN") && (
+          {/* Điều hướng trung tâm dành cho Học sinh, Giáo viên, Quản lý trung tâm & Quản trị hệ thống */}
+          {(session.roleCode === "LEARNER" ||
+            session.roleCode === "INSTRUCTOR" ||
+            session.roleCode === "CENTER_MANAGER" ||
+            session.roleCode === "SYSTEM_ADMIN") && (
             <div className="hidden md:flex flex-1 items-center justify-center min-w-0 px-1 sm:px-3">
               <nav
                 aria-label={
@@ -938,45 +1126,51 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     : session.roleCode === "SYSTEM_ADMIN"
                       ? adminNavItems
                       : learnerNavItems
-                ).map(
-                  ({ href, label, icon: Icon }) => {
-                    const isSelected =
-                      href === "/dashboard"
-                        ? pathname === "/dashboard"
-                          : href === "/admin/users"
+                ).map(({ href, label, icon: Icon }) => {
+                  const isSelected =
+                    href === "/dashboard"
+                      ? pathname === "/dashboard"
+                      : href === "/admin/users"
+                        ? pathname.startsWith("/admin")
+                        : href === "/admin/settings"
                           ? pathname.startsWith("/admin")
-                          : href === "/admin/settings"
-                            ? pathname.startsWith("/admin")
                           : href === "/materials"
-                            ? pathname === "/materials" || pathname.startsWith("/materials/") || pathname === "/exams" || pathname.startsWith("/exams/")
+                            ? pathname === "/materials" ||
+                              pathname.startsWith("/materials/") ||
+                              pathname === "/exams" ||
+                              pathname.startsWith("/exams/")
                             : href === "/exams"
-                              ? pathname === "/exams" || pathname.startsWith("/exams/") || pathname === "/materials" || pathname.startsWith("/materials/")
-                            : href === "/class-operations"
-                              ? pathname === "/class-operations" || pathname === "/class-lifecycle"
-                              : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <Link
-                        className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-[13px] font-bold tracking-tight whitespace-nowrap transition-all duration-150 ${
+                              ? pathname === "/exams" ||
+                                pathname.startsWith("/exams/") ||
+                                pathname === "/materials" ||
+                                pathname.startsWith("/materials/")
+                              : href === "/class-operations"
+                                ? pathname === "/class-operations" ||
+                                  pathname === "/class-lifecycle"
+                                : pathname === href ||
+                                  pathname.startsWith(`${href}/`);
+                  return (
+                    <Link
+                      className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-[13px] font-bold tracking-tight whitespace-nowrap transition-all duration-150 ${
+                        isSelected
+                          ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
+                          : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
+                      }`}
+                      href={href}
+                      key={href}
+                    >
+                      <Icon
+                        className={`shrink-0 ${
                           isSelected
-                            ? "bg-white dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-slate-200/90 dark:border-sky-800/80 shadow-xs"
-                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-800/50"
+                            ? "text-sky-800 dark:text-sky-300"
+                            : "text-slate-600 dark:text-slate-400"
                         }`}
-                        href={href}
-                        key={href}
-                      >
-                        <Icon
-                          className={`shrink-0 ${
-                            isSelected
-                              ? "text-sky-800 dark:text-sky-300"
-                              : "text-slate-600 dark:text-slate-400"
-                          }`}
-                          size={15}
-                        />
-                        <span>{t(label)}</span>
-                      </Link>
-                    );
-                  },
-                )}
+                        size={15}
+                      />
+                      <span>{t(label)}</span>
+                    </Link>
+                  );
+                })}
               </nav>
             </div>
           )}
@@ -984,8 +1178,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           {/* Right Action Bar */}
           {renderRightActionBar(true)}
         </div>
-
-        
 
         {/* Điều hướng đầy đủ phục vụ trợ năng (Screen Readers & Quick Links) */}
         <nav aria-label={t("Điều hướng chức năng")} className="sr-only">
@@ -1008,7 +1200,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
                 <BrandLogo className="rounded-lg" size={32} />
-                <span className="font-bold text-base text-slate-900 dark:text-white">Wind EDU</span>
+                <span className="font-bold text-base text-slate-900 dark:text-white">
+                  Wind EDU
+                </span>
               </div>
               <button
                 aria-label={t("Đóng menu")}
@@ -1027,7 +1221,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                     {mobileRoleNavigation.title}
                   </p>
                   {mobileRoleNavigation.items.map(({ href, label, icon: Icon }) => {
-                    const active = isMobileRoleNavActive(session.roleCode, href, pathname);
+                    const active = isMobileRoleNavActive(
+                      session.roleCode,
+                      href,
+                      pathname,
+                    );
                     return (
                       <Link
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
@@ -1066,7 +1264,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       {t(section.title)}
                     </p>
                     {section.items.map(({ href, label, icon: Icon }) => {
-                      const active = pathname === href || pathname.startsWith(`${href}/`);
+                      const active =
+                        pathname === href || pathname.startsWith(`${href}/`);
                       return (
                         <Link
                           className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
