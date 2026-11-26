@@ -265,7 +265,7 @@ export class EngagementSupportService {
     );
   }
 
-  /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
+  /** Trả tóm tắt buổi học và khả năng xem bản ghi của học viên. */
   async getSessionSummary(sessionId: string, learnerId: string): Promise<object> {
     return await recordings_ops.getSessionSummary(this.runtime.context, sessionId, learnerId);
   }
@@ -428,7 +428,7 @@ export class EngagementSupportService {
     );
   }
 
-  /** Tổng hợp điểm danh, điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
+  /** Tổng hợp điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
   async getClassProgress(
     classId: string,
     input: { from?: string; to?: string } & Partial<RiskThresholds>,

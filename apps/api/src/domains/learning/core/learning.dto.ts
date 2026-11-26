@@ -495,8 +495,6 @@ export class CompleteRecordingDto {
 export class ProgressQueryDto {
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
-  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) attendanceBelow =
-    70;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) scoreBelow = 50;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) completionBelow =
     60;

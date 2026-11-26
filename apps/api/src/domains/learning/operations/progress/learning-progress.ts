@@ -12,7 +12,7 @@ import type {
 } from "../../core/learning.types.js";
 import type { LearningServiceContext } from "../../core/learning.context.js";
 
-/** Tổng hợp điểm danh, điểm số, hoàn thành đánh giá và sinh phân loại rủi ro từng học viên. */
+/** Tổng hợp điểm số, hoàn thành đánh giá và sinh phân loại rủi ro từng học viên. */
 export async function getClassProgress(
   serviceContext: LearningServiceContext,
   classId: string,

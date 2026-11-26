@@ -17,7 +17,7 @@ interface Summary {
   session: LiveSession;
   recordingAvailable: boolean;
 }
-/** Hiển thị lịch sử tham dự, bản ghi buổi học và luồng khiếu nại của học viên. */
+/** Hiển thị lịch sử các buổi học trực tuyến và bản ghi của học viên. */
 export default function LearningHistoryPage() {
   const { session, notify } = useApp();
   const [items, setItems] = useState<LiveSession[]>([]);
@@ -72,7 +72,7 @@ export default function LearningHistoryPage() {
     const timer = window.setTimeout(() => void load(controller.signal), 0);
     return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
-  /** Mở chi tiết tham dự của một buổi học và dữ liệu đối soát liên quan. */
+  /** Nạp trạng thái bản ghi của buổi học được chọn. */
   const view = async (item: LiveSession) => {
     const requestVersion = (summaryRequestVersions.current.get(item.id) ?? 0) + 1;
     summaryRequestVersions.current.set(item.id, requestVersion);
@@ -144,8 +144,7 @@ export default function LearningHistoryPage() {
                 </Button>
               </div>
               {summary ? (
-                <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">
-
+                <div className="mt-5 border-t border-slate-100 dark:border-slate-800 pt-4">
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center sm:text-left">
                     {summary.recordingAvailable ? (
                       <button
@@ -166,7 +165,6 @@ export default function LearningHistoryPage() {
                       </div>
                     )}
                   </div>
-
                 </div>
               ) : null}
             </article>

@@ -1012,7 +1012,7 @@ export class LearningService {
     );
   }
 
-  /** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
+  /** Trả tóm tắt buổi học và khả năng xem bản ghi của học viên. */
   async getSessionSummary(sessionId: string, learnerId: string): Promise<object> {
     return await this.engagementSupport.getSessionSummary(sessionId, learnerId);
   }
@@ -1159,7 +1159,7 @@ export class LearningService {
     return await this.engagementSupport.addTicketComment(ticketId, body, role, authorId);
   }
 
-  /** Tổng hợp điểm danh, điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
+  /** Tổng hợp điểm số, hoàn thành học liệu và sinh phân loại rủi ro từng học viên. */
   async getClassProgress(
     classId: string,
     input: { from?: string; to?: string } & Partial<RiskThresholds>,

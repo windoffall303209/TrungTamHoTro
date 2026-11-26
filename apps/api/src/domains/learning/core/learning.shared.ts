@@ -92,11 +92,3 @@ export type MemoryQuestionImage = {
   checksum: string;
   buffer: Buffer;
 };
-
-export type MemoryAttendanceInterval = {
-  sessionId: string;
-  learnerId: string;
-  joinedAt: string;
-  leftAt?: string;
-  source: "APP" | "PROVIDER";
-};

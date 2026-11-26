@@ -9,7 +9,7 @@ Hệ thống giao diện mới của Wind EDU đập bỏ hoàn toàn thanh side
   - 🎓 **Học tập & Giảng dạy** (`/dashboard`, `/courses`, `/academic`, `/live-classes`)
   - 📝 **Khảo thí & Học liệu** (`/exams`, `/questions`, `/materials`)
   - 💬 **Cộng đồng & Hỗ trợ** (`/forum`, `/messages`, `/support`, `/learning-history`)
-  - ⚙️ **Quản trị & Vận hành** (`/reports`, `/class-operations`, `/attendance`, `/admin/users`, v.v.)
+  - ⚙️ **Quản trị & Vận hành** (`/reports`, `/class-operations`, `/admin/users`, v.v.)
 - **Contextual Sub-Nav Strip (Tầng 2):** Dải danh mục phụ trực quan tự động hiển thị các trang nghiệp vụ thuộc chuyên mục đang chọn, hỗ trợ chuyển trang tức thời bằng 1 chạm.
 - **Mobile Adaptive Drawer:** Trên màn hình di động (<1024px), thanh điều hướng thu gọn vào menu trượt tiện lợi.
 

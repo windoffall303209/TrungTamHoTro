@@ -180,7 +180,7 @@ export class EngagementController {
   joinRoleSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id, session.roleCode); }
 
   @Post("learner/sessions/:sessionId/join") @RequirePermissions("session:view")
-  /** Ghi nhận học viên vào phòng và bắt đầu dữ liệu điểm danh. */
+  /** Kiểm tra quyền lớp và khung giờ để phát liên kết vào phòng học trực tuyến cho học viên. */
   joinSession(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.joinSession(sessionId, session.user.id, session.roleCode); }
 
   @Post("instructor/sessions/:sessionId/recordings") @RequirePermissions("session:manage")
@@ -194,7 +194,7 @@ export class EngagementController {
   }
 
   @Get("learner/sessions/:sessionId/summary") @RequirePermissions("session:view")
-  /** Trả tóm tắt buổi học và điểm danh của học viên. */
+  /** Trả tóm tắt buổi học và trạng thái bản ghi của học viên. */
   getSessionSummary(@Param("sessionId") sessionId: string, @CurrentSession() session: AuthenticatedSession): Promise<object> { return this.learning.getSessionSummary(sessionId, session.user.id); }
 
   @Get("learner/sessions/:sessionId/recording-access") @RequirePermissions("session:view")

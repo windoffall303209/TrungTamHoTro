@@ -153,7 +153,7 @@ export function isRecordingAvailable(
   );
 }
 
-/** Trả tóm tắt buổi học, trạng thái điểm danh và khả năng xem bản ghi của học viên. */
+/** Trả tóm tắt buổi học và khả năng xem bản ghi của học viên. */
 export async function getSessionSummary(
   serviceContext: LearningServiceContext,
   sessionId: string,

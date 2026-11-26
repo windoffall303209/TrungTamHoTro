@@ -580,8 +580,8 @@ export function FormattedTextarea({
 // Ánh xạ mã trạng thái nghiệp vụ sang nhãn tiếng Việt/tiếng Anh và màu sắc trực quan.
 export function StatusBadge({ status }: { status: string }) {
   const { t } = useI18n();
-  const isPositive = ["ACTIVE", "PUBLISHED", "COMPLETED", "PRESENT", "STABLE", "RESOLVED", "GRADED"].includes(status);
-  const isNegative = ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "ABSENT", "HIGH"].includes(status);
+  const isPositive = ["ACTIVE", "PUBLISHED", "COMPLETED", "STABLE", "RESOLVED", "GRADED"].includes(status);
+  const isNegative = ["LOCKED", "REJECTED", "FAILED", "CANCELLED", "HIGH"].includes(status);
   const isPending = [
     "PENDING",
     "PENDING_VERIFICATION",
@@ -590,7 +590,6 @@ export function StatusBadge({ status }: { status: string }) {
     "IN_PROGRESS",
     "SUBMITTED",
     "PROCESSING",
-    "LATE",
     "MEDIUM",
     "SMALL_SAMPLE",
   ].includes(status);
@@ -630,10 +629,6 @@ export function StatusBadge({ status }: { status: string }) {
     GRADED: "Đã chấm",
     RESOLVED: "Đã xử lý",
     CLOSED: "Đã đóng",
-    PRESENT: "Có mặt",
-    LATE: "Đi muộn",
-    ABSENT: "Vắng",
-    EXCUSED: "Có phép",
     PROCESSING: "Đang xử lý",
     FAILED: "Thất bại",
     EXPIRED: "Đã hết hạn",

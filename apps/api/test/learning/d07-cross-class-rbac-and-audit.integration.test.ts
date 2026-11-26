@@ -23,7 +23,7 @@ function makeSession(
   };
 }
 
-describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu attendance/join, lịch sử điểm và phân quyền liên lớp (D07)", () => {
+describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu vào phòng trực tuyến, lịch sử điểm và phân quyền liên lớp (D07)", () => {
   let moduleRef: TestingModule;
   let prisma: PrismaService;
   let learning: LearningService;

@@ -120,7 +120,6 @@ describe("i18n catalog", () => {
     expect(translateText("Chấm 8.5", "en-US")).toBe("Graded 8.5");
     expect(translateText("câu", "en-US")).toBe("questions");
     expect(translateText("Phiếu", "en-US")).toBe("Ticket");
-    expect(translateText("Rời phòng và chốt điểm danh", "en-US")).toBe("Leave the room and take attendance");
     expect(translateText("· duyệt bởi Admin", "en-US")).toBe("· reviewed by Admin");
     expect(translateText("Ảnh đại diện của Admin", "en-US")).toBe("Avatar of Admin");
     expect(translateText("Khối 10 · Môn Toán · v2", "en-US")).toBe("Grade 10 · Subject Toán · v2");
