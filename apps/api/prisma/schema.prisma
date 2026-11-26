@@ -209,6 +209,13 @@ model User {
   createdAssignments       Assignment[]        @relation("AssignmentCreator")
   assignmentSubmissions    AssignmentSubmission[] @relation("AssignmentLearner")
   classAnnouncements       ClassAnnouncement[] @relation("AnnouncementAuthor")
+  classFeedPosts           ClassFeedPost[] @relation("ClassFeedPostAuthor")
+  classFeedComments        ClassFeedComment[] @relation("ClassFeedCommentAuthor")
+  classFeedRepliesTo       ClassFeedComment[] @relation("ClassFeedCommentReplyTo")
+  classFeedPostLikes       ClassFeedPostLike[]
+  classFeedCommentLikes    ClassFeedCommentLike[]
+  classFeedEditHistories   ClassFeedPostEditHistory[] @relation("ClassFeedPostEditor")
+  classFeedPreferences     ClassFeedPostPreference[]
   chatMemberships          ChatConversationMember[]
   chatMessages             ChatMessage[]        @relation("ChatMessageSender")
   aiStudyDrafts            AiStudyDraft[]
@@ -394,6 +401,7 @@ model LearningClass {
   sessions      LiveSession[]
   assignments   Assignment[]
   announcements ClassAnnouncement[]
+  feedPosts     ClassFeedPost[]
   chatConversation ChatConversation?
   progressInterventions ProgressIntervention[]
   createdAt     DateTime          @default(now()) @map("created_at")
@@ -1232,5 +1240,117 @@ model ChatMessageMention {
   @@id([messageId, mentionedUserId])
   @@index([mentionedUserId, createdAt])
   @@map("chat_message_mentions")
+}
+
+model ClassFeedPost {
+  id            String                     @id @default(cuid())
+  classId       String                     @map("class_id")
+  authorId      String                     @map("author_id")
+  authorRole    String                     @map("author_role") @db.VarChar(40)
+  content       String                     @db.Text
+  isEdited      Boolean                    @default(false) @map("is_edited")
+  class         LearningClass              @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author        User                       @relation("ClassFeedPostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments   ClassFeedAttachment[]
+  comments      ClassFeedComment[]
+  likes         ClassFeedPostLike[]
+  editHistories ClassFeedPostEditHistory[]
+  preferences   ClassFeedPostPreference[]
+  createdAt     DateTime                   @default(now()) @map("created_at")
+  updatedAt     DateTime                   @updatedAt @map("updated_at")
+
+  @@index([classId, createdAt])
+  @@index([authorId])
+  @@map("class_feed_posts")
+}
+
+model ClassFeedAttachment {
+  id           String        @id @default(cuid())
+  postId       String        @map("post_id")
+  objectKey    String        @unique @map("object_key") @db.VarChar(500)
+  originalName String        @map("original_name") @db.VarChar(255)
+  mimeType     String        @map("mime_type") @db.VarChar(150)
+  sizeBytes    BigInt        @map("size_bytes")
+  checksum     String        @db.VarChar(128)
+  post         ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  @@index([postId, createdAt])
+  @@map("class_feed_attachments")
+}
+
+model ClassFeedComment {
+  id            String                 @id @default(cuid())
+  postId        String                 @map("post_id")
+  parentId      String?                @map("parent_id")
+  authorId      String                 @map("author_id")
+  authorRole    String                 @map("author_role") @db.VarChar(40)
+  replyToUserId String?                @map("reply_to_user_id")
+  replyToName   String?                @map("reply_to_name") @db.VarChar(150)
+  content       String                 @db.Text
+  isEdited      Boolean                @default(false) @map("is_edited")
+  post          ClassFeedPost          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent        ClassFeedComment?      @relation("ClassFeedCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       ClassFeedComment[]     @relation("ClassFeedCommentReplies")
+  author        User                   @relation("ClassFeedCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  replyToUser   User?                  @relation("ClassFeedCommentReplyTo", fields: [replyToUserId], references: [id], onDelete: SetNull)
+  likes         ClassFeedCommentLike[]
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
+
+  @@index([postId, createdAt])
+  @@index([parentId, createdAt])
+  @@map("class_feed_comments")
+}
+
+model ClassFeedPostLike {
+  postId    String        @map("post_id")
+  userId    String        @map("user_id")
+  post      ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@id([postId, userId])
+  @@index([userId, createdAt])
+  @@map("class_feed_post_likes")
+}
+
+model ClassFeedCommentLike {
+  commentId String           @map("comment_id")
+  userId    String           @map("user_id")
+  comment   ClassFeedComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@id([commentId, userId])
+  @@index([userId, createdAt])
+  @@map("class_feed_comment_likes")
+}
+
+model ClassFeedPostEditHistory {
+  id              String        @id @default(cuid())
+  postId          String        @map("post_id")
+  editorId        String        @map("editor_id")
+  previousContent String        @map("previous_content") @db.Text
+  post            ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  editor          User          @relation("ClassFeedPostEditor", fields: [editorId], references: [id], onDelete: Restrict)
+  editedAt        DateTime      @default(now()) @map("edited_at")
+
+  @@index([postId, editedAt])
+  @@map("class_feed_post_edit_histories")
+}
+
+model ClassFeedPostPreference {
+  postId    String        @map("post_id")
+  userId    String        @map("user_id")
+  hidden    Boolean       @default(false)
+  following Boolean       @default(false)
+  post      ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  @@id([postId, userId])
+  @@index([userId, hidden])
+  @@map("class_feed_post_preferences")
 }
 

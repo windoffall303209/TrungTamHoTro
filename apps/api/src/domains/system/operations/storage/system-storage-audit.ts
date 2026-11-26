@@ -209,6 +209,17 @@ export async function runPaginatedStorageAudit(
   );
   await scanTableById(
     (cursor) =>
+      prisma.classFeedAttachment.findMany({
+        select: { id: true, objectKey: true, checksum: true },
+        take: dbPageSize,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        orderBy: { id: "asc" },
+      }),
+    (item) => add(item.objectKey, `class-feed-attachment:${item.id}`, item.checksum),
+    dbPageSize,
+  );
+  await scanTableById(
+    (cursor) =>
       prisma.supportAttachment.findMany({
         select: { id: true, objectKey: true, checksum: true },
         take: dbPageSize,

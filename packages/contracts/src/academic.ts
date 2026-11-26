@@ -90,6 +90,83 @@ export interface ClassAnnouncementView {
   publishedAt: IsoDateTimeString;
 }
 
+export type ClassFeedAuthorRole =
+  | "SYSTEM_ADMIN"
+  | "CENTER_MANAGER"
+  | "INSTRUCTOR"
+  | "LEARNER";
+
+export interface ClassFeedAttachmentView {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: ByteSizeNumber;
+  createdAt: IsoDateTimeString;
+  isImage: boolean;
+  canPreview: boolean;
+}
+
+export interface ClassFeedEditHistoryView {
+  id: string;
+  previousContent: string;
+  editorName: string;
+  editedAt: IsoDateTimeString;
+}
+
+export interface ClassFeedCommentView {
+  id: string;
+  postId: string;
+  parentId?: string | null;
+  authorId: string;
+  authorName: string;
+  authorAvatarUrl?: string | null;
+  authorRole: ClassFeedAuthorRole;
+  replyToUserId?: string | null;
+  replyToName?: string | null;
+  content: string;
+  likes: number;
+  isLiked: boolean;
+  isEdited: boolean;
+  canDelete: boolean;
+  createdAt: IsoDateTimeString;
+  replies?: ClassFeedCommentView[];
+}
+
+export interface ClassFeedPostView {
+  id: string;
+  classId: string;
+  classCode: string;
+  authorId: string;
+  authorName: string;
+  authorAvatarUrl?: string | null;
+  authorRole: ClassFeedAuthorRole;
+  content: string;
+  attachments: ClassFeedAttachmentView[];
+  likes: number;
+  isLiked: boolean;
+  isEdited: boolean;
+  isHidden: boolean;
+  isFollowing: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  editHistories: ClassFeedEditHistoryView[];
+  comments: ClassFeedCommentView[];
+  createdAt: IsoDateTimeString;
+  updatedAt: IsoDateTimeString;
+}
+
+export interface ClassFeedLikeToggleResult {
+  id: string;
+  likes: number;
+  isLiked: boolean;
+}
+
+export interface ClassFeedPreferenceResult {
+  postId: string;
+  isHidden: boolean;
+  isFollowing: boolean;
+}
+
 export interface GradebookAssessmentColumn {
   id: string;
   kind: "EXAM" | "ASSIGNMENT";

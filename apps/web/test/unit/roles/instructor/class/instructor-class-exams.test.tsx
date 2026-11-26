@@ -307,7 +307,7 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
 
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(
-        `/academic/announcements?classId=${classItem.id}`,
+        `/classes/${classItem.id}/feed`,
         expect.anything(),
       ),
     );

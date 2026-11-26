@@ -1,19 +1,29 @@
-/** Thông báo lớp do máy chủ trả về (bảng class_announcements). */
-export interface ClassAnnouncement {
-  id: string;
-  classId: string;
-  classCode: string;
-  title: string;
-  body: string;
-  authorName: string;
-  publishedAt: string;
-}
+import type {
+  ClassFeedAttachment,
+  ClassFeedAuthorRole,
+  ClassFeedComment,
+  ClassFeedEditHistory,
+  ClassFeedLikeToggleResult,
+  ClassFeedPost,
+  ClassFeedPreferenceResult,
+} from "@/lib/learning-types";
+
+export type {
+  ClassFeedAttachment,
+  ClassFeedAuthorRole,
+  ClassFeedComment,
+  ClassFeedEditHistory,
+  ClassFeedLikeToggleResult,
+  ClassFeedPost,
+  ClassFeedPreferenceResult,
+};
 
 export interface ClassFeedViewProps {
   classItem: {
     id: string;
     name?: string;
     code: string;
+    status?: string;
   };
   courseName?: string;
   teacherName?: string;

@@ -57,6 +57,7 @@ function createPaginatedAuditPrisma(
     assignmentSubmissionAttachment: { findMany: emptyFindMany },
     question: { findMany: emptyFindMany },
     chatMessageAttachment: { findMany: emptyFindMany },
+    classFeedAttachment: { findMany: emptyFindMany },
     supportAttachment: { findMany: emptyFindMany },
   } as unknown as PrismaService;
   return { prisma, materialFindMany };

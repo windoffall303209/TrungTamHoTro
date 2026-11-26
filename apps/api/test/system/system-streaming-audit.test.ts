@@ -8,7 +8,7 @@ import { processQueuedExport } from "../../src/domains/system/operations/workers
 
 type SnapshotDatabase = Record<
   "learningClass" | "courseVersion" | "material" |
-  "assignmentSubmissionAttachment" | "question" | "chatMessageAttachment" | "supportAttachment",
+  "assignmentSubmissionAttachment" | "question" | "chatMessageAttachment" | "classFeedAttachment" | "supportAttachment",
   { findMany: ReturnType<typeof vi.fn> }
 >;
 
@@ -21,6 +21,7 @@ function snapshotDatabase(): SnapshotDatabase {
     assignmentSubmissionAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "attachment-1", objectKey: "broken" }]) },
     question: { findMany: vi.fn().mockResolvedValue([]) },
     chatMessageAttachment: { findMany: vi.fn().mockResolvedValue([{ id: "chat-1", objectKey: "shared" }]) },
+    classFeedAttachment: { findMany: vi.fn().mockResolvedValue([]) },
     supportAttachment: { findMany: vi.fn().mockResolvedValue([]) },
   };
 }

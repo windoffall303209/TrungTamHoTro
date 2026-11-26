@@ -510,7 +510,7 @@ describe("LearnerClassWorkspace", () => {
   it("báo lỗi nếu API trả về sai cấu trúc và cho phép tải lại", async () => {
     let returnInvalidMaterials = true;
     mockApiRequest.mockImplementation(async (path: string) => {
-      if (path.startsWith("/academic/announcements?classId=")) return [];
+      if (path.startsWith("/classes/") && path.endsWith("/feed")) return [];
       if (path === "/learner/classes/cls-1/exams") return [gradedExam];
       if (path === "/academic/assignments?classId=cls-1" || path === "/learner/results" || path === "/sessions") return [];
       if (path.startsWith("/materials/search")) return returnInvalidMaterials ? { data: classMaterials } : toMaterialPage(classMaterials);

@@ -15,6 +15,8 @@ import { ExamAttemptReconciliationService } from "../exams/exam-attempt-reconcil
 import { SystemModule } from "../../system/core/system.module.js";
 import { ChatController } from "../chat/chat.controller.js";
 import { ChatService } from "../chat/chat.service.js";
+import { ClassFeedController } from "../class-feed/class-feed.controller.js";
+import { ClassFeedService } from "../class-feed/class-feed.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
 import { AiStudyDraftService } from "../ai/ai-study-draft.service.js";
@@ -24,8 +26,8 @@ import { AiGradingOperationsController, AiGradingOperationsService } from "../ai
 
 @Module({
   imports: [SystemModule],
-  controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, AiGradingOperationsController],
-  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
+  controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, ClassFeedController, AiGradingOperationsController],
+  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, ClassFeedService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
   exports: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService],
 })
 /** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */

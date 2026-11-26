@@ -90,7 +90,7 @@ describe("Class page request waterfall and tab-scoped loading (C05)", () => {
     mocks.roleCode = "INSTRUCTOR";
     const assignments = makeAssignments("cls-1", 5);
     mocks.request.mockImplementation(async (url: string) => {
-      if (url.startsWith("/academic/announcements?classId=")) return [];
+      if (url.startsWith("/classes/") && url.endsWith("/feed")) return [];
       if (url.startsWith("/instructor/classes/cls-1/folders")) return { assignments: [], lectures: [], materials: [] };
       if (url === "/instructor/classes/cls-1/learners") {
         return [{ id: "l-1", displayName: "Học viên 1", email: "l1@test.local", roleCode: "LEARNER" }];
@@ -105,10 +105,10 @@ describe("Class page request waterfall and tab-scoped loading (C05)", () => {
     });
 
     render(<InstructorClassWorkspace item={makeClass("cls-1")} course={null} />);
-    await screen.findByText("Lớp chưa có thông báo nào.");
+    await screen.findByText("Chưa có bài đăng nào trong lớp học này");
 
     const initialUrls = mocks.request.mock.calls.map(([u]) => String(u));
-    expect(initialUrls).toEqual(["/academic/announcements?classId=cls-1"]);
+    expect(initialUrls).toEqual(["/classes/cls-1/feed"]);
 
     // Chuyển sang tab Bài tập: chỉ tải dữ liệu của tab Bài tập và tối đa 1 request /submissions cho bài đang chọn.
     mocks.request.mockClear();
@@ -131,7 +131,7 @@ describe("Class page request waterfall and tab-scoped loading (C05)", () => {
   it("học viên mở tab mặc định Bảng tin chỉ gọi 1 API bảng tin và chỉ tải dữ liệu từng tab khi chuyển tab", async () => {
     mocks.roleCode = "LEARNER";
     mocks.request.mockImplementation(async (url: string) => {
-      if (url.startsWith("/academic/announcements?classId=")) return [];
+      if (url.startsWith("/classes/") && url.endsWith("/feed")) return [];
       if (url === "/learner/classes/cls-1/exams") return [];
       if (url === "/academic/assignments?classId=cls-1") return [];
       if (url === "/learner/results") return [];
@@ -143,10 +143,10 @@ describe("Class page request waterfall and tab-scoped loading (C05)", () => {
     const { rerender } = render(
       <LearnerClassWorkspace item={makeClass("cls-1")} course={null} teacherName="GV" />,
     );
-    await screen.findByText("Lớp chưa có thông báo nào.");
+    await screen.findByText("Chưa có bài đăng nào trong lớp học này");
 
     expect(mocks.request.mock.calls.map(([u]) => String(u))).toEqual([
-      "/academic/announcements?classId=cls-1",
+      "/classes/cls-1/feed",
     ]);
 
     mocks.request.mockClear();
