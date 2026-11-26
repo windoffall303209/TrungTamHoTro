@@ -221,15 +221,21 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("nghiệm thu v�
     expect(hostJoin.attendeeUrl).toBe("https://meet.google.com/aaa-bbbb-ccc");
     await expect(learning.joinSession(ids.sessionOpenB, ids.instructorA, "INSTRUCTOR")).rejects.toMatchObject({ status: 400 });
 
-    // Học viên lớp A vào phòng được bất kể thời điểm khi buổi học còn mở; bị chặn ở buổi đã hủy hoặc lớp B.
-    const learnerJoin = await learning.joinSession(ids.sessionOpenA, ids.learnerA, "LEARNER");
-    expect(learnerJoin.attendeeUrl).toBe("https://meet.google.com/aaa-bbbb-ccc");
+    // Học viên, Quản lý và Quản trị viên bị chặn khi giáo viên chưa bắt đầu (SCHEDULED) và vào được ngay khi giáo viên bắt đầu (LIVE) không phụ thuộc giờ.
+    await expect(learning.joinSession(ids.sessionOpenA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
+    await expect(learning.joinSession(ids.sessionOpenB, ids.manager, "CENTER_MANAGER")).rejects.toMatchObject({ status: 400 });
+    await expect(learning.joinSession(ids.sessionEarlyA, ids.manager, "SYSTEM_ADMIN")).rejects.toMatchObject({ status: 400 });
+
+    await learning.transitionSession(ids.sessionOpenA, "LIVE", ids.instructorA);
+    await learning.transitionSession(ids.sessionEarlyA, "LIVE", ids.instructorA);
+    await learning.transitionSession(ids.sessionOpenB, "LIVE", ids.instructorB);
+
+    expect((await learning.joinSession(ids.sessionOpenA, ids.learnerA, "LEARNER")).attendeeUrl).toBe("https://meet.google.com/aaa-bbbb-ccc");
     expect((await learning.joinSession(ids.sessionEarlyA, ids.learnerA, "LEARNER")).attendeeUrl).toBe("https://meet.google.com/ddd-eeee-fff");
-    expect((await learning.joinSession(ids.sessionLateA, ids.learnerA, "LEARNER")).attendeeUrl).toBe("https://meet.google.com/ggg-hhhh-iii");
+    await expect(learning.joinSession(ids.sessionLateA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
     await expect(learning.joinSession(ids.sessionCancelledA, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
     await expect(learning.joinSession(ids.sessionOpenB, ids.learnerA, "LEARNER")).rejects.toMatchObject({ status: 400 });
 
-    // Quản lý trung tâm và Quản trị hệ thống tham gia giám sát không bị giới hạn giờ; vai trò lạ bị từ chối deny-by-default (403).
     expect((await learning.joinSession(ids.sessionOpenB, ids.manager, "CENTER_MANAGER")).attendeeUrl).toBe("https://meet.google.com/mmm-nnnn-ooo");
     expect((await learning.joinSession(ids.sessionEarlyA, ids.manager, "SYSTEM_ADMIN")).attendeeUrl).toBe("https://meet.google.com/ddd-eeee-fff");
     await expect(learning.joinSession(ids.sessionOpenA, ids.learnerA, "GUEST")).rejects.toMatchObject({ status: 403 });

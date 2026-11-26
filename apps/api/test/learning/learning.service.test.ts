@@ -2543,19 +2543,20 @@ describe("LearningService", () => {
     }
   });
 
-  it("cho phép học viên thuộc lớp vào phòng không phụ thuộc khung giờ và ẩn link host trong danh sách", async () => {
+  it("chặn học viên vào phòng khi giáo viên chưa ấn bắt đầu và cho vào ngay khi LIVE bất kể khung giờ", async () => {
     vi.useFakeTimers();
     try {
       const service = new LearningService();
       const learnerSessions = await service.listSessions("LEARNER", "usr-learner");
       expect(learnerSessions[0]?.hostUrl).toBe("");
-      vi.setSystemTime(new Date("2026-08-26T01:30:00.000Z"));
-      const earlyJoined = await service.joinSession("session-web-01", "usr-learner", "LEARNER");
-      expect(earlyJoined.attendeeUrl).not.toContain("-host");
-      vi.setSystemTime(new Date("2026-08-26T01:50:00.000Z"));
+      vi.setSystemTime(new Date("2026-08-26T01:55:00.000Z"));
+      await expect(service.joinSession("session-web-01", "usr-learner", "LEARNER")).rejects.toThrow(
+        "Chưa tới giờ",
+      );
+      await service.transitionSession("session-web-01", "LIVE", "usr-instructor");
+      vi.setSystemTime(new Date("2026-08-26T00:00:00.000Z"));
       const joined = await service.joinSession("session-web-01", "usr-learner", "LEARNER");
       expect(joined.attendeeUrl).not.toContain("-host");
-      vi.setSystemTime(new Date("2026-08-26T02:10:00.000Z"));
     } finally {
       vi.useRealTimers();
     }
@@ -2814,8 +2815,8 @@ describe("LearningService", () => {
     try {
       vi.setSystemTime(new Date("2026-08-26T02:00:00.000Z"));
       const service = new LearningService();
-      await service.joinSession("session-web-01", "usr-learner", "LEARNER");
       await service.transitionSession("session-web-01", "LIVE", "usr-instructor");
+      await service.joinSession("session-web-01", "usr-learner", "LEARNER");
       await service.transitionSession("session-web-01", "COMPLETED", "usr-instructor");
       await service.attachRecording(
         "session-web-01",

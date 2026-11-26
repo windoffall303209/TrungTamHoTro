@@ -163,4 +163,40 @@ describe("ClassSchedulePanel", () => {
     );
     expect(await screen.findByText("Buổi 02: Chữa bài tập")).toBeInTheDocument();
   });
+
+  it.each(["CENTER_MANAGER", "SYSTEM_ADMIN"] as const)(
+    "hiển thị Chưa tới giờ khi giáo viên chưa bắt đầu và chỉ hiện Vào phòng khi LIVE đối với %s",
+    async (roleCode) => {
+      mockApiRequest.mockImplementation(async (url: string) => {
+        if (url === "/sessions") {
+          return [
+            { ...existingSession, id: "sess-sched", title: "Ca chưa bắt đầu", status: "SCHEDULED" },
+            { ...existingSession, id: "sess-live", title: "Ca đang học", status: "LIVE" },
+          ];
+        }
+        throw new Error(`Unexpected API call: ${url}`);
+      });
+
+      render(
+        <ClassSchedulePanel
+          classItem={classItem}
+          roleCode={roleCode}
+          canManage={true}
+          canTransitionStatus={true}
+          locale="vi-VN"
+          notify={notify}
+          t={(key) => key}
+        />,
+      );
+
+      expect(await screen.findByText("Ca chưa bắt đầu")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Chưa tới giờ" })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: "Vào phòng" })).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: "Bắt đầu" })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /Dạng tháng/i }));
+      expect(screen.getByRole("button", { name: "Chưa tới giờ" })).toBeDisabled();
+      expect(screen.getAllByRole("button", { name: "Vào phòng" })).toHaveLength(1);
+    },
+  );
 });

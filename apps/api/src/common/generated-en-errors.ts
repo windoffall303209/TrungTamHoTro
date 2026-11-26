@@ -113,6 +113,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Bộ ôn tập trích dẫn ngoài ngữ cảnh được phép. Kết quả chưa được chấp nhận.": "The study guide cites sources outside the authorized context. The result was not accepted.",
   "Buổi học chưa có bản ghi để cập nhật.": "The session does not have a recording to update.",
   "Buổi học không còn cho phép tham gia.": "Class participation is no longer allowed.",
+  "Chưa tới giờ vào phòng học.": "Class has not started yet.",
   "Buổi học phải nằm trong thời gian của lớp.": "Lessons must be within class time.",
   "Các câu hỏi trong bộ ôn tập không được trùng nhau.": "Study guide questions must not be duplicates.",
   "Cần chọn ảnh đề thi để quét.": "Need to select exam photo to scan.",

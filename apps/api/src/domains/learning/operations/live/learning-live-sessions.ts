@@ -735,7 +735,7 @@ export async function transitionSession(
   return { ...item };
 }
 
-/** Xác minh quyền thành viên lớp theo vai trò và trả URL phòng họp hợp lệ bất kể khung giờ khi buổi học còn mở. */
+/** Xác minh quyền tham dự theo vai trò; học viên, quản lý và quản trị viên chỉ vào phòng khi giáo viên đã bắt đầu (LIVE). */
 export async function joinSession(
   serviceContext: LearningServiceContext,
   sessionId: string,
@@ -768,6 +768,10 @@ export async function joinSession(
         attendeeUrl: meetingUrl,
         joinedAt: new Date().toISOString(),
       };
+    }
+
+    if (session.status !== "LIVE") {
+      throw new BadRequestException("Chưa tới giờ vào phòng học.");
     }
 
     if (isManagerRole(actorRole)) {
@@ -807,6 +811,9 @@ export async function joinSession(
       throw new BadRequestException("Buổi học chưa có liên kết phòng học.");
     }
     return { attendeeUrl: meetingUrl, joinedAt: now() };
+  }
+  if (item.status !== "LIVE") {
+    throw new BadRequestException("Chưa tới giờ vào phòng học.");
   }
   if (isManagerRole(actorRole)) {
     const meetingUrl = item.hostUrl || item.attendeeUrl;

@@ -83,7 +83,7 @@ describe("live-session-utils", () => {
     expect(draft.date).toBe("2026-11-17");
   });
 
-  it("cho phép học viên vào phòng bất kể thời điểm miễn là buổi học chưa hủy hoặc kết thúc", () => {
+  it("chỉ cho phép học viên vào phòng khi giáo viên đã ấn bắt đầu (LIVE)", () => {
     const startsAt = "2026-11-20T12:30:00.000Z";
     const endsAt = "2026-11-20T14:00:00.000Z";
     expect(
@@ -95,9 +95,9 @@ describe("live-session-utils", () => {
     expect(
       canLearnerJoinSession(
         { status: "SCHEDULED" },
-        new Date("2026-11-10T00:00:00.000Z").getTime(),
+        new Date("2026-11-20T12:35:00.000Z").getTime(),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       canLearnerJoinSession(
         { status: "COMPLETED" },

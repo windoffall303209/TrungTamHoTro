@@ -246,23 +246,17 @@ describe("Live sessions with direct Google Meet URLs", () => {
     );
     expect(coJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
 
-    const managerJoin = await learning.joinSession(
-      created.id,
-      "usr-manager",
-      "CENTER_MANAGER",
-    );
-    expect(managerJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
+    await expect(
+      learning.joinSession(created.id, "usr-manager", "CENTER_MANAGER"),
+    ).rejects.toThrow("Chưa tới giờ");
 
     await expect(
       learning.joinSession(created.id, outsiderId, "INSTRUCTOR"),
     ).rejects.toThrow("Giảng viên không thuộc lớp");
 
-    const learnerJoin = await learning.joinSession(
-      created.id,
-      "usr-learner",
-      "LEARNER",
-    );
-    expect(learnerJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
+    await expect(
+      learning.joinSession(created.id, "usr-learner", "LEARNER"),
+    ).rejects.toThrow("Chưa tới giờ");
 
     const cancelled = await learning.cancelSession(
       created.id,
@@ -271,6 +265,35 @@ describe("Live sessions with direct Google Meet URLs", () => {
       "INSTRUCTOR",
     );
     expect(cancelled.status).toBe("CANCELLED");
+
+    const liveCreated = await learning.createSession(
+      "class-web-01",
+      {
+        title: "Buổi học Google Meet mở ngay",
+        startsAt: new Date(Date.now() + 3 * 3_600_000).toISOString(),
+        endsAt: new Date(Date.now() + 4 * 3_600_000).toISOString(),
+        provider: "GOOGLE_MEET",
+        meetingUrl: "https://meet.google.com/klm-nopq-rst",
+      },
+      "usr-instructor",
+      "INSTRUCTOR",
+    );
+    await learning.transitionSession(liveCreated.id, "LIVE", "usr-instructor");
+
+    const managerJoin = await learning.joinSession(
+      liveCreated.id,
+      "usr-manager",
+      "CENTER_MANAGER",
+    );
+    expect(managerJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
+
+    const learnerJoin = await learning.joinSession(
+      liveCreated.id,
+      "usr-learner",
+      "LEARNER",
+    );
+    expect(learnerJoin.attendeeUrl).toBe("https://meet.google.com/klm-nopq-rst");
+    await learning.transitionSession(liveCreated.id, "COMPLETED", "usr-instructor");
 
     await expect(
       learning.joinSession(created.id, "usr-instructor", "INSTRUCTOR"),

@@ -1422,9 +1422,11 @@ export function LearnerClassWorkspace({
                                   <p className="text-[10px] text-slate-500">
                                     {new Date(entry.startsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })} – {new Date(entry.endsAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
                                   </p>
-                                  {canLearnerJoinSession(entry) && (
+                                  {canLearnerJoinSession(entry) ? (
                                     <button type="button" onClick={() => void joinClassSession(entry)} className="w-full rounded-lg bg-blue-600 hover:bg-blue-700 px-2 py-1.5 text-[11px] font-bold text-white cursor-pointer">Vào phòng</button>
-                                  )}
+                                  ) : entry.status === "SCHEDULED" ? (
+                                    <button type="button" disabled className="w-full rounded-lg bg-slate-100 dark:bg-slate-800 px-2 py-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 cursor-not-allowed">Chưa tới giờ</button>
+                                  ) : null}
                                 </div>
                               );
                             })}
@@ -1470,9 +1472,11 @@ export function LearnerClassWorkspace({
                             {new Date(entry.startsAt).toLocaleString(locale)} – {new Date(entry.endsAt).toLocaleString(locale)}
                           </p>
                         </div>
-                        {canLearnerJoinSession(entry) && (
+                        {canLearnerJoinSession(entry) ? (
                           <button type="button" onClick={() => void joinClassSession(entry)} className="rounded-xl bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-bold text-white cursor-pointer">Vào phòng</button>
-                        )}
+                        ) : entry.status === "SCHEDULED" ? (
+                          <button type="button" disabled className="rounded-xl bg-slate-200 dark:bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 cursor-not-allowed">Chưa tới giờ</button>
+                        ) : null}
                       </div>
                     );
                   })}

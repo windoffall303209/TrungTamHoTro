@@ -102,6 +102,7 @@ export function ClassSchedulePanel({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const isManagerRole = roleCode === "CENTER_MANAGER" || roleCode === "SYSTEM_ADMIN";
+  const isInstructor = roleCode === "INSTRUCTOR";
 
   // Nạp danh sách buổi học trực tuyến của riêng lớp hiện tại.
   const loadClassSessions = useCallback(async () => {
@@ -204,12 +205,15 @@ export function ClassSchedulePanel({
           status: formatSessionStatusLabel(entry, now),
           meetingUrl: meetingUrl || undefined,
           sessionStatus: entry.status,
-          isActionable: entry.status !== "CANCELLED" && entry.status !== "COMPLETED",
+          isActionable: isInstructor
+            ? entry.status !== "CANCELLED" && entry.status !== "COMPLETED"
+            : entry.status === "LIVE",
+          waitingBeforeStart: !isInstructor && entry.status === "SCHEDULED",
           canEditOrCancel,
-          canTransition: canManage && canTransitionStatus,
+          canTransition: isInstructor && canManage && canTransitionStatus,
         };
       });
-  }, [canManage, canTransitionStatus, currentDate, locale, sessions]);
+  }, [canManage, canTransitionStatus, currentDate, isInstructor, locale, sessions]);
 
   // Chuyển lùi hoặc tiến một tuần/tháng theo chế độ xem hiện tại.
   const shiftPeriod = (direction: -1 | 1) => {
@@ -549,9 +553,12 @@ export function ClassSchedulePanel({
                           canManage &&
                           entry.status === "SCHEDULED" &&
                           startsAt > now;
-                        const canJoin =
-                          entry.status !== "CANCELLED" &&
-                          entry.status !== "COMPLETED";
+                        const canJoin = isInstructor
+                          ? entry.status !== "CANCELLED" &&
+                            entry.status !== "COMPLETED"
+                          : entry.status === "LIVE";
+                        const waitingBeforeStart =
+                          !isInstructor && entry.status === "SCHEDULED";
                         const hasMeet =
                           (entry.hostUrl || entry.attendeeUrl).includes(
                             "meet.google.com",
@@ -605,9 +612,18 @@ export function ClassSchedulePanel({
                                   <span>Vào phòng</span>
                                   <ExternalLink size={10} />
                                 </button>
+                              ) : waitingBeforeStart ? (
+                                <button
+                                  type="button"
+                                  disabled
+                                  className="w-full py-1.5 px-2 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[11px] font-semibold cursor-not-allowed"
+                                >
+                                  {t("Chưa tới giờ")}
+                                </button>
                               ) : null}
 
-                              {canManage &&
+                              {isInstructor &&
+                              canManage &&
                               canTransitionStatus &&
                               entry.status === "SCHEDULED" ? (
                                 <button
@@ -621,7 +637,8 @@ export function ClassSchedulePanel({
                                 </button>
                               ) : null}
 
-                              {canManage &&
+                              {isInstructor &&
+                              canManage &&
                               canTransitionStatus &&
                               entry.status === "LIVE" ? (
                                 <button

@@ -351,23 +351,55 @@ export default function LiveClassesPage() {
     };
   }, [hasAggregatedSchedule, load]);
 
-  /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn. */
+  const resolvedSessionIdRef = useRef<string | null>(null);
+
+  /** Đưa buổi học được mở từ lịch hoặc thông báo vào giữa vùng nhìn, tự nhảy đúng tuần nếu khác tuần đang xem. */
   useEffect(() => {
     if (!hasAggregatedSchedule) return;
     const sessionId = searchParams.get("sessionId");
-    if (!sessionId || loading) return;
-    const timer = window.setTimeout(() => {
-      const node = document.getElementById(`session-${sessionId}`);
-      if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
-      else {
+    if (!sessionId) {
+      resolvedSessionIdRef.current = null;
+      return;
+    }
+    if (loading) return;
+    if (items.some((entry) => entry.id === sessionId)) {
+      const timer = window.setTimeout(() => {
+        const node = document.getElementById(`session-${sessionId}`);
+        if (node) node.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 100);
+      return () => window.clearTimeout(timer);
+    }
+    if (resolvedSessionIdRef.current === sessionId) return;
+    resolvedSessionIdRef.current = sessionId;
+    const controller = new AbortController();
+    void apiRequest<LiveSession[]>("/sessions", {
+      roleCode: session.roleCode,
+      signal: controller.signal,
+    })
+      .then((rows) => {
+        if (controller.signal.aborted) return;
+        const target = Array.isArray(rows)
+          ? rows.find((entry) => entry.id === sessionId)
+          : undefined;
+        if (target) {
+          setCurrentDate(new Date(target.startsAt));
+          return;
+        }
         notify(
           "Buổi học không còn khả dụng hoặc bạn không có quyền xem.",
           "error",
         );
-      }
-    }, 100);
-    return () => window.clearTimeout(timer);
-  }, [hasAggregatedSchedule, items, loading, notify, searchParams]);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          notify(
+            "Buổi học không còn khả dụng hoặc bạn không có quyền xem.",
+            "error",
+          );
+        }
+      });
+    return () => controller.abort();
+  }, [hasAggregatedSchedule, items, loading, notify, searchParams, session.roleCode]);
 
   useEffect(() => {
     if (!hasAggregatedSchedule) return;
@@ -781,16 +813,22 @@ export default function LiveClassesPage() {
                                         </button>
                                       )}
                                     </>
+                                  ) : isLive ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void join(sessionItem)}
+                                      className="w-full py-1.5 px-2 rounded-lg bg-white text-[#0070ba] hover:bg-white/95 shadow-xs text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
+                                    >
+                                      {t("Vào phòng")} <ExternalLink size={11} />
+                                    </button>
                                   ) : (
-                                    joinable && (
-                                      <button
-                                        type="button"
-                                        onClick={() => void join(sessionItem)}
-                                        className="w-full py-1.5 px-2 rounded-lg bg-white text-[#0070ba] hover:bg-white/95 shadow-xs text-[11px] font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                                      >
-                                        {t("Vào phòng")} <ExternalLink size={11} />
-                                      </button>
-                                    )
+                                    <button
+                                      type="button"
+                                      disabled
+                                      className="w-full py-1.5 px-2 rounded-lg bg-white/15 text-white/75 text-[11px] font-bold cursor-not-allowed"
+                                    >
+                                      {t("Chưa tới giờ")}
+                                    </button>
                                   )}
                                 </div>
                               ) : null}
@@ -899,12 +937,22 @@ export default function LiveClassesPage() {
                           </Button>
                         </>
                       ) : null}
-                      {item.status === "SCHEDULED" || item.status === "LIVE" ? (
-                        <Button
-                          onClick={() => void join(item)}
-                          variant={instructor ? "secondary" : "primary"}
-                        >
+                      {instructor ? (
+                        item.status === "SCHEDULED" || item.status === "LIVE" ? (
+                          <Button
+                            onClick={() => void join(item)}
+                            variant="secondary"
+                          >
+                            {t("Vào phòng")} <ExternalLink size={15} />
+                          </Button>
+                        ) : null
+                      ) : item.status === "LIVE" ? (
+                        <Button onClick={() => void join(item)}>
                           {t("Vào phòng")} <ExternalLink size={15} />
+                        </Button>
+                      ) : item.status === "SCHEDULED" ? (
+                        <Button disabled variant="secondary">
+                          {t("Chưa tới giờ")}
                         </Button>
                       ) : null}
                     </div>

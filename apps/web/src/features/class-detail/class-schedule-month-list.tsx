@@ -10,6 +10,7 @@ export interface ClassScheduleMonthRow {
   meetingUrl?: string;
   sessionStatus?: LiveSession["status"];
   isActionable?: boolean;
+  waitingBeforeStart?: boolean;
   canEditOrCancel?: boolean;
   canTransition?: boolean;
 }
@@ -143,6 +144,14 @@ export function ClassScheduleMonthList({
                 >
                   <Play size={13} />
                   <span>Vào phòng</span>
+                </button>
+              ) : row.waitingBeforeStart ? (
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs font-semibold cursor-not-allowed"
+                >
+                  <span>Chưa tới giờ</span>
                 </button>
               ) : null}
             </div>

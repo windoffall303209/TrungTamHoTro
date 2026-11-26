@@ -192,7 +192,7 @@ describe("LiveClassesPage aggregated schedule", () => {
     );
   });
 
-  it("hiển thị Đã kết thúc cho buổi COMPLETED và cho phép học sinh bấm Vào phòng ngay cả khi chưa tới giờ", async () => {
+  it("hiển thị Đã kết thúc cho buổi COMPLETED, Chưa tới giờ khi SCHEDULED và chỉ hiện Vào phòng khi LIVE cho học sinh", async () => {
     currentRole.code = "LEARNER";
     const now = new Date();
     const futureStarts = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 0, 0);
@@ -204,14 +204,19 @@ describe("LiveClassesPage aggregated schedule", () => {
           items: [
             buildTodaySession({ id: "done-1", title: "Ca sáng", status: "COMPLETED" }),
             buildTodaySession({
-              id: "future-1",
-              title: "Ca tối",
+              id: "scheduled-1",
+              title: "Ca tối chưa mở",
               status: "SCHEDULED",
               startsAt: futureStarts.toISOString(),
               endsAt: futureEnds.toISOString(),
             }),
+            buildTodaySession({
+              id: "live-1",
+              title: "Ca đang dạy",
+              status: "LIVE",
+            }),
           ],
-          total: 2,
+          total: 3,
           page: 1,
           pageSize: 100,
           totalPages: 1,
@@ -223,11 +228,12 @@ describe("LiveClassesPage aggregated schedule", () => {
     render(<LiveClassesPage />);
     expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
     expect(screen.queryByText("COMPLETED")).not.toBeInTheDocument();
-    const joinBtn = screen.getByRole("button", { name: /Vào phòng/i });
-    expect(joinBtn).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Chưa tới giờ" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: /Vào phòng/i })).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Tháng" }));
     expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Vào phòng/i })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Chưa tới giờ" })).toBeDisabled();
+    expect(screen.getAllByRole("button", { name: /Vào phòng/i })).toHaveLength(1);
   });
 });

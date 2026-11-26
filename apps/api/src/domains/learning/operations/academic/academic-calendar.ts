@@ -44,7 +44,7 @@ export async function calendar(
         startAt: sessionItem.startsAt.toISOString(),
         endAt: sessionItem.endsAt.toISOString(),
         href:
-          session.roleCode === "INSTRUCTOR"
+          session.roleCode === "INSTRUCTOR" || session.roleCode === "LEARNER"
             ? `/live-classes?classId=${encodeURIComponent(item.id)}&sessionId=${encodeURIComponent(sessionItem.id)}`
             : `/courses/classes/${encodeURIComponent(item.id)}?tab=schedule`,
       })),

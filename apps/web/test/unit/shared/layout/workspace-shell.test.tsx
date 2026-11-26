@@ -190,7 +190,7 @@ describe("WorkspaceShell", () => {
     expect(setRole).toHaveBeenCalledWith("INSTRUCTOR");
   });
 
-  it("gắn liên kết thông báo lịch học vào thẳng tab Lịch học của lớp cho quản lý trung tâm", async () => {
+  it("điều hướng thông báo lịch học sang Lịch học trên header cho học sinh và vào tab Lịch học của lớp cho quản lý trung tâm", async () => {
     apiRequest.mockImplementation((path: string) =>
       Promise.resolve(
         path === "/notifications"
@@ -209,6 +209,26 @@ describe("WorkspaceShell", () => {
           : [],
       ),
     );
+    useApp.mockReturnValue({
+      session: {
+        roleCode: "LEARNER",
+        permissions: ["class:view", "session:view"],
+        availableRoles: [{ code: "LEARNER", name: "Học viên" }],
+        user: { id: "usr-learner", name: "Học viên", roleName: "Học viên" },
+      },
+      setRole: vi.fn(),
+      logout: vi.fn(),
+      notify,
+    });
+
+    const view = render(<WorkspaceShell><p>Nội dung</p></WorkspaceShell>);
+    fireEvent.click(await screen.findByRole("button", { name: "Thông báo, 1 chưa đọc" }));
+    expect(screen.getByRole("link", { name: /Đã lên lịch: Buổi ôn tập tuần 4/i })).toHaveAttribute(
+      "href",
+      "/live-classes?classId=cls-12&sessionId=ses-04",
+    );
+
+    view.unmount();
     useApp.mockReturnValue({
       session: {
         roleCode: "CENTER_MANAGER",

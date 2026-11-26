@@ -221,11 +221,11 @@ export function formatSessionStatusLabel(
   return startsAt < now ? "Đã diễn ra" : "Sắp diễn ra";
 }
 
-// Kiểm tra buổi học còn mở để học viên vào phòng học trực tuyến không phụ thuộc khung giờ.
+// Học viên, quản lý và quản trị viên chỉ được vào phòng khi giáo viên đã bắt đầu buổi học (LIVE).
 export function canLearnerJoinSession(
   session: Pick<LiveSession, "status">,
   _nowMs?: number,
 ): boolean {
   void _nowMs;
-  return session.status !== "CANCELLED" && session.status !== "COMPLETED";
+  return session.status === "LIVE";
 }

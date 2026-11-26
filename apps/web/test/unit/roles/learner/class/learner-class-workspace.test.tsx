@@ -257,7 +257,7 @@ describe("LearnerClassWorkspace", () => {
     expect(openedWindow.close).not.toHaveBeenCalled();
   });
 
-  it("hiển thị Đã kết thúc thay vì COMPLETED và luôn hiện nút Vào phòng cho buổi học chưa kết thúc", async () => {
+  it("hiển thị Đã kết thúc thay vì COMPLETED, hiện Chưa tới giờ khi giáo viên chưa bắt đầu và hiện Vào phòng khi LIVE", async () => {
     const defaultRequest = mockApiRequest.getMockImplementation();
     mockApiRequest.mockImplementation((path: string, options?: unknown) => {
       if (path === "/sessions") {
@@ -266,10 +266,16 @@ describe("LearnerClassWorkspace", () => {
           {
             ...classSession,
             id: "session-future",
-            title: "Buổi tuần tới",
+            title: "Buổi chưa mở",
             status: "SCHEDULED",
             startsAt: "2099-12-20T12:00:00Z",
             endsAt: "2099-12-20T13:30:00Z",
+          },
+          {
+            ...classSession,
+            id: "session-live",
+            title: "Buổi đang học",
+            status: "LIVE",
           },
         ]);
       }
@@ -283,7 +289,8 @@ describe("LearnerClassWorkspace", () => {
 
     expect(await screen.findByText("Đã kết thúc")).toBeInTheDocument();
     expect(screen.queryByText("COMPLETED")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Vào phòng" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chưa tới giờ" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Vào phòng" })).not.toBeDisabled();
   });
 
   it("đóng tab phòng học nếu API từ chối cho tham gia", async () => {

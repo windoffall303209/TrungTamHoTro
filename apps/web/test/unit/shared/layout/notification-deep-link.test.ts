@@ -19,7 +19,7 @@ describe("ánh xạ deep-link thông báo theo từng loại thực thể (D07)"
     expect(resolveNotificationHref(item)).toBe(expected);
   });
 
-  it("điều hướng thông báo lịch học vào tab Lịch học trong lớp cho học sinh, quản lý và quản trị viên", () => {
+  it("điều hướng thông báo lịch học sang Lịch học trên header cho giáo viên, học sinh và vào tab Lịch học trong lớp cho quản lý, quản trị viên", () => {
     const liveItem = {
       entityType: "LIVE_SESSION",
       entityId: "ses-01",
@@ -30,7 +30,7 @@ describe("ánh xạ deep-link thông báo theo từng loại thực thể (D07)"
       "/live-classes?classId=cls-01&sessionId=ses-01",
     );
     expect(resolveNotificationHref(liveItem, "LEARNER")).toBe(
-      "/courses/classes/cls-01?tab=schedule&sessionId=ses-01",
+      "/live-classes?classId=cls-01&sessionId=ses-01",
     );
     expect(resolveNotificationHref(liveItem, "CENTER_MANAGER")).toBe(
       "/courses/classes/cls-01?tab=schedule&sessionId=ses-01",

@@ -78,7 +78,7 @@ export function resolveNotificationHref(
     return `/forum?topicId=${entityId}`;
   }
   const sessionHref =
-    roleCode === "INSTRUCTOR"
+    roleCode === "INSTRUCTOR" || roleCode === "LEARNER"
       ? `/live-classes?${classId ? `classId=${encodeURIComponent(classId)}&` : ""}sessionId=${entityId}`
       : classId
         ? `/courses/classes/${encodeURIComponent(classId)}?tab=schedule&sessionId=${entityId}`
