@@ -224,15 +224,35 @@ export async function saveAnswers(
       include: { question: true },
     });
     const byId = new Map(examQuestions.map((item) => [item.questionId, item]));
+    // Kiểm tra hợp lệ toàn bộ đáp án và khử trùng questionId (giữ giá trị cuối cùng) trước khi ghi lô nguyên tử.
+    const deduplicated = new Map<string, string[]>();
     for (const entry of entries) {
       const examQuestion = byId.get(entry.questionId);
       if (!examQuestion) throw new BadRequestException("Câu hỏi không thuộc đề.");
       const normalizedAnswers = serviceContext.validateSubmittedAnswers(serviceContext.mapQuestion(examQuestion.question), entry.answers);
-      await transaction.attemptAnswer.upsert({
-        where: { attemptId_questionId: { attemptId, questionId: entry.questionId } },
-        update: { answerData: normalizedAnswers },
-        create: { attemptId, questionId: entry.questionId, answerData: normalizedAnswers },
-      });
+      deduplicated.set(entry.questionId, normalizedAnswers);
+    }
+    const questionIds = [...deduplicated.keys()];
+    if (typeof transaction.$executeRaw === "function") {
+      const answerJsons = questionIds.map((questionId) => JSON.stringify(deduplicated.get(questionId) ?? []));
+      const updatedAt = new Date();
+      // Ghi gộp toàn bộ N đáp án bằng đúng 1 lệnh INSERT ... ON CONFLICT thay vì N upsert tuần tự trong khi giữ khóa FOR UPDATE.
+      await transaction.$executeRaw`
+        INSERT INTO attempt_answers (attempt_id, question_id, answer_data, updated_at)
+        SELECT ${attemptId}, bulk.question_id, bulk.answer_json::jsonb, ${updatedAt}
+        FROM unnest(${questionIds}::text[], ${answerJsons}::text[]) AS bulk(question_id, answer_json)
+        ON CONFLICT (attempt_id, question_id)
+        DO UPDATE SET answer_data = EXCLUDED.answer_data, updated_at = EXCLUDED.updated_at
+      `;
+    } else {
+      for (const questionId of questionIds) {
+        const normalizedAnswers = deduplicated.get(questionId) ?? [];
+        await transaction.attemptAnswer.upsert({
+          where: { attemptId_questionId: { attemptId, questionId } },
+          update: { answerData: normalizedAnswers },
+          create: { attemptId, questionId, answerData: normalizedAnswers },
+        });
+      }
     }
   });
 }
