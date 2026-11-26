@@ -275,20 +275,45 @@ export async function removeClassAvatar(
   return serviceContext.mapClass(committed.row);
 }
 
-/** Đọc ảnh đại diện của lớp học từ object storage phục vụ hiển thị trực tuyến. */
+/** Đọc ảnh đại diện của lớp học từ object storage sau khi kiểm tra quyền xem lớp cụ thể của phiên. */
 export async function readClassAvatar(
   serviceContext: LearningServiceContext,
   classId: string,
+  session: AuthenticatedSession,
 ): Promise<{ buffer: Buffer; mimeType: string }> {
+  if (
+    !session.permissions.includes("class:view") &&
+    !session.permissions.includes("class:manage")
+  ) {
+    throw new ForbiddenException("Bạn không có quyền xem lớp học này.");
+  }
   const prisma = serviceContext.database();
   if (!prisma || !serviceContext.objectStorage) {
     throw new NotFoundException("Lớp học chưa có ảnh đại diện.");
   }
-  const row = await prisma.learningClass.findUnique({
-    where: { id: classId },
+  const where =
+    session.roleCode === "SYSTEM_ADMIN" || session.roleCode === "CENTER_MANAGER"
+      ? { id: classId }
+      : session.roleCode === "INSTRUCTOR"
+        ? {
+            id: classId,
+            instructors: { some: { instructorId: session.user.id } },
+          }
+        : {
+            id: classId,
+            status: { not: "DRAFT" as const },
+            enrollments: {
+              some: { learnerId: session.user.id, status: "ACTIVE" as const },
+            },
+          };
+  const row = await prisma.learningClass.findFirst({
+    where,
     select: { avatarObjectKey: true, avatarMimeType: true },
   });
-  if (!row?.avatarObjectKey || !row.avatarMimeType) {
+  if (!row) {
+    throw new NotFoundException("Không tìm thấy lớp học trong phạm vi truy cập.");
+  }
+  if (!row.avatarObjectKey || !row.avatarMimeType) {
     throw new NotFoundException("Lớp học chưa có ảnh đại diện.");
   }
   return {

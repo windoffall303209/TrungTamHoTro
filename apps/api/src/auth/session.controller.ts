@@ -4,6 +4,8 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import type { Request, Response } from "express";
 import { AuthService, type AuthenticatedSession } from "./auth.service.js";
 import { AuthRateLimit } from "./auth-rate-limit.js";
+import { CurrentSession } from "./current-session.decorator.js";
+import { RequireAuthentication } from "./require-permissions.decorator.js";
 import { AccountSetupOtpDto, ChangePasswordDto, ChangeVerificationEmailDto, CompleteAccountSetupDto, ConfirmEmailChangeDto, DisableMfaDto, DisableMfaPasswordDto, EmailChangeOtpDto, ForgotPasswordDto, LoginDto, MfaCodeDto, MfaLoginDto, MfaRecoveryLoginDto, PasswordChangeOtpDto, RegenerateRecoveryCodesDto, ResendVerificationDto, ResetPasswordDto, UpdateProfileDto, VerificationStatusDto, VerifyEmailCodeDto, VerifyEmailDto } from "./auth.dto.js";
 import { USER_FILE_CSP } from "../infrastructure/file-signature.js";
 import { AllowDuringMaintenance } from "../domains/system/operations/allow-during-maintenance.decorator.js";
@@ -149,6 +151,7 @@ export class SessionController {
 
 @ApiTags("Account")
 @Controller("account")
+@RequireAuthentication()
 /** Cung cấp các thao tác tài khoản yêu cầu phiên hợp lệ: hồ sơ, avatar, mật khẩu, MFA và thiết bị. */
 export class AccountController {
   constructor(private readonly auth: AuthService) {}
@@ -158,8 +161,7 @@ export class AccountController {
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
   @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
   /** Đọc ảnh đại diện từ object storage và stream đúng MIME để trình duyệt hiển thị nội tuyến. */
-  async avatar(@Headers("cookie") cookies?: string): Promise<StreamableFile> {
-    const session = await this.session(cookies);
+  async avatar(@CurrentSession() session: AuthenticatedSession): Promise<StreamableFile> {
     const avatar = await this.auth.readAvatar(session.user.id);
     return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
   }
@@ -168,10 +170,8 @@ export class AccountController {
   @Header("Content-Security-Policy", USER_FILE_CSP)
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
   @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
-  /** Cho phép tải ảnh đại diện công khai của người dùng trong hệ thống mà không phụ thuộc phiên hiện tại. */
-  async userAvatar(@Param("id") id: string, @Headers("cookie") cookies?: string): Promise<StreamableFile> {
-    // Chỉ người đã đăng nhập mới xem avatar của người khác; proxy/CDN dùng chung không được cache (private).
-    await this.session(cookies);
+  /** Cho phép tải ảnh đại diện của người dùng khác khi đã đăng nhập; CDN dùng chung không được cache (private). */
+  async userAvatar(@Param("id") id: string): Promise<StreamableFile> {
     const avatar = await this.auth.readAvatar(id);
     return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
   }
@@ -179,126 +179,107 @@ export class AccountController {
   @Post("avatar")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 3 * 1024 * 1024, files: 1 } }))
   /** Nhận duy nhất một ảnh tối đa 3 MB rồi giao AuthService kiểm tra chữ ký tệp và lưu trữ. */
-  async updateAvatar(@Headers("cookie") cookies: string | undefined, @UploadedFile() file?: { mimetype: string; size: number; buffer: Buffer }): Promise<object> {
+  async updateAvatar(@CurrentSession() session: AuthenticatedSession, @UploadedFile() file?: { mimetype: string; size: number; buffer: Buffer }): Promise<object> {
     if (!file) throw new BadRequestException("Hãy chọn một ảnh đại diện.");
-    const session = await this.session(cookies);
     return this.auth.updateAvatar(session.user.id, { mimeType: file.mimetype, size: file.size, buffer: file.buffer });
   }
 
   @Delete("avatar")
   /** Xóa liên kết avatar khỏi hồ sơ và dọn object cũ theo cơ chế best-effort. */
-  async removeAvatar(@Headers("cookie") cookies?: string): Promise<object> {
-    const session = await this.session(cookies);
+  async removeAvatar(@CurrentSession() session: AuthenticatedSession): Promise<object> {
     return this.auth.removeAvatar(session.user.id);
   }
 
   @Get("profile")
   /** Trả hồ sơ chi tiết của chính người dùng đang đăng nhập. */
-  async profile(@Headers("cookie") cookies?: string): Promise<object> {
-    const session = await this.session(cookies);
+  async profile(@CurrentSession() session: AuthenticatedSession): Promise<object> {
     return this.auth.getProfile(session.user.id);
   }
 
   @Patch("profile")
   /** Cập nhật các trường hồ sơ đã được DTO giới hạn. */
-  async updateProfile(@Headers("cookie") cookies: string | undefined, @Body() input: UpdateProfileDto): Promise<object> {
-    const session = await this.session(cookies);
+  async updateProfile(@CurrentSession() session: AuthenticatedSession, @Body() input: UpdateProfileDto): Promise<object> {
     return this.auth.updateProfile(session.user.id, input);
   }
 
   @Post("email/otp")
   @HttpCode(200)
   /** Xác thực lại mật khẩu hiện tại rồi gửi mã OTP 6 chữ số tới địa chỉ email mới trước khi cập nhật tài khoản. */
-  async sendEmailChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: EmailChangeOtpDto): Promise<object> {
-    const session = await this.session(cookies);
+  async sendEmailChangeOtp(@CurrentSession() session: AuthenticatedSession, @Body() input: EmailChangeOtpDto): Promise<object> {
     return this.auth.sendEmailChangeOtp(session.user.id, input.email, { currentPassword: input.currentPassword });
   }
 
   @Patch("email")
   /** Xác thực lại mật khẩu + TOTP, xác minh mã OTP và cập nhật email mới; các phiên khác bị đăng xuất. */
-  async confirmEmailChange(@Headers("cookie") cookies: string | undefined, @Body() input: ConfirmEmailChangeDto): Promise<object> {
-    const session = await this.session(cookies);
+  async confirmEmailChange(@CurrentSession() session: AuthenticatedSession, @Body() input: ConfirmEmailChangeDto): Promise<object> {
     return this.auth.confirmEmailChange(session.user.id, input.challengeId, input.email, input.code, { currentPassword: input.currentPassword, mfaCode: input.mfaCode }, session.sessionId);
   }
 
   @Post("password/otp")
   @HttpCode(200)
   /** Xác thực lại mật khẩu hiện tại rồi gửi mã OTP đổi mật khẩu tới email đã xác thực của tài khoản. */
-  async sendPasswordChangeOtp(@Headers("cookie") cookies: string | undefined, @Body() input: PasswordChangeOtpDto): Promise<object> {
-    const session = await this.session(cookies);
+  async sendPasswordChangeOtp(@CurrentSession() session: AuthenticatedSession, @Body() input: PasswordChangeOtpDto): Promise<object> {
     return this.auth.sendPasswordChangeOtp(session.user.id, input.email, { currentPassword: input.currentPassword });
   }
 
   @Patch("password")
   /** Đổi mật khẩu sau khi xác thực lại mật khẩu + TOTP và mã OTP email; giữ lại phiên đang thao tác. */
-  async changePassword(@Headers("cookie") cookies: string | undefined, @Body() input: ChangePasswordDto): Promise<object> {
-    const session = await this.session(cookies);
+  async changePassword(@CurrentSession() session: AuthenticatedSession, @Body() input: ChangePasswordDto): Promise<object> {
     return this.auth.changePassword(session.user.id, session.sessionId, input.challengeId, input.code, input.newPassword, { currentPassword: input.currentPassword, mfaCode: input.mfaCode });
   }
 
   @Get("sessions")
   /** Liệt kê thiết bị đăng nhập và đánh dấu phiên hiện tại cho giao diện. */
-  async sessions(@Headers("cookie") cookies?: string): Promise<object> {
-    const session = await this.session(cookies);
+  async sessions(@CurrentSession() session: AuthenticatedSession): Promise<object> {
     return this.auth.listSessions(session.user.id, session.sessionId);
   }
 
   @Delete("sessions/:sessionId")
   @HttpCode(204)
   /** Thu hồi một phiên thuộc chính người dùng, ngoại trừ phiên đang thao tác. */
-  async revoke(@Headers("cookie") cookies: string | undefined, @Param("sessionId") sessionId: string): Promise<void> {
-    const session = await this.session(cookies);
+  async revoke(@CurrentSession() session: AuthenticatedSession, @Param("sessionId") sessionId: string): Promise<void> {
     await this.auth.revokeSession(session.user.id, session.sessionId, sessionId);
   }
 
   @Post("sessions/revoke-others")
   /** Thu hồi toàn bộ thiết bị khác nhưng giữ nguyên phiên hiện tại. */
-  async revokeOthers(@Headers("cookie") cookies?: string): Promise<object> {
-    const session = await this.session(cookies);
+  async revokeOthers(@CurrentSession() session: AuthenticatedSession): Promise<object> {
     return this.auth.revokeOtherSessions(session.user.id, session.sessionId);
   }
 
   @Post("verification-email")
   /** Gửi lại email xác minh cho tài khoản đang đăng nhập. */
-  resendVerification(@Headers("cookie") cookies?: string): Promise<{ sent: boolean }> {
-    return this.session(cookies).then((session) => this.auth.resendVerification(session.user.id));
+  resendVerification(@CurrentSession() session: AuthenticatedSession): Promise<{ sent: boolean }> {
+    return this.auth.resendVerification(session.user.id);
   }
 
   @Post("mfa/setup")
   /** Tạo bí mật và URI TOTP để người dùng quét bằng ứng dụng xác thực. */
-  async setupMfa(@Headers("cookie") cookies?: string): Promise<{ secret: string; otpauthUri: string }> {
-    const session = await this.session(cookies);
+  async setupMfa(@CurrentSession() session: AuthenticatedSession): Promise<{ secret: string; otpauthUri: string }> {
     return this.auth.startMfaSetup(session.user.id);
   }
 
   @Post("mfa/confirm")
   /** Xác nhận mã TOTP đầu tiên, bật MFA khi email đã xác minh và trả bộ mã khôi phục hiển thị một lần. */
-  async confirmMfa(@Headers("cookie") cookies: string | undefined, @Body() input: MfaCodeDto): Promise<{ enabled: true; recoveryCodes: string[] }> {
-    const session = await this.session(cookies);
+  async confirmMfa(@CurrentSession() session: AuthenticatedSession, @Body() input: MfaCodeDto): Promise<{ enabled: true; recoveryCodes: string[] }> {
     return this.auth.confirmMfa(session.user.id, input.code);
   }
 
   @Post("mfa/recovery-codes")
   /** Xác thực lại bằng mật khẩu + TOTP rồi thay toàn bộ mã khôi phục cũ bằng bộ mã mới. */
-  async regenerateRecoveryCodes(@Headers("cookie") cookies: string | undefined, @Body() input: RegenerateRecoveryCodesDto): Promise<{ recoveryCodes: string[] }> {
-    const session = await this.session(cookies);
+  async regenerateRecoveryCodes(@CurrentSession() session: AuthenticatedSession, @Body() input: RegenerateRecoveryCodesDto): Promise<{ recoveryCodes: string[] }> {
     return this.auth.regenerateRecoveryCodes(session.user.id, { currentPassword: input.currentPassword, mfaCode: input.mfaCode });
   }
 
   @Post("mfa/disable-challenge")
   /** Kiểm tra mật khẩu hiện tại rồi phát token ngắn hạn cho bước tắt MFA. */
-  async startDisableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaPasswordDto): Promise<{ challengeToken: string; expiresInSeconds: number }> {
-    const session = await this.session(cookies);
+  async startDisableMfa(@CurrentSession() session: AuthenticatedSession, @Body() input: DisableMfaPasswordDto): Promise<{ challengeToken: string; expiresInSeconds: number }> {
     return this.auth.startDisableMfa(session.user.id, input.password);
   }
 
   @Delete("mfa")
   /** Xác minh TOTP lần cuối rồi xóa bí mật MFA. */
-  async disableMfa(@Headers("cookie") cookies: string | undefined, @Body() input: DisableMfaDto): Promise<{ disabled: true }> {
-    const session = await this.session(cookies);
+  async disableMfa(@CurrentSession() session: AuthenticatedSession, @Body() input: DisableMfaDto): Promise<{ disabled: true }> {
     return this.auth.disableMfa(session.user.id, input.challengeToken, input.code);
   }
-
-  /** Khôi phục phiên từ cookie dùng chung cho mọi endpoint tài khoản. */
-  private session(cookies?: string): Promise<AuthenticatedSession> { return this.auth.resolve(this.auth.readToken(cookies)); }
 }

@@ -255,13 +255,28 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
     );
     expect(withAvatar.avatarUrl).toMatch(new RegExp(`^/classes/${classId}/avatar\\?v=\\d+$`));
 
-    const storedAvatar = await courseClass.readClassAvatar(classId);
+    const storedAvatar = await courseClass.readClassAvatar(classId, sessionInstructor);
     expect(storedAvatar.mimeType).toBe("image/png");
     expect(storedAvatar.buffer.length).toBeGreaterThan(0);
+    const learnerAvatar = await courseClass.readClassAvatar(classId, sessionLearner);
+    expect(learnerAvatar.mimeType).toBe("image/png");
+    await expect(
+      courseClass.readClassAvatar(classId, sessionOutsideInstructor),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    const sessionOutsideLearner: AuthenticatedSession = {
+      ...sessionLearner,
+      sessionId: `${prefix}-s-learner-out`,
+      user: { ...sessionLearner.user, id: `${prefix}-unregistered-learner` },
+    };
+    await expect(
+      courseClass.readClassAvatar(classId, sessionOutsideLearner),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     const withoutAvatar = await courseClass.removeClassAvatar(classId, sessionInstructor);
     expect(withoutAvatar.avatarUrl).toBeNull();
-    await expect(courseClass.readClassAvatar(classId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      courseClass.readClassAvatar(classId, sessionInstructor),
+    ).rejects.toBeInstanceOf(NotFoundException);
 
     // Bảng điểm giảng viên có submissionId & attemptId để mở chấm/xem chi tiết; học viên KHÔNG nhận các mã thao tác này
     const teacherGradebook = await academic.gradebook(classId, sessionInstructor);
@@ -338,7 +353,7 @@ describe("Cài đặt lớp học cho giảng viên, quyền đăng bảng tin, 
       select: { avatarObjectKey: true },
     });
     expect(afterUpdateFailure.avatarObjectKey).toBe(originalObjectKey);
-    const preservedAvatar = await courseClass.readClassAvatar(classId);
+    const preservedAvatar = await courseClass.readClassAvatar(classId, sessionInstructor);
     expect(preservedAvatar.buffer.length).toBeGreaterThan(0);
     await expect(storage.get(failedNewObjectKey!)).rejects.toThrow();
 

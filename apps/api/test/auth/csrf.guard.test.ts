@@ -1,10 +1,14 @@
+import "reflect-metadata";
 import { ForbiddenException, type ExecutionContext } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { ConfigService } from "@nestjs/config";
 import type { Request } from "express";
 import { describe, expect, it, vi } from "vitest";
-import type { AuthService } from "../../src/auth/auth.service.js";
+import type { AuthenticatedSession, AuthService } from "../../src/auth/auth.service.js";
 import type { Environment } from "../../src/config/environment.js";
 import { CsrfGuard } from "../../src/auth/csrf.guard.js";
+import { PermissionGuard, type RequestWithRole } from "../../src/auth/permission.guard.js";
+import { AccountController } from "../../src/auth/session.controller.js";
 
 /** Tạo ngữ cảnh HTTP tối thiểu để kiểm thử cổng bảo vệ CSRF. */
 function context(request: Partial<Request>): ExecutionContext {
@@ -58,5 +62,72 @@ describe("CsrfGuard", () => {
     const request = { method: "POST", path: "/api/v1/academic/exams", header, auth: { sessionId: "session-1" } } as unknown as Request;
     await expect(new CsrfGuard(auth, config()).canActivate(context(request))).resolves.toBe(true);
     expect(validateCsrf).toHaveBeenCalledWith("session-token", "v2.csrf", "session-1");
+  });
+
+  it("không chặn POST /auth/mfa/recovery khi trình duyệt còn cookie phiên cũ mà chưa có CSRF token", async () => {
+    const header = vi.fn((name: string) => name === "cookie" ? "wind_edu_session=stale-expired-token" : undefined);
+    const readToken = vi.fn(() => "stale-expired-token");
+    const validateCsrf = vi.fn(() => Promise.resolve(false));
+    const auth = { readToken, validateCsrf } as unknown as AuthService;
+    const request = { method: "POST", path: "/api/v1/auth/mfa/recovery", header } as unknown as Request;
+    await expect(new CsrfGuard(auth, config()).canActivate(context(request))).resolves.toBe(true);
+    expect(readToken).not.toHaveBeenCalled();
+    expect(validateCsrf).not.toHaveBeenCalled();
+  });
+
+  it("khôi phục phiên đúng một lần cho các thao tác trên AccountController", async () => {
+    const activeSession: AuthenticatedSession = {
+      sessionId: "sess-single-read",
+      roleCode: "LEARNER",
+      availableRoles: [{ code: "LEARNER", name: "Học viên" }],
+      permissions: ["class:view"],
+      user: {
+        id: "usr-1",
+        username: "learner01",
+        name: "Học viên 01",
+        email: "learner01@wind.local",
+        roleName: "Học viên",
+        locale: "vi-VN",
+        avatarUrl: null,
+      },
+    };
+    const resolve = vi.fn(() => Promise.resolve(activeSession));
+    const validateCsrf = vi.fn(() => Promise.resolve(true));
+    const updateProfile = vi.fn(() => Promise.resolve({ ok: true }));
+    const auth = {
+      readToken: vi.fn(() => "session-token"),
+      resolve,
+      validateCsrf,
+      updateProfile,
+    } as unknown as AuthService;
+
+    const header = vi.fn((name: string) => {
+      if (name === "cookie") return "wind_edu_session=session-token";
+      if (name === "x-csrf-token") return "v2.csrf";
+      return undefined;
+    });
+    const request = { method: "PATCH", path: "/api/v1/account/profile", header } as unknown as RequestWithRole;
+    const controller = new AccountController(auth);
+    const handler = Object.getOwnPropertyDescriptor(AccountController.prototype, "updateProfile")?.value as (...args: unknown[]) => unknown;
+    const execContext = {
+      switchToHttp: (): { getRequest: () => RequestWithRole } => ({ getRequest: (): RequestWithRole => request }),
+      getHandler: (): ((...args: unknown[]) => unknown) => handler,
+      getClass: (): typeof AccountController => AccountController,
+    } as unknown as ExecutionContext;
+
+    await expect(new PermissionGuard(new Reflector(), auth).canActivate(execContext)).resolves.toBe(true);
+    await expect(new CsrfGuard(auth, config()).canActivate(execContext)).resolves.toBe(true);
+    await expect(
+      controller.updateProfile(request.auth, {
+        displayName: "Học viên 01",
+        phone: "0900000000",
+        timezone: "Asia/Bangkok",
+        locale: "vi-VN",
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(validateCsrf).toHaveBeenCalledWith("session-token", "v2.csrf", "sess-single-read");
+    expect(updateProfile).toHaveBeenCalledWith("usr-1", expect.objectContaining({ displayName: "Học viên 01" }));
   });
 });

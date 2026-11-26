@@ -160,9 +160,12 @@ export class CourseController {
   @Header("Content-Security-Policy", USER_FILE_CSP)
   @Header("Cross-Origin-Resource-Policy", "cross-origin")
   @Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=604800")
-  /** Phát ảnh đại diện lớp học theo luồng inline có xác thực phiên. */
-  async classAvatar(@Param("classId") classId: string): Promise<StreamableFile> {
-    const avatar = await this.learning.readClassAvatar(classId);
+  /** Phát ảnh đại diện lớp học theo luồng inline sau khi kiểm tra quyền xem lớp của phiên. */
+  async classAvatar(
+    @Param("classId") classId: string,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<StreamableFile> {
+    const avatar = await this.learning.readClassAvatar(classId, session);
     return new StreamableFile(avatar.buffer, { type: avatar.mimeType, disposition: "inline", length: avatar.buffer.length });
   }
 

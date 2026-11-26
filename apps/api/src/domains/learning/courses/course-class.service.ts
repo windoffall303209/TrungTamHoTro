@@ -179,9 +179,12 @@ export class CourseClassService {
     return await class_avatar_ops.removeClassAvatar(this.runtime.context, classId, session);
   }
 
-  /** Đọc nội dung ảnh đại diện của lớp học từ object storage. */
-  async readClassAvatar(classId: string): Promise<{ buffer: Buffer; mimeType: string }> {
-    return await class_avatar_ops.readClassAvatar(this.runtime.context, classId);
+  /** Đọc nội dung ảnh đại diện của lớp học từ object storage sau khi đối chiếu quyền xem lớp. */
+  async readClassAvatar(
+    classId: string,
+    session: AuthenticatedSession,
+  ): Promise<{ buffer: Buffer; mimeType: string }> {
+    return await class_avatar_ops.readClassAvatar(this.runtime.context, classId, session);
   }
 
   /** Gán giảng viên đúng role, bảo đảm người dùng có vai trò INSTRUCTOR và ghi lịch sử thành viên. */
