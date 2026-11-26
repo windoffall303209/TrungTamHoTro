@@ -5,19 +5,61 @@ import { promisify } from "node:util";
 const scrypt = promisify(nodeScrypt);
 const KEY_LENGTH = 64;
 
-// scrypt chạy trên threadpool libuv dùng chung với fs/zlib/dns; chỉ cho băm chiếm tối đa một nửa số luồng.
-const THREADPOOL_SIZE = Number(process.env.UV_THREADPOOL_SIZE) || 4;
-const MAX_CONCURRENT_HASHES = Math.max(1, Math.floor(THREADPOOL_SIZE / 2));
-/** Trần hàng đợi băm: vượt ngưỡng thì trả 503 có Retry-After thay vì để request treo tới timeout của proxy. */
-const MAX_WAITING_HASHES = 256;
+/** Tính trần đồng thời và trần hàng đợi scrypt an toàn theo UV_THREADPOOL_SIZE để không bỏ đói fs/dns/zlib. */
+export function resolveScryptLimits(env: NodeJS.ProcessEnv = process.env): {
+  threadpoolSize: number;
+  maxConcurrentHashes: number;
+  maxWaitingHashes: number;
+} {
+  const parsedPool = Number(env.UV_THREADPOOL_SIZE);
+  const threadpoolSize = Number.isInteger(parsedPool) && parsedPool >= 2 && parsedPool <= 128 ? parsedPool : 4;
+  // Luôn chừa tối thiểu 1 luồng libuv cho I/O tệp, nén và phân giải DNS; mặc định dùng nửa threadpool.
+  const maxSafeConcurrent = Math.max(1, threadpoolSize - 1);
+  const parsedConcurrent = Number(env.SCRYPT_MAX_CONCURRENCY);
+  const requestedConcurrent =
+    Number.isInteger(parsedConcurrent) && parsedConcurrent >= 1
+      ? parsedConcurrent
+      : Math.max(1, Math.floor(threadpoolSize / 2));
+  const maxConcurrentHashes = Math.min(requestedConcurrent, maxSafeConcurrent);
+
+  const parsedWaiting = Number(env.SCRYPT_MAX_WAITING);
+  const maxWaitingHashes =
+    Number.isInteger(parsedWaiting) && parsedWaiting >= 1 && parsedWaiting <= 2_000
+      ? parsedWaiting
+      : 256;
+  return { threadpoolSize, maxConcurrentHashes, maxWaitingHashes };
+}
+
 let activeHashes = 0;
+let rejectedOverloadCount = 0;
 const waitingHashes: Array<() => void> = [];
 
-/** Chạy một phép băm khi còn slot, xếp hàng FIFO khi đã đủ MAX_CONCURRENT_HASHES tác vụ đồng thời. */
+/** Chụp trạng thái hàng đợi băm mật khẩu hiện tại phục vụ chẩn đoán và kiểm thử quá tải. */
+export function getPasswordHashQueueStats(): {
+  activeHashes: number;
+  waitingHashes: number;
+  rejectedOverloadCount: number;
+  limits: ReturnType<typeof resolveScryptLimits>;
+} {
+  return {
+    activeHashes,
+    waitingHashes: waitingHashes.length,
+    rejectedOverloadCount,
+    limits: resolveScryptLimits(),
+  };
+}
+
+/** Chạy một phép băm khi còn slot, xếp hàng FIFO khi chạm trần và trả 503 có Retry-After khi hàng đợi đầy. */
 async function withHashSlot<T>(task: () => Promise<T>): Promise<T> {
-  if (activeHashes >= MAX_CONCURRENT_HASHES && waitingHashes.length >= MAX_WAITING_HASHES)
-    throw new ServiceUnavailableException({ message: "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.", retryAfterSeconds: 2 });
-  if (activeHashes >= MAX_CONCURRENT_HASHES) await new Promise<void>((resolve) => waitingHashes.push(resolve));
+  const { maxConcurrentHashes, maxWaitingHashes } = resolveScryptLimits();
+  if (activeHashes >= maxConcurrentHashes && waitingHashes.length >= maxWaitingHashes) {
+    rejectedOverloadCount += 1;
+    throw new ServiceUnavailableException({
+      message: "Hệ thống đang xử lý quá nhiều lượt đăng nhập. Vui lòng thử lại sau ít giây.",
+      retryAfterSeconds: 2,
+    });
+  }
+  if (activeHashes >= maxConcurrentHashes) await new Promise<void>((resolve) => waitingHashes.push(resolve));
   else activeHashes += 1;
   try {
     return await task();

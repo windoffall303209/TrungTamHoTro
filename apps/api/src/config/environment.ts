@@ -45,6 +45,8 @@ const environmentSchema = z.object({
   TRUST_PROXY: z.string().trim().default("false"),
   AUTH_RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(900_000),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  SCRYPT_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(64).optional(),
+  SCRYPT_MAX_WAITING: z.coerce.number().int().min(1).max(2_000).default(256),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   LIVE_PROVIDER_RETRY_LIMIT: z.coerce.number().int().min(1).max(3).default(2),
   LIVE_PROVIDER_FALLBACK_ORDER: z.string().trim().default("GOOGLE_MEET,ZOOM,JITSI"),
