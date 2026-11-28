@@ -29,6 +29,8 @@ export interface ParsedQuestionItem {
   content: string;
   options: { key: string; text: string }[];
   correctAnswer: string;
+  correctAnswers?: string[];
+  questionType?: "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE";
   type: "Trắc nghiệm một đáp án";
   score: number;
   answerSource?: string;
@@ -50,6 +52,7 @@ export interface AssignmentBuilderModalProps {
   targetClassName?: string;
   targetClassEndAt?: string;
   initialType?: AssignmentType;
+  initialMethod?: CreationMethod;
   onSaveAssignment: (data: {
     title: string;
     description: string;
@@ -108,7 +111,7 @@ function localDateTime(daysAhead: number): string {
 }
 
 // Chọn hạn nộp mặc định không vượt ngày kết thúc lớp.
-function defaultDueAt(classEndAt?: string): string {
+export function defaultDueAt(classEndAt?: string): string {
   const classEnd = classEndAt ? Date.parse(classEndAt) : NaN;
   const defaultEnd = Date.now() + 7 * 86_400_000;
   return formatLocalDateTime(new Date(Number.isFinite(classEnd) ? Math.min(defaultEnd, classEnd) : defaultEnd));
@@ -121,8 +124,27 @@ function isAllowedEssayFile(file: File, policy: UploadPolicy): boolean {
     format.mime === file.type && policy.allowedMimeTypes.includes(format.mime) && format.extensions.some((candidate) => candidate === extension));
 }
 
+// Chia đều tổng điểm (mặc định 10 điểm) cho danh sách câu hỏi với độ chính xác 2 chữ số thập phân.
+export function distributeEqualQuestionScores(count: number, targetTotal = 10): number[] {
+  if (count <= 0) return [];
+  const totalCents = Math.round(targetTotal * 100);
+  const baseCents = Math.floor(totalCents / count);
+  const remainder = totalCents - baseCents * count;
+  return Array.from({ length: count }, (_, idx) => (baseCents + (idx < remainder ? 1 : 0)) / 100);
+}
+
+// Áp dụng lại điểm chia đều cho toàn bộ mảng câu hỏi trắc nghiệm.
+function rebalanceChoiceQuestionScores(items: ParsedQuestionItem[], targetTotal = 10): ParsedQuestionItem[] {
+  const scores = distributeEqualQuestionScores(items.length, targetTotal);
+  return items.map((item, idx) => ({
+    ...item,
+    order: idx + 1,
+    score: scores[idx] ?? 1,
+  }));
+}
+
 // Khởi tạo câu trắc nghiệm đơn đáp án không gán sẵn đáp án đúng.
-function newChoiceQuestion(order: number): ParsedQuestionItem {
+function newChoiceQuestion(order: number, score = 10): ParsedQuestionItem {
   return {
     id: crypto.randomUUID(),
     order,
@@ -130,7 +152,7 @@ function newChoiceQuestion(order: number): ParsedQuestionItem {
     options: ["A", "B", "C", "D"].map((key) => ({ key, text: "" })),
     correctAnswer: "",
     type: "Trắc nghiệm một đáp án",
-    score: 2,
+    score,
   };
 }
 
@@ -188,6 +210,7 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
   const choiceItems = scanned.filter(
     (item) => item.type === "SINGLE_CHOICE" || (item.options && item.options.length >= 2 && item.type !== "MULTIPLE_CHOICE"),
   );
+  const equalScores = distributeEqualQuestionScores(choiceItems.length, 10);
   const questions = choiceItems.map((item, index) => {
     const rawOptions = item.options ?? [];
     const options = (rawOptions.length >= 2 ? rawOptions : ["", "", "", ""]).map((text, position) => {
@@ -215,7 +238,7 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
       correctAnswer,
       answerSource: item.answerSource,
       type: "Trắc nghiệm một đáp án",
-      score: 2,
+      score: equalScores[index] ?? 1,
       warnings: itemWarnings.length ? itemWarnings : undefined,
     };
     if (itemWarnings.length) warnings.push(`Câu ${index + 1}: ${itemWarnings.join(" ")}`);
@@ -227,7 +250,7 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
 }
 
 // Hiển thị quy trình tạo bài tập với lựa chọn thủ công, AI và bước xác nhận cuối.
-export function AssignmentBuilderModal({ open, onClose, targetClassName, targetClassEndAt, initialType, onSaveAssignment }: AssignmentBuilderModalProps) {
+export function AssignmentBuilderModal({ open, onClose, targetClassName, targetClassEndAt, initialType, initialMethod, onSaveAssignment }: AssignmentBuilderModalProps) {
   const { notify } = useApp();
   const { t, locale } = useI18n();
   const openedRef = useRef(false);
@@ -237,6 +260,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [questions, setQuestions] = useState<ParsedQuestionItem[]>([]);
+  const [customScoresEdited, setCustomScoresEdited] = useState(false);
   const [essayQuestions, setEssayQuestions] = useState<string[]>([""]);
   const [hidden, setHidden] = useState(false);
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
@@ -260,7 +284,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
   const parsedEssayMcPoints = Number((essayMcPointsInput || "0").trim().replace(",", "."));
   const parsedEssayWrittenPoints = Number((essayWrittenPointsInput || "0").trim().replace(",", "."));
   const essayTotalScore = Math.round(((Number.isFinite(parsedEssayMcPoints) ? parsedEssayMcPoints : 0) + (Number.isFinite(parsedEssayWrittenPoints) ? parsedEssayWrittenPoints : 0)) * 100) / 100;
-  const totalScore = useMemo(() => questions.reduce((sum, question) => sum + (Number(question.score) || 0), 0), [questions]);
+  const totalScore = useMemo(() => Math.round(questions.reduce((sum, question) => sum + (Number(question.score) || 0), 0) * 100) / 100, [questions]);
   const allowedEssayFormats = essayFileFormats.filter((format) => uploadPolicy.allowedMimeTypes.includes(format.mime));
   const essayAccept = allowedEssayFormats.flatMap((format) => format.extensions.map((extension) => `.${extension}`)).join(",");
   const steps: Step[] = ["TYPE", "METHOD", "CONTENT", "SETTINGS", "REVIEW"];
@@ -268,11 +292,19 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
 
   // Xóa dữ liệu cũ khi mở lại modal để không trộn hai lần tạo bài.
   const resetForm = useCallback(() => {
-    setStep(initialType ? "METHOD" : "TYPE"); setType(initialType ?? null); setMethod(null); setTitle(""); setDescription(""); setQuestions([]); setEssayQuestions([""]);
+    const startDirectContent = Boolean(initialType && initialMethod);
+    setStep(startDirectContent ? "CONTENT" : initialType ? "METHOD" : "TYPE");
+    setType(initialType ?? null);
+    setMethod(initialMethod ?? null);
+    setTitle("");
+    setDescription("");
+    setCustomScoresEdited(false);
+    setQuestions(startDirectContent && initialType === "MULTIPLE_CHOICE" && initialMethod === "MANUAL" ? [newChoiceQuestion(1, 10)] : []);
+    setEssayQuestions([""]);
     setAttachedFile(null); setFileForImport(null); setScanWarnings([]); setScanning(false); setSaving(false); setReviewConfirmed(false);
     setDueAt(defaultDueAt(targetClassEndAt)); setHasStartAt(false); setStartAt(localDateTime(0)); setDurationMinutes(45); setMaxAttempts(1); setShuffleQuestions(false); setAiTutorEnabled(false);
     setEssayMcPointsInput("0"); setEssayWrittenPointsInput("10");
-  }, [initialType, targetClassEndAt]);
+  }, [initialMethod, initialType, targetClassEndAt]);
 
   // Nạp chính sách tệp của máy chủ mỗi lần mở trình tạo.
   useEffect(() => {
@@ -294,7 +326,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
 
   // Chọn loại bài và xóa dữ liệu của loại trước để bước sau luôn nhất quán.
   const selectType = (nextType: AssignmentType) => {
-    setType(nextType); setMethod(null); setQuestions([]); setEssayQuestions([""]); setAttachedFile(null); setFileForImport(null); setScanWarnings([]); setReviewConfirmed(false);
+    setType(nextType); setMethod(null); setCustomScoresEdited(false); setQuestions([]); setEssayQuestions([""]); setAttachedFile(null); setFileForImport(null); setScanWarnings([]); setReviewConfirmed(false);
   };
 
   // Kiểm tra nội dung câu hỏi theo loại bài trước khi chuyển bước.
@@ -341,7 +373,8 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
       else { const form = new FormData(); form.append("file", file); const response = await apiRequest<{ questions: ScannedQuestion[]; warnings?: string[] }>("/instructor/question-bank/scan-image", { method: "POST", body: form }); const normalized = normalizeScannedQuestions(response.questions ?? [], type); result = { ...normalized, warnings: [...(response.warnings ?? []), ...normalized.warnings] }; }
       if (type === "MULTIPLE_CHOICE") {
         if (!result.questions.length) throw new Error("AI chưa nhận diện được câu trắc nghiệm một đáp án. Hãy chọn tệp rõ hơn hoặc chuyển sang nhập thủ công.");
-        setQuestions(result.questions.map((question, index) => ({ ...question, order: index + 1 })));
+        setCustomScoresEdited(false);
+        setQuestions(rebalanceChoiceQuestionScores(result.questions, 10));
       } else {
         if (!result.essayQuestions.length) throw new Error("AI chưa nhận diện được câu tự luận. Hãy chọn tệp rõ hơn hoặc nhập thủ công.");
         setEssayQuestions(result.essayQuestions); if (!policyLoading && isAllowedEssayFile(file, uploadPolicy)) setAttachedFile(file);
@@ -389,7 +422,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
   if (!open) return null;
   const typeLabel = type === "ESSAY" ? "Tự luận" : "Trắc nghiệm";
   const methodLabel = method === "AI" ? "Tạo bằng AI" : "Thủ công";
-  const questionEditor = type === "MULTIPLE_CHOICE" ? <div className="space-y-5"><div className="flex items-center justify-between rounded-xl bg-blue-50 p-4 dark:bg-blue-950/30"><div><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu hỏi trắc nghiệm một đáp án</h3><p className="text-xs text-slate-600 dark:text-slate-400">{t(`${questions.length} câu · Tổng ${totalScore.toLocaleString(locale)} điểm`)}</p></div>{method === "MANUAL" && <CircleHelp size={20} className="text-blue-600" />}</div>{questions.map((question, index) => <div key={question.id} className="rounded-2xl border border-slate-200 p-4 sm:p-5 dark:border-slate-700"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu {index + 1}</h3><button type="button" aria-label={`Xóa câu trắc nghiệm ${index + 1}`} onClick={() => setQuestions((current) => current.filter((entry) => entry.id !== question.id).map((entry, position) => ({ ...entry, order: position + 1 })))} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"><Trash2 size={17} /></button></div>{question.answerSource && <p className="mb-2 text-xs text-slate-600">{question.answerSource}</p>}{question.warnings?.length ? <div className="mb-3 space-y-1 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{question.warnings.map((warning, warningIndex) => <p key={`${warning}-${warningIndex}`} className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{warning}</p>)}</div> : null}<textarea aria-label={`Nội dung câu ${index + 1}`} value={question.content} maxLength={3000} rows={2} onChange={(event) => updateQuestion(question.id, { content: event.target.value })} placeholder="Nhập nội dung câu hỏi…" className={`${fieldClass} resize-y`} /><div className="mt-4 grid gap-3 sm:grid-cols-2">{question.options.map((option) => <label key={option.key} className="flex min-w-0 items-center gap-2"><input aria-label={`Đáp án đúng ${option.key} câu ${index + 1}`} type="radio" name={`answer-${question.id}`} checked={question.correctAnswer === option.key} onChange={() => updateQuestion(question.id, { correctAnswer: option.key, answerSource: "Giảng viên đã chọn đáp án", warnings: question.warnings?.filter((warning) => !/đáp án|phương án/iu.test(warning)) })} className="h-4 w-4 accent-blue-600" /><span className="w-4 shrink-0 text-xs font-bold text-slate-500">{option.key}</span><input aria-label={`Phương án ${option.key} câu ${index + 1}`} value={option.text} onChange={(event) => updateQuestion(question.id, { options: question.options.map((entry) => entry.key === option.key ? { ...entry, text: event.target.value } : entry) })} placeholder="Nội dung phương án" className={fieldClass} /></label>)}</div><div className="mt-4 flex items-center gap-3"><label htmlFor={`score-${question.id}`} className="text-xs font-semibold text-slate-600 dark:text-slate-300">Điểm câu hỏi</label><input id={`score-${question.id}`} type="number" min="0.01" step="0.01" value={question.score} onChange={(event) => updateQuestion(question.id, { score: Number(event.target.value) })} className={`${fieldClass} max-w-28`} /></div></div>)}<button type="button" onClick={() => setQuestions((current) => [...current, newChoiceQuestion(current.length + 1)])} className={secondaryButton}><Plus size={17} /> Thêm câu hỏi</button></div> : null;
+  const questionEditor = type === "MULTIPLE_CHOICE" ? <div className="space-y-5"><div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-blue-50 p-4 dark:bg-blue-950/30"><div><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu hỏi trắc nghiệm một đáp án</h3><p className="text-xs text-slate-600 dark:text-slate-400">{t(`${questions.length} câu · Tổng ${totalScore.toLocaleString(locale)} điểm`)}</p></div><div className="flex items-center gap-2">{questions.length > 0 && <button type="button" onClick={() => { setCustomScoresEdited(false); setQuestions((current) => rebalanceChoiceQuestionScores(current, 10)); }} className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-slate-900 dark:text-blue-300">Chia đều 10 điểm</button>}{method === "MANUAL" && <CircleHelp size={20} className="text-blue-600" />}</div></div>{questions.map((question, index) => <div key={question.id} className="rounded-2xl border border-slate-200 p-4 sm:p-5 dark:border-slate-700"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu {index + 1}</h3><button type="button" aria-label={`Xóa câu trắc nghiệm ${index + 1}`} onClick={() => setQuestions((current) => { const filtered = current.filter((entry) => entry.id !== question.id).map((entry, position) => ({ ...entry, order: position + 1 })); return customScoresEdited ? filtered : rebalanceChoiceQuestionScores(filtered, 10); })} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"><Trash2 size={17} /></button></div>{question.answerSource && <p className="mb-2 text-xs text-slate-600">{question.answerSource}</p>}{question.warnings?.length ? <div className="mb-3 space-y-1 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{question.warnings.map((warning, warningIndex) => <p key={`${warning}-${warningIndex}`} className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{warning}</p>)}</div> : null}<textarea aria-label={`Nội dung câu ${index + 1}`} value={question.content} maxLength={3000} rows={2} onChange={(event) => updateQuestion(question.id, { content: event.target.value })} placeholder="Nhập nội dung câu hỏi…" className={`${fieldClass} resize-y`} /><div className="mt-4 grid gap-3 sm:grid-cols-2">{question.options.map((option) => <label key={option.key} className="flex min-w-0 items-center gap-2"><input aria-label={`Đáp án đúng ${option.key} câu ${index + 1}`} type="radio" name={`answer-${question.id}`} checked={question.correctAnswer === option.key} onChange={() => updateQuestion(question.id, { correctAnswer: option.key, answerSource: "Giảng viên đã chọn đáp án", warnings: question.warnings?.filter((warning) => !/đáp án|phương án/iu.test(warning)) })} className="h-4 w-4 accent-blue-600" /><span className="w-4 shrink-0 text-xs font-bold text-slate-500">{option.key}</span><input aria-label={`Phương án ${option.key} câu ${index + 1}`} value={option.text} onChange={(event) => updateQuestion(question.id, { options: question.options.map((entry) => entry.key === option.key ? { ...entry, text: event.target.value } : entry) })} placeholder="Nội dung phương án" className={fieldClass} /></label>)}</div><div className="mt-4 flex items-center gap-3"><label htmlFor={`score-${question.id}`} className="text-xs font-semibold text-slate-600 dark:text-slate-300">Điểm câu hỏi</label><input id={`score-${question.id}`} type="number" min="0.01" step="0.01" value={question.score} onChange={(event) => { setCustomScoresEdited(true); updateQuestion(question.id, { score: Number(event.target.value) }); }} className={`${fieldClass} max-w-28`} /></div></div>)}<button type="button" onClick={() => setQuestions((current) => { const appended = [...current, newChoiceQuestion(current.length + 1, 2)]; return customScoresEdited ? appended : rebalanceChoiceQuestionScores(appended, 10); })} className={secondaryButton}><Plus size={17} /> Thêm câu hỏi</button></div> : null;
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="assignment-builder-heading" className="my-auto flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">

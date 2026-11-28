@@ -82,7 +82,6 @@ describe("SmartExamScanModal", () => {
       />,
     );
 
-    // Bấm vào khung Vùng 1 vẫn kích hoạt input file ẩn
     const dropzoneButton = screen.getByRole("button", { name: /Bấm vào đây để chọn ảnh đề thi/ });
     expect(dropzoneButton).toBeInTheDocument();
 
@@ -93,16 +92,13 @@ describe("SmartExamScanModal", () => {
     ];
     fireEvent.change(fileInput, { target: { files: batch1 } });
 
-    // Hiển thị preview ảnh thật ngay tại Vùng 1 (2/5 ảnh)
     expect(await screen.findByAltText("Xem trước trang-1.png")).toBeInTheDocument();
     expect(screen.getByText(/Vùng 1: Ảnh chụp đề thi gốc \(2\/5\)/)).toBeInTheDocument();
 
-    // Quét đợt 1 -> ra 2 câu hỏi
     fireEvent.click(screen.getByRole("button", { name: /Bắt đầu quét AI \(2 ảnh\)/ }));
     expect(await screen.findByDisplayValue("Câu hỏi từ ảnh số 1")).toBeInTheDocument();
     expect(await screen.findByDisplayValue("Câu hỏi từ ảnh số 2")).toBeInTheDocument();
 
-    // Chọn thêm ảnh đợt 2 (thử chọn 4 ảnh nhưng trần là 5 -> chỉ nhận thêm 3 ảnh = 5/5, KHÔNG mất 2 câu cũ!)
     const batch2 = [
       new File(["img3"], "trang-3.png", { type: "image/png" }),
       new File(["img4"], "trang-4.png", { type: "image/png" }),
@@ -114,12 +110,10 @@ describe("SmartExamScanModal", () => {
     expect(screen.getByDisplayValue("Câu hỏi từ ảnh số 1")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Câu hỏi từ ảnh số 2")).toBeInTheDocument();
 
-    // Bấm quét thêm 3 ảnh mới -> cộng dồn thành 5 câu hỏi
     fireEvent.click(screen.getByRole("button", { name: /Quét thêm 3 ảnh mới/ }));
     expect(await screen.findByDisplayValue("Câu hỏi từ ảnh số 5")).toBeInTheDocument();
     expect(screen.getByText(/Vùng 2: Kiểm tra & Chỉnh sửa câu hỏi \(5 câu\)/)).toBeInTheDocument();
 
-    // Sửa nội dung câu 1, sửa phương án A câu 1 và xóa câu 2 trước khi nhập
     fireEvent.change(screen.getByLabelText("Nội dung câu 1"), {
       target: { value: "Câu hỏi số 1 đã được giáo viên chỉnh sửa" },
     });
@@ -131,7 +125,6 @@ describe("SmartExamScanModal", () => {
 
     expect(screen.getByText(/Vùng 2: Kiểm tra & Chỉnh sửa câu hỏi \(4 câu\)/)).toBeInTheDocument();
 
-    // Nhập 4 câu vào ngân hàng
     fireEvent.click(screen.getByRole("button", { name: "Nhập 4 câu vào ngân hàng" }));
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -148,5 +141,58 @@ describe("SmartExamScanModal", () => {
       options: ["Phương án A mới", "Đáp án 2", "Đáp án 3", "Đáp án 4"],
       correctAnswers: ["Phương án A mới"],
     });
+  });
+
+  it("đóng gói trực tiếp câu hỏi quét được thành đề trắc nghiệm tổng 10 điểm hoặc bài tập tự luận", async () => {
+    apiMock.mockResolvedValue({
+      provider: "GEMINI",
+      model: "gemini-2.5-flash",
+      questions: Array.from({ length: 4 }, (_, idx) => ({
+        type: "SINGLE_CHOICE",
+        content: `Câu hỏi trắc nghiệm OCR ${idx + 1}`,
+        options: ["A. Lựa chọn 1", "B. Lựa chọn 2", "C. Lựa chọn 3", "D. Lựa chọn 4"],
+        correctAnswers: ["B"],
+        difficulty: 2,
+        confidence: 0.95,
+      })),
+    });
+
+    const onSaveAssignment = vi.fn().mockResolvedValue(undefined);
+    const onImported = vi.fn();
+    const onClose = vi.fn();
+
+    const { container } = render(
+      <SmartExamScanModal
+        open
+        courseId="course-math"
+        roleCode="INSTRUCTOR"
+        targetMode="MULTIPLE_CHOICE"
+        onClose={onClose}
+        onImported={onImported}
+        onSaveAssignment={onSaveAssignment}
+      />,
+    );
+
+    const fileInput = container.querySelector("#smart-scan-image-input") as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["img"], "de-toan-4-cau.png", { type: "image/png" })] },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Bắt đầu quét AI \(1 ảnh\)/ }));
+    expect(await screen.findByDisplayValue("Câu hỏi trắc nghiệm OCR 4")).toBeInTheDocument();
+    expect(screen.getByText(/4 câu · Tổng 10 điểm/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Tạo & Phát hành đề trắc nghiệm (4 câu)" }));
+    await waitFor(() => expect(onSaveAssignment).toHaveBeenCalledTimes(1));
+
+    const payload = onSaveAssignment.mock.calls[0]?.[0] as {
+      type: string;
+      title: string;
+      questions: Array<{ score: number; correctAnswer: string }>;
+    };
+    expect(payload.type).toBe("MULTIPLE_CHOICE");
+    expect(payload.title).toContain("de-toan-4-cau");
+    expect(payload.questions.map((q) => q.score)).toEqual([2.5, 2.5, 2.5, 2.5]);
+    expect(payload.questions.every((q) => q.correctAnswer === "B")).toBe(true);
   });
 });

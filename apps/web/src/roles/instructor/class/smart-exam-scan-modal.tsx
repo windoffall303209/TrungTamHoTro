@@ -1,19 +1,29 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  FileCheck2,
   ImagePlus,
   LoaderCircle,
   Plus,
   Scan,
+  Sparkles,
   Trash2,
   UploadCloud,
   X,
 } from "lucide-react";
+import {
+  defaultDueAt,
+  distributeEqualQuestionScores,
+  type AssignmentBuilderModalProps,
+  type ParsedQuestionItem,
+} from "@/features/exams/assignment-builder-modal";
 import { apiRequest } from "@/lib/api-client";
+import type { RoleCode } from "@/lib/app-types";
+import { toLocalDateTimeInput } from "@/lib/date-time";
 import type { Question, QuestionImportResult } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { RichText } from "@/shared/ui/ui";
@@ -25,6 +35,8 @@ const OBJECTIVE_TYPES: ReadonlySet<Question["type"]> = new Set([
   "MULTIPLE_CHOICE",
   "TRUE_FALSE",
 ]);
+
+export type SmartScanTargetMode = "BANK_ONLY" | "MULTIPLE_CHOICE" | "ESSAY";
 
 interface QueuedScanImage {
   id: string;
@@ -41,6 +53,7 @@ export interface EditableScannedQuestion {
   correctIndices: number[];
   referenceAnswer: string;
   difficulty: Question["difficulty"];
+  score: number;
   tags: string[];
   confidence: number;
   answerSource?: string;
@@ -62,9 +75,12 @@ interface RawScanApiQuestion {
 export interface SmartExamScanModalProps {
   open: boolean;
   courseId?: string;
-  roleCode: string;
+  roleCode: RoleCode;
+  targetMode?: SmartScanTargetMode;
+  targetClassEndAt?: string;
   onClose: () => void;
   onImported: () => Promise<void> | void;
+  onSaveAssignment?: AssignmentBuilderModalProps["onSaveAssignment"];
 }
 
 const fieldInputClass =
@@ -81,15 +97,37 @@ function cleanOptionText(raw: string, index: number): string {
   return trimmed;
 }
 
-// Chuyển một bản nháp câu hỏi từ API OCR sang cấu trúc thẻ có thể chỉnh sửa trực tiếp.
-function mapApiQuestionToEditable(raw: RawScanApiQuestion): EditableScannedQuestion {
-  const type: Question["type"] = raw.type ?? "SINGLE_CHOICE";
+// Chia đều tổng 10 điểm cho danh sách câu hỏi quét được khi đang ở chế độ tạo đề trắc nghiệm.
+function rebalanceScannedQuestionScores(
+  items: EditableScannedQuestion[],
+  targetTotal = 10,
+): EditableScannedQuestion[] {
+  const scores = distributeEqualQuestionScores(items.length, targetTotal);
+  return items.map((item, idx) => ({
+    ...item,
+    score: scores[idx] ?? 1,
+  }));
+}
+
+// Chuyển một bản nháp câu hỏi từ API OCR sang cấu trúc thẻ chỉnh sửa phù hợp với loại đề mục tiêu.
+function mapApiQuestionToEditable(
+  raw: RawScanApiQuestion,
+  targetMode: SmartScanTargetMode,
+): EditableScannedQuestion {
+  const rawType: Question["type"] = raw.type ?? "SINGLE_CHOICE";
+  const effectiveType: Question["type"] =
+    targetMode === "ESSAY"
+      ? "ESSAY"
+      : targetMode === "MULTIPLE_CHOICE" && !OBJECTIVE_TYPES.has(rawType)
+        ? "SINGLE_CHOICE"
+        : rawType;
+
   const rawOptions =
-    type === "TRUE_FALSE"
+    effectiveType === "TRUE_FALSE"
       ? raw.options && raw.options.length >= 2
         ? raw.options.slice(0, 2)
         : ["Đúng", "Sai"]
-      : OBJECTIVE_TYPES.has(type)
+      : OBJECTIVE_TYPES.has(effectiveType)
         ? raw.options && raw.options.length >= 2
           ? raw.options.slice(0, 6)
           : ["", "", "", ""]
@@ -99,7 +137,7 @@ function mapApiQuestionToEditable(raw: RawScanApiQuestion): EditableScannedQuest
   const rawAnswers = (raw.correctAnswers ?? []).map((ans) => ans.trim()).filter(Boolean);
   const correctIndices: number[] = [];
 
-  if (OBJECTIVE_TYPES.has(type)) {
+  if (OBJECTIVE_TYPES.has(effectiveType)) {
     for (const ans of rawAnswers) {
       const cleanAns = ans.replace(/\*\*/g, "").trim();
       const letterMatch = cleanAns.match(/^([A-F])(?:[.:)]\s*(.*))?$/iu);
@@ -118,66 +156,126 @@ function mapApiQuestionToEditable(raw: RawScanApiQuestion): EditableScannedQuest
     }
   }
 
+  let baseContent = (raw.content ?? "").trim();
+  if (targetMode === "ESSAY" && raw.options && raw.options.length > 0 && OBJECTIVE_TYPES.has(rawType)) {
+    const subItems = raw.options
+      .map((opt, idx) => `${String.fromCharCode(97 + idx)}) ${cleanOptionText(opt, idx)}`)
+      .join("\n");
+    baseContent = `${baseContent}\n${subItems}`.trim();
+  }
+
   const warnings = [...(raw.warnings ?? [])];
-  if (OBJECTIVE_TYPES.has(type) && correctIndices.length === 0 && !warnings.some((w) => /đáp án/iu.test(w))) {
-    warnings.push("AI chưa xác định chắc chắn đáp án đúng. Hãy tích chọn đáp án trước khi nhập.");
+  if (targetMode === "MULTIPLE_CHOICE" && !OBJECTIVE_TYPES.has(rawType)) {
+    warnings.push("Câu gốc chưa có phương án A–D; hãy nhập phương án hoặc xóa nếu không thuộc đề trắc nghiệm.");
+  }
+  if (
+    OBJECTIVE_TYPES.has(effectiveType) &&
+    correctIndices.length === 0 &&
+    !warnings.some((w) => /đáp án/iu.test(w))
+  ) {
+    warnings.push("AI chưa xác định chắc chắn đáp án đúng. Hãy tích chọn đáp án trước khi lưu.");
   }
 
   return {
     id: crypto.randomUUID(),
-    type,
-    content: (raw.content ?? "").trim(),
+    type: effectiveType,
+    content: baseContent,
     options,
-    correctIndices: type === "SINGLE_CHOICE" || type === "TRUE_FALSE" ? correctIndices.slice(0, 1) : correctIndices,
-    referenceAnswer: OBJECTIVE_TYPES.has(type) ? "" : rawAnswers.join("\n"),
+    correctIndices:
+      effectiveType === "SINGLE_CHOICE" || effectiveType === "TRUE_FALSE"
+        ? correctIndices.slice(0, 1)
+        : correctIndices,
+    referenceAnswer: OBJECTIVE_TYPES.has(effectiveType) ? "" : rawAnswers.join("\n"),
     difficulty: raw.difficulty ?? 2,
+    score: 2,
     tags: raw.tags?.length ? raw.tags : ["OCR"],
     confidence: typeof raw.confidence === "number" ? raw.confidence : 0.85,
     answerSource: raw.answerSource,
-    warnings,
+    warnings: targetMode === "ESSAY" ? warnings.filter((w) => !/đáp án/iu.test(w)) : warnings,
   };
 }
 
 // Khởi tạo một thẻ câu hỏi trống để giáo viên bổ sung thủ công ngay trong danh sách quét.
-function createBlankEditableQuestion(): EditableScannedQuestion {
+function createBlankEditableQuestion(targetMode: SmartScanTargetMode): EditableScannedQuestion {
+  const isEssay = targetMode === "ESSAY";
   return {
     id: crypto.randomUUID(),
-    type: "SINGLE_CHOICE",
+    type: isEssay ? "ESSAY" : "SINGLE_CHOICE",
     content: "",
-    options: ["", "", "", ""],
+    options: isEssay ? [] : ["", "", "", ""],
     correctIndices: [],
     referenceAnswer: "",
     difficulty: 2,
+    score: 2,
     tags: ["OCR", "Soạn bổ sung"],
     confidence: 1,
     warnings: [],
   };
 }
 
-/** Modal quét đề thông minh hỗ trợ chọn tối đa 5 ảnh có preview, quét cộng dồn câu hỏi và sửa/xóa trực tiếp trước khi nhập. */
+/** Modal quét đề thông minh hỗ trợ chọn tối đa 5 ảnh có preview, quét cộng dồn câu hỏi và đóng gói trực tiếp thành bài tập hoặc nhập vào ngân hàng. */
 export function SmartExamScanModal({
   open,
   courseId,
   roleCode,
+  targetMode = "BANK_ONLY",
+  targetClassEndAt,
   onClose,
   onImported,
+  onSaveAssignment,
 }: SmartExamScanModalProps) {
   const { notify } = useApp();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesRef = useRef<QueuedScanImage[]>([]);
+  const openedRef = useRef(false);
   const [images, setImages] = useState<QueuedScanImage[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<EditableScannedQuestion[]>([]);
+  const [customScoresEdited, setCustomScoresEdited] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanProgressLabel, setScanProgressLabel] = useState("");
   const [providerLabel, setProviderLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
+  // Cấu hình bài tập khi mở từ luồng "+ Tạo bài tập"
+  const [assignmentTitle, setAssignmentTitle] = useState("");
+  const [assignmentDescription, setAssignmentDescription] = useState("");
+  const [dueAt, setDueAt] = useState(() => defaultDueAt(targetClassEndAt));
+  const [durationMinutes, setDurationMinutes] = useState(45);
+  const [maxAttempts, setMaxAttempts] = useState(1);
+  const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [essayMaxScore, setEssayMaxScore] = useState(10);
+  const [attachFirstImage, setAttachFirstImage] = useState(true);
+
+  const isAssignmentMode = targetMode !== "BANK_ONLY" && Boolean(onSaveAssignment);
+
+  const totalObjectiveScore = useMemo(
+    () =>
+      Math.round(
+        questions.reduce((sum, item) => sum + (Number(item.score) || 0), 0) * 100,
+      ) / 100,
+    [questions],
+  );
+
   // Giữ tham chiếu danh sách ảnh mới nhất để giải phóng blob URL an toàn khi đóng hoặc hủy component.
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+
+  // Đặt lại cấu hình bài tập mỗi khi mở mới modal từ luồng tạo đề.
+  useEffect(() => {
+    if (!open) {
+      openedRef.current = false;
+      return;
+    }
+    if (!openedRef.current) {
+      openedRef.current = true;
+      setDueAt(defaultDueAt(targetClassEndAt));
+      setCustomScoresEdited(false);
+    }
+  }, [open, targetClassEndAt]);
 
   useEffect(() => {
     return () => {
@@ -191,6 +289,19 @@ export function SmartExamScanModal({
 
   const activeImage = images.find((img) => img.id === activeImageId) ?? images[0] ?? null;
   const unscannedCount = images.filter((img) => !img.scanned).length;
+
+  // Dọn sạch trạng thái tạm và giải phóng URL ảnh sau khi lưu xong.
+  const clearModalStateAndClose = () => {
+    for (const item of images) URL.revokeObjectURL(item.previewUrl);
+    setImages([]);
+    setActiveImageId(null);
+    setQuestions([]);
+    setCustomScoresEdited(false);
+    setProviderLabel("");
+    setAssignmentTitle("");
+    setAssignmentDescription("");
+    onClose();
+  };
 
   // Mở hộp thoại chọn tệp ảnh khi giáo viên bấm vào Vùng 1 hoặc nút thêm ảnh.
   const openFilePicker = () => {
@@ -234,6 +345,14 @@ export function SmartExamScanModal({
     if (!accepted.length) return;
     setImages((prev) => [...prev, ...accepted]);
     setActiveImageId((prev) => prev ?? accepted[0]!.id);
+    if (isAssignmentMode) {
+      const baseName = accepted[0]!.file.name.replace(/\.[^.]+$/u, "");
+      setAssignmentTitle((prev) =>
+        prev.trim()
+          ? prev
+          : `${targetMode === "ESSAY" ? "Bài tự luận" : "Đề trắc nghiệm"}: ${baseName}`,
+      );
+    }
   };
 
   // Xử lý sự kiện chọn tệp từ thẻ input ẩn.
@@ -301,17 +420,24 @@ export function SmartExamScanModal({
           body: form,
         });
 
-        const mapped = (result.questions ?? []).map(mapApiQuestionToEditable);
+        const mapped = (result.questions ?? []).map((q) =>
+          mapApiQuestionToEditable(q, targetMode),
+        );
         totalAdded += mapped.length;
         setProviderLabel(`${result.provider} / ${result.model}`);
-        setQuestions((prev) => [...prev, ...mapped]);
+        setQuestions((prev) => {
+          const combined = [...prev, ...mapped];
+          return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
+            ? rebalanceScannedQuestionScores(combined, 10)
+            : combined;
+        });
         setImages((prev) =>
           prev.map((img) => (img.id === target.id ? { ...img, scanned: true } : img)),
         );
       }
 
       notify(
-        `Đã quét thêm ${totalAdded} câu hỏi từ ${queue.length} ảnh. Bạn có thể sửa hoặc xóa từng câu trước khi nhập.`,
+        `Đã quét thêm ${totalAdded} câu hỏi từ ${queue.length} ảnh. Bạn có thể sửa hoặc xóa từng câu trước khi ${isAssignmentMode ? "phát hành bài tập" : "nhập"}.`,
         "success",
       );
     } catch (error) {
@@ -372,6 +498,50 @@ export function SmartExamScanModal({
     });
   };
 
+  // Kiểm tra tính hợp lệ của toàn bộ danh sách câu hỏi đang có trong Vùng 2.
+  const validateScannedQuestions = (requireObjectiveOnly = false): boolean => {
+    for (let i = 0; i < questions.length; i += 1) {
+      const q = questions[i]!;
+      if (q.content.trim().length < 5) {
+        notify(`Câu ${i + 1}: Nội dung câu hỏi cần ít nhất 5 ký tự.`, "error");
+        return false;
+      }
+      if (requireObjectiveOnly && !OBJECTIVE_TYPES.has(q.type)) {
+        notify(`Câu ${i + 1}: Đề trắc nghiệm chỉ nhận câu trắc nghiệm hoặc đúng/sai.`, "error");
+        return false;
+      }
+      if (OBJECTIVE_TYPES.has(q.type)) {
+        const filledOptions = q.options.map((o) => o.trim()).filter(Boolean);
+        if (filledOptions.length < 2) {
+          notify(`Câu ${i + 1}: Cần nhập ít nhất 2 phương án trả lời.`, "error");
+          return false;
+        }
+        const uniqueLower = new Set(filledOptions.map((o) => o.toLocaleLowerCase()));
+        if (uniqueLower.size !== filledOptions.length) {
+          notify(`Câu ${i + 1}: Các phương án trả lời không được trùng nhau.`, "error");
+          return false;
+        }
+        const validAnswers = q.correctIndices
+          .map((idx) => q.options[idx]?.trim() ?? "")
+          .filter(Boolean);
+        if (!validAnswers.length) {
+          notify(`Câu ${i + 1}: Vui lòng tích chọn đáp án đúng trước khi lưu.`, "error");
+          return false;
+        }
+        if (
+          requireObjectiveOnly &&
+          (!Number.isFinite(q.score) ||
+            q.score < 0.01 ||
+            Math.abs(Math.round(q.score * 100) - q.score * 100) > 1e-6)
+        ) {
+          notify(`Câu ${i + 1}: Điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.`, "error");
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
   // Kiểm tra dữ liệu toàn bộ câu hỏi và nhập vào ngân hàng câu hỏi của môn học.
   const handleImportQuestions = async () => {
     if (saving || scanning || !questions.length) return;
@@ -379,33 +549,7 @@ export function SmartExamScanModal({
       notify("Lớp chưa gắn môn học để nhập câu hỏi.", "error");
       return;
     }
-
-    for (let i = 0; i < questions.length; i += 1) {
-      const q = questions[i]!;
-      if (q.content.trim().length < 5) {
-        notify(`Câu ${i + 1}: Nội dung câu hỏi cần ít nhất 5 ký tự.`, "error");
-        return;
-      }
-      if (OBJECTIVE_TYPES.has(q.type)) {
-        const filledOptions = q.options.map((o) => o.trim()).filter(Boolean);
-        if (filledOptions.length < 2) {
-          notify(`Câu ${i + 1}: Cần nhập ít nhất 2 phương án trả lời.`, "error");
-          return;
-        }
-        const uniqueLower = new Set(filledOptions.map((o) => o.toLocaleLowerCase()));
-        if (uniqueLower.size !== filledOptions.length) {
-          notify(`Câu ${i + 1}: Các phương án trả lời không được trùng nhau.`, "error");
-          return;
-        }
-        const validAnswers = q.correctIndices
-          .map((idx) => q.options[idx]?.trim() ?? "")
-          .filter(Boolean);
-        if (!validAnswers.length) {
-          notify(`Câu ${i + 1}: Vui lòng tích chọn đáp án đúng trước khi nhập.`, "error");
-          return;
-        }
-      }
-    }
+    if (!validateScannedQuestions(false)) return;
 
     setSaving(true);
     try {
@@ -463,12 +607,7 @@ export function SmartExamScanModal({
 
       if (!failed.length) {
         notify(`Đã nhập thành công ${importedCount}/${results.length} câu hỏi vào ngân hàng.`, "success");
-        for (const item of images) URL.revokeObjectURL(item.previewUrl);
-        setImages([]);
-        setActiveImageId(null);
-        setQuestions([]);
-        setProviderLabel("");
-        onClose();
+        clearModalStateAndClose();
       } else {
         const failedRowSet = new Set(failed.map((r) => r.row));
         setQuestions((prev) => prev.filter((_, idx) => failedRowSet.has(idx + 1)));
@@ -486,6 +625,137 @@ export function SmartExamScanModal({
     }
   };
 
+  // Đóng gói danh sách câu hỏi đã quét và chỉnh sửa thành bài tập trắc nghiệm hoặc tự luận của lớp.
+  const handleCreateAssignmentFromScan = async () => {
+    if (!onSaveAssignment || saving || scanning || !questions.length) return;
+    const cleanTitle = assignmentTitle.trim();
+    if (cleanTitle.length < 3) {
+      notify("Vui lòng nhập tên bài tập tối thiểu 3 ký tự.", "error");
+      return;
+    }
+    const deadlineMs = new Date(dueAt).getTime();
+    const classEndMs = targetClassEndAt ? Date.parse(targetClassEndAt) : NaN;
+    if (
+      !Number.isFinite(deadlineMs) ||
+      deadlineMs <= Date.now() ||
+      (Number.isFinite(classEndMs) && deadlineMs > classEndMs)
+    ) {
+      notify("Hạn nộp phải ở tương lai và không vượt quá ngày kết thúc lớp học.", "error");
+      return;
+    }
+
+    const isMcAssignment = targetMode === "MULTIPLE_CHOICE";
+    if (!validateScannedQuestions(isMcAssignment)) return;
+
+    if (isMcAssignment) {
+      if (totalObjectiveScore < 1) {
+        notify("Tổng điểm đề trắc nghiệm phải đạt ít nhất 1 điểm.", "error");
+        return;
+      }
+      if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) {
+        notify("Thời lượng làm bài cần nằm trong khoảng 1–600 phút.", "error");
+        return;
+      }
+      if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
+        notify("Số lượt làm bài cần nằm trong khoảng 1–10.", "error");
+        return;
+      }
+    } else if (!Number.isFinite(essayMaxScore) || essayMaxScore < 1 || essayMaxScore > 1000) {
+      notify("Thang điểm bài tự luận cần nằm trong khoảng 1–1000.", "error");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const builderQuestions: ParsedQuestionItem[] = isMcAssignment
+        ? questions.map((q, idx) => {
+            const compactOptions: Array<{ key: string; text: string }> = [];
+            const compactCorrectKeys: string[] = [];
+            q.options.forEach((optText, rawOptIdx) => {
+              const trimmed = optText.trim();
+              if (!trimmed) return;
+              const assignedKey = String.fromCharCode(65 + compactOptions.length);
+              compactOptions.push({ key: assignedKey, text: trimmed });
+              if (q.correctIndices.includes(rawOptIdx)) {
+                compactCorrectKeys.push(assignedKey);
+              }
+            });
+            return {
+              id: q.id,
+              order: idx + 1,
+              content: q.content.trim(),
+              options: compactOptions,
+              correctAnswer: compactCorrectKeys[0] ?? "A",
+              correctAnswers: compactCorrectKeys,
+              questionType:
+                q.type === "MULTIPLE_CHOICE" || q.type === "TRUE_FALSE"
+                  ? q.type
+                  : "SINGLE_CHOICE",
+              type: "Trắc nghiệm một đáp án",
+              score: q.score,
+              answerSource: q.answerSource,
+              warnings: q.warnings.length ? q.warnings : undefined,
+            };
+          })
+        : [];
+
+      const essayItems = !isMcAssignment
+        ? questions.map((q) => q.content.trim()).filter(Boolean)
+        : [];
+
+      await onSaveAssignment({
+        title: cleanTitle,
+        description: assignmentDescription.trim(),
+        type: isMcAssignment ? "MULTIPLE_CHOICE" : "ESSAY",
+        questions: builderQuestions,
+        essayQuestions: essayItems,
+        attachedFile:
+          !isMcAssignment && attachFirstImage && images[0]?.file
+            ? images[0].file
+            : undefined,
+        ...(isMcAssignment
+          ? {}
+          : {
+              scoreBreakdown: {
+                multipleChoicePoints: 0,
+                essayPoints: Math.round(essayMaxScore * 100) / 100,
+              },
+            }),
+        settings: {
+          durationMinutes,
+          hasDuration: isMcAssignment,
+          startAt: toLocalDateTimeInput(new Date()),
+          hasStartAt: false,
+          dueAt,
+          hasDueAt: true,
+          maxAttempts,
+          shuffleQuestions: isMcAssignment && shuffleQuestions,
+          aiTutorEnabled: isMcAssignment && aiTutorEnabled,
+        },
+      });
+      await onImported();
+      clearModalStateAndClose();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Không thể tạo bài tập từ câu hỏi đã quét.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const modalTitle =
+    targetMode === "MULTIPLE_CHOICE"
+      ? "Quét ảnh tạo đề trắc nghiệm (AI OCR)"
+      : targetMode === "ESSAY"
+        ? "Quét ảnh tạo bài tập tự luận (AI OCR)"
+        : "Quét đề thi thông minh (AI OCR & Đối chiếu)";
+
+  const modalSubtitle =
+    targetMode === "MULTIPLE_CHOICE"
+      ? "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi, tự động chia đều tổng 10 điểm và phát hành thành đề trắc nghiệm."
+      : targetMode === "ESSAY"
+        ? "Chọn tối đa 5 ảnh đề tự luận, quét cộng dồn câu hỏi, chỉnh sửa nội dung và phát hành trực tiếp thành bài tập tự luận."
+        : "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi và chỉnh sửa trực tiếp trước khi lưu vào ngân hàng.";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 p-3 sm:p-5 backdrop-blur-xs"
@@ -495,7 +765,7 @@ export function SmartExamScanModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="smart-exam-scan-title"
-        className="flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1140px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+        className="flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1160px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
       >
         {/* Thanh tiêu đề */}
         <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
@@ -504,15 +774,20 @@ export function SmartExamScanModal({
               <Scan size={19} />
             </span>
             <div>
-              <h3
-                id="smart-exam-scan-title"
-                className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100"
-              >
-                Quét đề thi thông minh (AI OCR & Đối chiếu)
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi và chỉnh sửa trực tiếp trước khi lưu vào ngân hàng.
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3
+                  id="smart-exam-scan-title"
+                  className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100"
+                >
+                  {modalTitle}
+                </h3>
+                {isAssignmentMode && (
+                  <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[11px] font-bold text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300">
+                    {targetMode === "ESSAY" ? "Đề Tự luận" : "Đề Trắc nghiệm · Thang 10 điểm"}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{modalSubtitle}</p>
             </div>
           </div>
           <button
@@ -526,9 +801,9 @@ export function SmartExamScanModal({
           </button>
         </header>
 
-        {/* Thân modal 2 cột rộng rãi (+25% diện tích hiển thị) */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[410px_minmax(0,1fr)] overflow-hidden">
-          {/* Cột trái: Vùng 1 — Chọn đa ảnh & Xem trước ảnh đề gốc */}
+        {/* Thân modal 2 cột rộng rãi */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[420px_minmax(0,1fr)] overflow-hidden">
+          {/* Cột trái: Vùng 1 — Chọn đa ảnh, Xem trước & Thiết lập bài tập */}
           <div className="flex min-h-0 flex-col gap-4 overflow-y-auto border-b border-slate-200 p-5 lg:border-b-0 lg:border-r dark:border-slate-800">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
@@ -577,7 +852,7 @@ export function SmartExamScanModal({
                   type="button"
                   onClick={openFilePicker}
                   disabled={scanning || saving}
-                  className="flex min-h-[260px] w-full flex-col items-center justify-center gap-2.5 p-6 text-center hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 rounded-2xl transition cursor-pointer"
+                  className="flex min-h-[220px] w-full flex-col items-center justify-center gap-2.5 p-6 text-center hover:bg-indigo-50/40 dark:hover:bg-indigo-950/30 rounded-2xl transition cursor-pointer"
                 >
                   <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600 dark:bg-indigo-900/60 dark:text-indigo-300">
                     <ImagePlus size={28} />
@@ -598,7 +873,7 @@ export function SmartExamScanModal({
                       width={800}
                       height={1000}
                       unoptimized
-                      className="max-h-[330px] w-full object-contain"
+                      className="max-h-[280px] w-full object-contain"
                     />
                     <span
                       className={`absolute left-2.5 top-2.5 rounded-lg px-2 py-0.5 text-[11px] font-bold shadow-xs ${
@@ -696,12 +971,12 @@ export function SmartExamScanModal({
             )}
 
             {/* Nút quét cộng dồn câu hỏi */}
-            <div className="space-y-2 pt-1">
+            <div className="space-y-2">
               <button
                 type="button"
                 onClick={() => void handleScanImages(false)}
                 disabled={scanning || saving || images.length === 0}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
               >
                 {scanning ? (
                   <>
@@ -725,25 +1000,212 @@ export function SmartExamScanModal({
                 Mỗi lần chọn thêm ảnh mới và bấm quét, câu hỏi mới sẽ được nối tiếp vào cuối danh sách bên phải mà không làm mất các câu đã có.
               </p>
             </div>
+
+            {/* Khung cấu hình bài tập khi mở từ luồng Tạo bài tập */}
+            {isAssignmentMode && (
+              <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/40">
+                <div className="flex items-center gap-2">
+                  <FileCheck2 size={16} className="text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                    Thiết lập bài tập phát hành
+                  </span>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="scan-assignment-title"
+                    className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                  >
+                    Tên bài tập <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="scan-assignment-title"
+                    type="text"
+                    maxLength={255}
+                    value={assignmentTitle}
+                    onChange={(event) => setAssignmentTitle(event.target.value)}
+                    placeholder={
+                      targetMode === "ESSAY"
+                        ? "Ví dụ: Bài tự luận chương 2..."
+                        : "Ví dụ: Kiểm tra 15 phút chương 2..."
+                    }
+                    className={fieldInputClass}
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="scan-assignment-due"
+                    className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                  >
+                    Hạn nộp <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    id="scan-assignment-due"
+                    type="datetime-local"
+                    value={dueAt}
+                    onChange={(event) => setDueAt(event.target.value)}
+                    className={fieldInputClass}
+                  />
+                </div>
+
+                {targetMode === "MULTIPLE_CHOICE" ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label
+                          htmlFor="scan-exam-duration"
+                          className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                        >
+                          Thời lượng (phút)
+                        </label>
+                        <input
+                          id="scan-exam-duration"
+                          type="number"
+                          min={1}
+                          max={600}
+                          value={durationMinutes}
+                          onChange={(event) => setDurationMinutes(Number(event.target.value))}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="scan-exam-attempts"
+                          className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                        >
+                          Số lượt làm
+                        </label>
+                        <input
+                          id="scan-exam-attempts"
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={maxAttempts}
+                          onChange={(event) => setMaxAttempts(Number(event.target.value))}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={shuffleQuestions}
+                        onChange={(event) => setShuffleQuestions(event.target.checked)}
+                        className="size-4 accent-indigo-600"
+                      />
+                      <span>Đảo thứ tự câu hỏi khi học viên làm bài</span>
+                    </label>
+
+                    <label className="flex items-start gap-2 rounded-xl border border-indigo-200 bg-indigo-50/70 p-2.5 text-xs text-slate-800 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-slate-200 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={aiTutorEnabled}
+                        onChange={(event) => setAiTutorEnabled(event.target.checked)}
+                        className="mt-0.5 size-4 accent-indigo-600"
+                      />
+                      <Sparkles size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                      <span>Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài</span>
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 gap-2.5">
+                      <div>
+                        <label
+                          htmlFor="scan-essay-score"
+                          className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                        >
+                          Thang điểm bài tự luận
+                        </label>
+                        <input
+                          id="scan-essay-score"
+                          type="number"
+                          min={1}
+                          max={1000}
+                          step={0.25}
+                          value={essayMaxScore}
+                          onChange={(event) => setEssayMaxScore(Number(event.target.value))}
+                          className={fieldInputClass}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="scan-essay-desc"
+                          className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                        >
+                          Ghi chú hướng dẫn (tùy chọn)
+                        </label>
+                        <textarea
+                          id="scan-essay-desc"
+                          rows={2}
+                          value={assignmentDescription}
+                          onChange={(event) => setAssignmentDescription(event.target.value)}
+                          placeholder="Yêu cầu trình bày hoặc lưu ý nộp bài..."
+                          className={`${fieldInputClass} resize-y`}
+                        />
+                      </div>
+                    </div>
+
+                    {images.length > 0 && (
+                      <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={attachFirstImage}
+                          onChange={(event) => setAttachFirstImage(event.target.checked)}
+                          className="size-4 accent-indigo-600"
+                        />
+                        <span>Đính kèm ảnh đề đầu tiên cho học viên đối chiếu</span>
+                      </label>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Cột phải: Vùng 2 — Trình sửa / xóa / thêm câu hỏi trực quan như tách từ file Word */}
+          {/* Cột phải: Vùng 2 — Trình sửa / xóa / thêm câu hỏi trực quan */}
           <div className="flex min-h-0 flex-col overflow-hidden bg-slate-50/40 dark:bg-slate-950/30">
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-3.5 dark:border-slate-800 dark:bg-slate-900">
               <div>
                 <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Vùng 2: Kiểm tra & Chỉnh sửa câu hỏi ({questions.length} câu)
+                  Vùng 2: Kiểm tra & Chỉnh sửa câu hỏi ({questions.length} câu
+                  {targetMode === "MULTIPLE_CHOICE"
+                    ? ` · Tổng ${totalObjectiveScore} điểm`
+                    : targetMode === "ESSAY"
+                      ? ` · Tổng ${essayMaxScore} điểm`
+                      : ""}
+                  )
                 </span>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Sửa trực tiếp đề bài, phương án, tích chọn đáp án đúng hoặc xóa câu bất kỳ trước khi nhập.
+                  {targetMode === "ESSAY"
+                    ? "Chỉnh sửa trực tiếp đề bài tự luận hoặc bổ sung thêm câu hỏi trước khi giao bài."
+                    : "Sửa trực tiếp đề bài, phương án, tích chọn đáp án đúng hoặc xóa câu bất kỳ trước khi lưu."}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {targetMode === "MULTIPLE_CHOICE" && questions.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={saving || scanning}
+                    onClick={() => {
+                      setCustomScoresEdited(false);
+                      setQuestions((prev) => rebalanceScannedQuestionScores(prev, 10));
+                    }}
+                    className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 cursor-pointer"
+                  >
+                    Chia đều 10 điểm
+                  </button>
+                )}
                 {questions.length > 0 && (
                   <button
                     type="button"
                     disabled={saving || scanning}
-                    onClick={() => setQuestions([])}
+                    onClick={() => {
+                      setCustomScoresEdited(false);
+                      setQuestions([]);
+                    }}
                     className="rounded-xl border border-rose-200 bg-rose-50/70 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-100 disabled:opacity-50 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300 cursor-pointer"
                   >
                     Xóa tất cả
@@ -752,7 +1214,14 @@ export function SmartExamScanModal({
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => setQuestions((prev) => [...prev, createBlankEditableQuestion()])}
+                  onClick={() =>
+                    setQuestions((prev) => {
+                      const next = [...prev, createBlankEditableQuestion(targetMode)];
+                      return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
+                        ? rebalanceScannedQuestionScores(next, 10)
+                        : next;
+                    })
+                  }
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
                 >
                   <Plus size={14} />
@@ -778,27 +1247,44 @@ export function SmartExamScanModal({
                     key={question.id}
                     className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-2xs space-y-3.5 dark:border-slate-800 dark:bg-slate-900"
                   >
-                    {/* Hàng đầu thẻ câu hỏi: Số thứ tự, Loại câu, Độ khó, Nút xóa */}
+                    {/* Hàng đầu thẻ câu hỏi: Số thứ tự, Loại câu, Độ khó, Điểm, Nút xóa */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
                           Câu {index + 1}
                         </span>
-                        <select
-                          aria-label={`Loại câu ${index + 1}`}
-                          value={question.type}
-                          disabled={saving}
-                          onChange={(event) =>
-                            handleChangeQuestionType(question, event.target.value as Question["type"])
-                          }
-                          className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                        >
-                          <option value="SINGLE_CHOICE">Trắc nghiệm 1 đáp án</option>
-                          <option value="MULTIPLE_CHOICE">Nhiều đáp án</option>
-                          <option value="TRUE_FALSE">Đúng / Sai</option>
-                          <option value="SHORT_ANSWER">Trả lời ngắn</option>
-                          <option value="ESSAY">Tự luận</option>
-                        </select>
+                        {targetMode === "ESSAY" ? (
+                          <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            Tự luận (~
+                            {(essayMaxScore / Math.max(1, questions.length))
+                              .toFixed(2)
+                              .replace(/\.00$/, "")}{" "}
+                            điểm)
+                          </span>
+                        ) : (
+                          <select
+                            aria-label={`Loại câu ${index + 1}`}
+                            value={question.type}
+                            disabled={saving}
+                            onChange={(event) =>
+                              handleChangeQuestionType(
+                                question,
+                                event.target.value as Question["type"],
+                              )
+                            }
+                            className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                          >
+                            <option value="SINGLE_CHOICE">Trắc nghiệm 1 đáp án</option>
+                            <option value="MULTIPLE_CHOICE">Nhiều đáp án</option>
+                            <option value="TRUE_FALSE">Đúng / Sai</option>
+                            {targetMode === "BANK_ONLY" && (
+                              <>
+                                <option value="SHORT_ANSWER">Trả lời ngắn</option>
+                                <option value="ESSAY">Tự luận</option>
+                              </>
+                            )}
+                          </select>
+                        )}
                         <select
                           aria-label={`Độ khó câu ${index + 1}`}
                           value={question.difficulty}
@@ -814,6 +1300,24 @@ export function SmartExamScanModal({
                           <option value={2}>Thông hiểu</option>
                           <option value={3}>Vận dụng</option>
                         </select>
+                        {targetMode === "MULTIPLE_CHOICE" && (
+                          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                            <span>Điểm:</span>
+                            <input
+                              aria-label={`Điểm câu ${index + 1}`}
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              disabled={saving}
+                              value={question.score}
+                              onChange={(event) => {
+                                setCustomScoresEdited(true);
+                                updateQuestion(question.id, { score: Number(event.target.value) });
+                              }}
+                              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                            />
+                          </label>
+                        )}
                         <span className="text-[11px] font-medium text-slate-400">
                           Tin cậy {Math.round(question.confidence * 100)}%
                         </span>
@@ -824,7 +1328,12 @@ export function SmartExamScanModal({
                         aria-label={`Xóa câu hỏi ${index + 1}`}
                         disabled={saving}
                         onClick={() =>
-                          setQuestions((prev) => prev.filter((entry) => entry.id !== question.id))
+                          setQuestions((prev) => {
+                            const filtered = prev.filter((entry) => entry.id !== question.id);
+                            return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
+                              ? rebalanceScannedQuestionScores(filtered, 10)
+                              : filtered;
+                          })
                         }
                         className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-950/30 cursor-pointer"
                       >
@@ -853,17 +1362,21 @@ export function SmartExamScanModal({
                     <div className="space-y-1.5">
                       <textarea
                         aria-label={`Nội dung câu ${index + 1}`}
-                        rows={2}
+                        rows={targetMode === "ESSAY" ? 3 : 2}
                         maxLength={4000}
                         disabled={saving}
                         value={question.content}
                         onChange={(event) =>
                           updateQuestion(question.id, { content: event.target.value })
                         }
-                        placeholder="Nhập nội dung câu hỏi..."
+                        placeholder={
+                          targetMode === "ESSAY"
+                            ? "Nhập yêu cầu câu hỏi tự luận..."
+                            : "Nhập nội dung câu hỏi..."
+                        }
                         className={`${fieldInputClass} resize-y`}
                       />
-                      {question.content.includes("$") && (
+                      {(question.content.includes("$") || question.content.includes("\\(")) && (
                         <div className="rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-800/40">
                           <span className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
                             Xem trước công thức:
@@ -957,7 +1470,7 @@ export function SmartExamScanModal({
                           </button>
                         )}
                       </div>
-                    ) : (
+                    ) : targetMode === "BANK_ONLY" ? (
                       <div className="space-y-1">
                         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                           Đáp án đúng / Ý chấm tham khảo (mỗi dòng một ý):
@@ -973,7 +1486,7 @@ export function SmartExamScanModal({
                           className={fieldInputClass}
                         />
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 ))
               )}
@@ -982,11 +1495,14 @@ export function SmartExamScanModal({
         </div>
 
         {/* Chân modal */}
-        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/70">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/70">
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Tổng cộng: <strong className="text-slate-900 dark:text-slate-100">{questions.length}</strong> câu hỏi sẵn sàng kiểm duyệt
+            Tổng cộng: <strong className="text-slate-900 dark:text-slate-100">{questions.length}</strong> câu hỏi sẵn sàng{" "}
+            {isAssignmentMode
+              ? `(${targetMode === "MULTIPLE_CHOICE" ? `${totalObjectiveScore} điểm` : `${essayMaxScore} điểm`})`
+              : "kiểm duyệt"}
           </p>
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               disabled={saving || scanning}
@@ -995,21 +1511,53 @@ export function SmartExamScanModal({
             >
               Đóng
             </button>
-            <button
-              type="button"
-              disabled={saving || scanning || questions.length === 0}
-              onClick={() => void handleImportQuestions()}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-            >
-              {saving ? (
-                <>
-                  <LoaderCircle size={15} className="animate-spin" />
-                  <span>Đang nhập...</span>
-                </>
-              ) : (
-                <span>Nhập {questions.length} câu vào ngân hàng</span>
-              )}
-            </button>
+            {isAssignmentMode ? (
+              <>
+                <button
+                  type="button"
+                  disabled={saving || scanning || questions.length === 0}
+                  onClick={() => void handleImportQuestions()}
+                  className="rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs sm:text-sm font-bold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-300 cursor-pointer"
+                >
+                  Chỉ lưu vào ngân hàng
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || scanning || questions.length === 0}
+                  onClick={() => void handleCreateAssignmentFromScan()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+                >
+                  {saving ? (
+                    <>
+                      <LoaderCircle size={15} className="animate-spin" />
+                      <span>Đang phát hành...</span>
+                    </>
+                  ) : (
+                    <span>
+                      {targetMode === "ESSAY"
+                        ? `Tạo & Phát hành bài tự luận (${questions.length} câu)`
+                        : `Tạo & Phát hành đề trắc nghiệm (${questions.length} câu)`}
+                    </span>
+                  )}
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                disabled={saving || scanning || questions.length === 0}
+                onClick={() => void handleImportQuestions()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                {saving ? (
+                  <>
+                    <LoaderCircle size={15} className="animate-spin" />
+                    <span>Đang nhập...</span>
+                  </>
+                ) : (
+                  <span>Nhập {questions.length} câu vào ngân hàng</span>
+                )}
+              </button>
+            )}
           </div>
         </footer>
       </section>
