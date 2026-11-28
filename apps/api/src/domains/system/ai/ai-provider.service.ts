@@ -162,6 +162,7 @@ const defaults: Record<Exclude<AiProviderType, "CUSTOM">, { name: string; model:
   OPENAI: { name: "OpenAI", model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1/chat/completions" },
 };
 const MAX_PROVIDER_MODEL_RESPONSE_BYTES = 2 * 1024 * 1024;
+const KEY_COOLDOWN_MS = 60_000;
 
 @Injectable()
 /** Quản lý cấu hình AI đã mã hóa và điều phối scan ảnh qua Gemini, NVIDIA NIM, OpenAI hoặc endpoint custom. */
@@ -169,6 +170,7 @@ export class AiProviderService {
   private readonly memory = new Map<string, StoredAiProvider>();
   private readonly taskMemory: Partial<Record<AiTask, AiTaskConfig>> = {};
   private readonly keyRotationCursor = new Map<string, number>();
+  private readonly slotCooldownUntil = new Map<string, number>();
 
   /** Đọc phân công AI theo tác vụ, không trả API key. */
   async getTaskConfigs(): Promise<Partial<Record<AiTask, AiTaskConfig>>> {
@@ -551,6 +553,7 @@ export class AiProviderService {
       updatedAt: now,
     };
     await this.persist(stored, actorId);
+    this.clearProviderSlotCooldowns(stored.id);
     if (stored.isDefault) await this.clearOtherDefaults(stored.id, actorId);
     await this.audit(actorId, current ? "AI_PROVIDER_UPDATED" : "AI_PROVIDER_CREATED", stored.id, {
       provider: stored.provider,
@@ -602,7 +605,10 @@ export class AiProviderService {
           : { accept: "application/json", authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(30_000),
       }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối nhà cung cấp để tải danh sách model."); });
-      if (!response.ok) this.throwProviderHttpError(response.status, "tải danh sách model");
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
+        this.throwProviderHttpError(response.status, "tải danh sách model", errorPayload);
+      }
       return this.readProviderModelPayload(response);
     });
     const rawModels = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
@@ -882,7 +888,7 @@ export class AiProviderService {
       signal: AbortSignal.timeout(120_000),
     }).catch(() => { throw new ServiceUnavailableException(`Không thể kết nối Gemini để ${operation}.`); });
     const payload = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
-    if (!response.ok) this.throwProviderHttpError(response.status, `${operation} Gemini`);
+    if (!response.ok) this.throwProviderHttpError(response.status, `${operation} Gemini`, payload);
     if (!payload) throw new ServiceUnavailableException("Gemini không trả về phản hồi hợp lệ.");
     return payload;
   }
@@ -1017,7 +1023,7 @@ export class AiProviderService {
     return undefined;
   }
 
-  /** Ghép các phần văn bản trong candidate đầu tiên của Gemini thành một chuỗi hoàn chỉnh. */
+  /** Ghép các phần văn bản trong candidate đầu tiên của Gemini thành một chuỗi hoàn chỉnh (bỏ qua phần suy luận nội bộ thought). */
   private geminiOutputText(payload: Record<string, unknown>): string {
     const candidates: unknown[] = Array.isArray(payload.candidates) ? payload.candidates as unknown[] : [];
     const candidate = candidates[0];
@@ -1026,7 +1032,12 @@ export class AiProviderService {
     if (typeof content !== "object" || content === null) return "";
     const parts = Array.isArray((content as { parts?: unknown }).parts) ? (content as { parts: unknown[] }).parts : [];
     return parts
-      .flatMap((part) => typeof part === "object" && part !== null && typeof (part as { text?: unknown }).text === "string" ? [(part as { text: string }).text] : [])
+      .flatMap((part) => {
+        if (typeof part !== "object" || part === null) return [];
+        if ((part as { thought?: unknown }).thought === true) return [];
+        const text = (part as { text?: unknown }).text;
+        return typeof text === "string" ? [text] : [];
+      })
       .join("\n");
   }
 
@@ -1080,14 +1091,14 @@ export class AiProviderService {
     }
   }
 
-  /** Kiểm tra xác thực, endpoint và model bằng tin nhắn text-only không phụ thuộc khả năng đọc ảnh. */
+  /** Kiểm tra xác thực, endpoint và model bằng tin nhắn text-only, cấp đủ hạn mức token cho các dòng model có bước suy luận (Thinking). */
   private async probeConnection(provider: StoredAiProvider): Promise<void> {
     await this.executeWithApiKeys(provider, async (apiKey) => {
       const response = provider.provider === "GEMINI"
         ? await fetchProviderEndpoint(`${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent`, {
             method: "POST",
             headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-            body: JSON.stringify({ contents: [{ parts: [{ text: "Chỉ trả lời đúng chữ OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 8 } }),
+            body: JSON.stringify({ contents: [{ parts: [{ text: "Chỉ trả lời đúng chữ OK." }] }], generationConfig: { temperature: 0, maxOutputTokens: 256 } }),
             signal: AbortSignal.timeout(30_000),
           }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối nhà cung cấp AI để kiểm tra."); })
         : await fetchProviderEndpoint(provider.baseUrl!, {
@@ -1097,7 +1108,7 @@ export class AiProviderService {
             signal: AbortSignal.timeout(30_000),
           }).catch(() => { throw new ServiceUnavailableException("Không thể kết nối nhà cung cấp AI để kiểm tra."); });
       const payload = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
-      if (!response.ok) this.throwProviderHttpError(response.status, "kiểm tra kết nối");
+      if (!response.ok) this.throwProviderHttpError(response.status, "kiểm tra kết nối", payload);
       const output = provider.provider === "GEMINI"
         ? this.geminiOutputText(payload ?? {})
         : ((payload?.choices as Array<{ message?: { content?: unknown } }> | undefined)?.[0]?.message?.content);
@@ -1114,8 +1125,8 @@ export class AiProviderService {
         ? await fetchProviderEndpoint(`${provider.baseUrl}/models/${encodeURIComponent(provider.model)}:generateContent`, { method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey }, body: JSON.stringify({ systemInstruction: { parts: [{ text: prompt }] }, contents: [{ parts: [{ inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } }), signal: AbortSignal.timeout(60_000) })
         : await fetchProviderEndpoint(provider.baseUrl!, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` }, body: JSON.stringify({ model: provider.model, temperature: 0.1, response_format: { type: "json_object" }, messages: [{ role: "system", content: prompt }, { role: "user", content: [mimeType === "application/pdf" ? { type: "file", file: { filename: "document.pdf", file_data: "data:application/pdf;base64," + buffer.toString("base64") } } : { type: "image_url", image_url: { url: `data:${mimeType};base64,${buffer.toString("base64")}` } }] }] }), signal: AbortSignal.timeout(60_000) });
       const payload = await response.json().catch(() => undefined) as Record<string, unknown> | undefined;
-      if (!response.ok) this.throwProviderHttpError(response.status, "đọc ảnh đề thi");
-      if (provider.provider === "GEMINI") return this.parseJson(((payload?.candidates as Array<{ content?: { parts?: Array<{ text?: string }> } }> | undefined)?.[0]?.content?.parts?.[0]?.text));
+      if (!response.ok) this.throwProviderHttpError(response.status, "đọc ảnh đề thi", payload);
+      if (provider.provider === "GEMINI") return this.parseJson(this.geminiOutputText(payload ?? {}));
       return this.parseJson(((payload?.choices as Array<{ message?: { content?: string } }> | undefined)?.[0]?.message?.content));
     });
   }
@@ -1199,6 +1210,16 @@ export class AiProviderService {
     return [];
   }
 
+  /** Xóa trạng thái tạm nghỉ của toàn bộ các khóa thuộc một nhà cung cấp khi cập nhật cấu hình mới. */
+  private clearProviderSlotCooldowns(providerId: string): void {
+    const prefix = `${providerId}:`;
+    for (const key of this.slotCooldownUntil.keys()) {
+      if (key.startsWith(prefix)) {
+        this.slotCooldownUntil.delete(key);
+      }
+    }
+  }
+
   /** Kiểm tra lỗi có thể chuyển dự phòng sang API key tiếp theo của cùng nhà cung cấp hay không. */
   private isFailoverEligibleError(error: unknown): boolean {
     if (!(error instanceof HttpException)) return false;
@@ -1206,12 +1227,24 @@ export class AiProviderService {
     if (status === 429 || status >= 500) return true;
     if (status === 400) {
       const msg = error.message || "";
-      return msg.includes("(401)") || msg.includes("(403)");
+      return msg.includes("(401)") || msg.includes("(403)") || msg.includes("từ chối API key");
     }
     return false;
   }
 
-  /** Xoay vòng phân tải qua các API key của nhà cung cấp và tự động chuyển dự phòng khi một key hết hạn mức. */
+  /** Kiểm tra lỗi thuộc nhóm khóa hết hạn mức hoặc khóa bị từ chối để đặt thời gian tạm nghỉ cho khóa đó. */
+  private shouldCooldownSlot(error: unknown): boolean {
+    if (!(error instanceof HttpException)) return false;
+    const status = error.getStatus();
+    if (status === 429) return true;
+    if (status === 400) {
+      const msg = error.message || "";
+      return msg.includes("(401)") || msg.includes("(403)") || msg.includes("từ chối API key");
+    }
+    return false;
+  }
+
+  /** Xoay vòng phân tải qua các API key của nhà cung cấp, ưu tiên khóa khỏe mạnh và tự động chuyển dự phòng khi một khóa chạm trần 429 hoặc lỗi xác thực. */
   private async executeWithApiKeys<T>(
     provider: StoredAiProvider,
     operation: (apiKey: string) => Promise<T>,
@@ -1225,15 +1258,28 @@ export class AiProviderService {
     }
     const startIndex = (this.keyRotationCursor.get(provider.id) ?? 0) % slots.length;
     this.keyRotationCursor.set(provider.id, (startIndex + 1) % slots.length);
+
+    const now = Date.now();
+    const rotated = Array.from({ length: slots.length }, (_, offset) => slots[(startIndex + offset) % slots.length]!);
+    const activeSlots = rotated.filter((slot) => (this.slotCooldownUntil.get(`${provider.id}:${slot.id}`) ?? 0) <= now);
+    const coolingSlots = rotated.filter((slot) => (this.slotCooldownUntil.get(`${provider.id}:${slot.id}`) ?? 0) > now);
+    const orderedSlots = [...activeSlots, ...coolingSlots];
+
     let lastError: unknown;
-    for (let offset = 0; offset < slots.length; offset += 1) {
-      const slot = slots[(startIndex + offset) % slots.length]!;
+    for (let index = 0; index < orderedSlots.length; index += 1) {
+      const slot = orderedSlots[index]!;
+      const cooldownKey = `${provider.id}:${slot.id}`;
       const apiKey = await decryptSecret(slot.encryptedKey, this.encryptionSecret());
       try {
-        return await operation(apiKey);
+        const result = await operation(apiKey);
+        this.slotCooldownUntil.delete(cooldownKey);
+        return result;
       } catch (error) {
         lastError = error;
-        const hasNextKey = offset < slots.length - 1;
+        if (this.shouldCooldownSlot(error)) {
+          this.slotCooldownUntil.set(cooldownKey, Date.now() + KEY_COOLDOWN_MS);
+        }
+        const hasNextKey = index < orderedSlots.length - 1;
         if (!hasNextKey || !this.isFailoverEligibleError(error)) {
           throw error;
         }
@@ -1392,10 +1438,19 @@ export class AiProviderService {
       throw new BadRequestException("Định danh model không hợp lệ cho nhà cung cấp đã chọn.");
     }
   }
+  /** Nhận diện trường hợp nhà cung cấp (đặc biệt Gemini) trả HTTP 400 cho lỗi API key không hợp lệ hoặc đã hết hạn. */
+  private isInvalidApiKeyPayload(payload?: Record<string, unknown>): boolean {
+    if (!payload || typeof payload !== "object") return false;
+    const serialized = JSON.stringify(payload);
+    return /API_KEY_INVALID|API_KEY_EXPIRED|API key not valid|API key expired|invalid_api_key/i.test(serialized);
+  }
+
   /** Chuyển mã lỗi upstream thành trạng thái API rõ nguyên nhân và gắn phân loại rủi ro tính phí. */
-  private throwProviderHttpError(status: number, operation: string): never {
+  private throwProviderHttpError(status: number, operation: string, payload?: Record<string, unknown>): never {
+    if (status === 401 || status === 403 || (status === 400 && this.isInvalidApiKeyPayload(payload))) {
+      throw markAiFailure(new BadRequestException(`Provider từ chối API key hoặc quyền truy cập khi ${operation} (${status}).`), "PROVIDER_REJECTED_UNBILLED");
+    }
     if (status === 400) throw markAiFailure(new BadRequestException(`Provider từ chối dữ liệu khi ${operation} (400). Kiểm tra model và định dạng request.`), "PROVIDER_REJECTED_UNBILLED");
-    if (status === 401 || status === 403) throw markAiFailure(new BadRequestException(`Provider từ chối API key hoặc quyền truy cập khi ${operation} (${status}).`), "PROVIDER_REJECTED_UNBILLED");
     if (status === 404) throw markAiFailure(new BadRequestException(`Không tìm thấy endpoint hoặc model khi ${operation} (404).`), "PROVIDER_REJECTED_UNBILLED");
     if (status === 429) throw markAiFailure(new HttpException(`Provider đã hết hạn mức khi ${operation} (429). Hãy thử lại sau hoặc đổi model.`, 429), "PROVIDER_REJECTED_UNBILLED");
     throw markAiFailure(new ServiceUnavailableException(`Provider tạm thời không phục vụ khi ${operation} (${status}).`), "REQUIRES_RECONCILIATION");

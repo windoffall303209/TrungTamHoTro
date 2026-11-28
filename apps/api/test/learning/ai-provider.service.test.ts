@@ -602,4 +602,84 @@ describe("AI provider configuration and image scanning", () => {
     expect(firstHeaders.get("x-goog-api-key")).toBe("gemini-primary-1111");
     expect(secondHeaders.get("x-goog-api-key")).toBe("gemini-backup-3333");
   });
+
+  it("chuyển dự phòng sang API key khỏe mạnh khi kiểm tra kết nối Gemini (bỏ qua phần thought và tạm nghỉ key 429/API_KEY_INVALID)", async () => {
+    const service = new AiProviderService(undefined, config);
+    const configured = await service.configure(
+      {
+        provider: "GEMINI",
+        model: "gemini-2.5-flash",
+        enabled: true,
+        isDefault: true,
+        apiKeys: [
+          { label: "Key hết quota", apiKey: "gemini-dead-key-1111" },
+          { label: "Key sai", apiKey: "gemini-invalid-2222" },
+          { label: "Key sống", apiKey: "gemini-healthy-3333" },
+        ],
+      },
+      "usr-admin",
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { code: 429, status: "RESOURCE_EXHAUSTED", message: "Quota exceeded" } }),
+          { status: 429, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ error: { code: 400, status: "INVALID_ARGUMENT", message: "API key not valid. Please pass a valid API key." } }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "STOP",
+                content: {
+                  parts: [
+                    { thought: true, text: "Internal reasoning trace" },
+                    { text: "OK" },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                finishReason: "STOP",
+                content: { parts: [{ text: "OK" }] },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tested = await service.test(configured.id, "usr-admin");
+    expect(tested.healthStatus).toBe("HEALTHY");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const probeBody = readJsonBody(fetchMock.mock.calls[2]);
+    expect(probeBody).toMatchObject({
+      generationConfig: { temperature: 0, maxOutputTokens: 256 },
+    });
+
+    // Lần gọi kế tiếp ưu tiên ngay Key sống vì 2 key lỗi đang trong thời gian tạm nghỉ (cooldown)
+    const testedAgain = await service.test(configured.id, "usr-admin");
+    expect(testedAgain.healthStatus).toBe("HEALTHY");
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const fourthHeaders = new Headers(readFetchOptions(fetchMock.mock.calls[3]).headers);
+    expect(fourthHeaders.get("x-goog-api-key")).toBe("gemini-healthy-3333");
+  });
 });

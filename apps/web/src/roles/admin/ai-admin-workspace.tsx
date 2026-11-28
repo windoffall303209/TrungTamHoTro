@@ -487,6 +487,25 @@ function ProviderDetailStudio({
   );
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const hasUnsavedChanges = useMemo(() => {
+    if (!target?.hasApiKey) return true;
+    if (model.trim() !== (target.model ?? "")) return true;
+    if (providerType === "CUSTOM") {
+      if (name.trim() !== (target.name ?? "")) return true;
+      if (baseUrl.trim() !== (target.baseUrl ?? "")) return true;
+    }
+    if (enabled !== target.enabled || isDefault !== target.isDefault) return true;
+    const savedSlots = target.apiKeySlots ?? [];
+    if (keyDrafts.some((row) => row.apiKey.trim().length > 0)) return true;
+    if (savedSlots.length > 0 && keyDrafts.length !== savedSlots.length) return true;
+    return savedSlots.some(
+      (slot, idx) =>
+        keyDrafts[idx]?.slotId !== slot.id ||
+        (keyDrafts[idx]?.label.trim() || `Key ${idx + 1}`) !== slot.label,
+    );
+  }, [baseUrl, enabled, isDefault, keyDrafts, model, name, providerType, target]);
 
   const availableModels = useMemo(() => {
     const base = discoveredModels.length ? discoveredModels : catalogModels;
@@ -555,11 +574,12 @@ function ProviderDetailStudio({
   };
 
   /** Kiểm tra hợp lệ và gửi danh sách nhiều API key cùng model lên máy chủ để mã hóa lưu trữ. */
-  const handleSaveProvider = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const persistProviderConfig = async (options?: {
+    silentToast?: boolean;
+  }): Promise<AiProvider | null> => {
     if (!model.trim()) {
       notify("Vui lòng chọn hoặc nhập tên model mặc định.", "error");
-      return;
+      return null;
     }
     const preparedKeys = keyDrafts
       .map((row, idx) => ({
@@ -572,14 +592,14 @@ function ProviderDetailStudio({
 
     if (preparedKeys.length === 0) {
       notify("Cần nhập ít nhất một API key cho nhà cung cấp này.", "error");
-      return;
+      return null;
     }
     const invalidNewKey = preparedKeys.find(
       (row) => row.apiKey !== undefined && row.apiKey.length < 8,
     );
     if (invalidNewKey) {
       notify("Mỗi API key mới phải có tối thiểu 8 ký tự.", "error");
-      return;
+      return null;
     }
 
     setSaving(true);
@@ -602,18 +622,43 @@ function ProviderDetailStudio({
           })),
         }),
       });
-      notify(
-        `Đã lưu ${saved.name} (${saved.apiKeyCount ?? preparedKeys.length} API key đã mã hóa).`,
-      );
+      if (!options?.silentToast) {
+        notify(
+          `Đã lưu ${saved.name} (${saved.apiKeyCount ?? preparedKeys.length} API key đã mã hóa).`,
+        );
+      }
       setKeyDrafts(buildInitialKeyDrafts(saved));
       await onSaved(saved.id);
+      return saved;
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không lưu được cấu hình AI.",
         "error",
       );
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Lưu cấu hình khi quản trị viên bấm nút Lưu cấu hình. */
+  const handleSaveProvider = async (event: React.FormEvent) => {
+    event.preventDefault();
+    await persistProviderConfig();
+  };
+
+  /** Tự động lưu các API key vừa điền (nếu chưa lưu) rồi chạy kiểm tra kết nối có xoay vòng dự phòng. */
+  const handleTestConnection = async () => {
+    setTesting(true);
+    try {
+      let providerToTest = target;
+      if (hasUnsavedChanges || !providerToTest?.hasApiKey) {
+        providerToTest = await persistProviderConfig({ silentToast: true });
+        if (!providerToTest) return;
+      }
+      await onTest(providerToTest);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -652,11 +697,13 @@ function ProviderDetailStudio({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {target?.hasApiKey ? (
+          {target?.hasApiKey || keyDrafts.some((row) => row.apiKey.trim().length >= 8) ? (
             <Button
               type="button"
               variant="secondary"
-              onClick={() => void onTest(target)}
+              loading={testing}
+              disabled={saving || testing}
+              onClick={() => void handleTestConnection()}
             >
               <Zap aria-hidden="true" size={15} />
               Kiểm tra kết nối
