@@ -107,11 +107,6 @@ const DOCUMENT_AND_GRADING_TASKS: ReadonlyArray<TaskDefinition> = [
   },
 ];
 
-const ALL_TASKS: ReadonlyArray<TaskDefinition> = [
-  ...EXAM_AND_TUTOR_TASKS,
-  ...DOCUMENT_AND_GRADING_TASKS,
-];
-
 /** Lọc danh sách nhà cung cấp hợp lệ được phép gán cho từng tác vụ nghiệp vụ. */
 function filterEligibleProviders(providers: Provider[], task: Task): Provider[] {
   return providers.filter(
@@ -160,35 +155,8 @@ export function AiTaskSettings({
     };
   }, [session.roleCode]);
 
-  const configuredCount = saved
-    ? ALL_TASKS.filter(
-        (item) =>
-          Boolean(saved[item.task]?.providerId) &&
-          Boolean(saved[item.task]?.model?.trim()),
-      ).length
-    : 0;
-
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-6 shadow-2xs">
-        <div className="max-w-2xl">
-          <h3 className="font-heading text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-            AI theo chức năng
-          </h3>
-          <p className="mt-1 text-xs sm:text-sm leading-6 text-slate-600 dark:text-slate-400">
-            Áp dụng cho toàn hệ thống. Giảng viên không chọn hoặc thay đổi model. Mỗi nghiệp vụ được ghim độc lập tới một nhà cung cấp và model chuyên biệt.
-          </p>
-        </div>
-        {saved ? (
-          <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 dark:border-sky-800/70 bg-sky-50/80 dark:bg-sky-950/50 px-3.5 py-1.5 text-xs font-bold text-sky-800 dark:text-sky-300">
-            <span className="size-2 rounded-full bg-sky-600 dark:bg-sky-400" />
-            <span className="tabular-nums">
-              Đã định tuyến {configuredCount}/{ALL_TASKS.length} tác vụ
-            </span>
-          </div>
-        ) : null}
-      </div>
-
       {error ? (
         <div
           role="alert"

@@ -506,4 +506,100 @@ describe("AI provider configuration and image scanning", () => {
     expect(responseBody).not.toHaveProperty("tools");
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/files/file-course-1"), expect.objectContaining({ method: "DELETE" }));
   });
+
+  it("hỗ trợ lưu nhiều API key cho cùng một nhà cung cấp, che khóa an toàn và tự động chuyển dự phòng khi gặp lỗi 429", async () => {
+    const service = new AiProviderService(undefined, config);
+    const configured = await service.configure(
+      {
+        provider: "GEMINI",
+        model: "gemini-2.5-flash",
+        enabled: true,
+        isDefault: true,
+        apiKeys: [
+          { label: "Key chính", apiKey: "gemini-primary-1111" },
+          { label: "Key dự phòng 1", apiKey: "gemini-backup-2222" },
+          { label: "Key dự phòng 2", apiKey: "gemini-backup-3333" },
+        ],
+      },
+      "usr-admin",
+    );
+
+    expect(configured.apiKeyCount).toBe(3);
+    expect(configured.maskedApiKey).toBe("••••••••1111");
+    expect(configured.apiKeySlots).toEqual([
+      expect.objectContaining({ label: "Key chính", maskedKey: "••••••••1111" }),
+      expect.objectContaining({ label: "Key dự phòng 1", maskedKey: "••••••••2222" }),
+      expect.objectContaining({ label: "Key dự phòng 2", maskedKey: "••••••••3333" }),
+    ]);
+    expect(JSON.stringify(configured)).not.toContain("gemini-primary-1111");
+    expect(JSON.stringify(configured)).not.toContain("gemini-backup-2222");
+
+    // Giữ nguyên key thứ 1 và thứ 3 khi không nhập lại chuỗi bí mật, đồng thời xóa key thứ 2
+    const updated = await service.configure(
+      {
+        id: configured.id,
+        provider: "GEMINI",
+        model: "gemini-2.5-flash",
+        enabled: true,
+        apiKeys: [
+          { id: configured.apiKeySlots![0]!.id, label: "Key chính đã giữ" },
+          { id: configured.apiKeySlots![2]!.id, label: "Key dự phòng giữ lại" },
+        ],
+      },
+      "usr-admin",
+    );
+    expect(updated.apiKeyCount).toBe(2);
+    expect(updated.apiKeySlots?.map((s) => s.maskedKey)).toEqual(["••••••••1111", "••••••••3333"]);
+
+    // Khi key đầu bị hết hạn mức (429), hệ thống tự động chuyển sang key thứ hai để hoàn thành quét đề
+    await service.configureTask("SCAN_IMAGE", { providerId: updated.id, model: "gemini-2.5-flash" }, "usr-admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 429 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        questions: [
+                          {
+                            type: "SINGLE_CHOICE",
+                            content: "Kết quả của 5 + 5 là bao nhiêu?",
+                            options: ["10", "12"],
+                            correctAnswers: ["10"],
+                            difficulty: 1,
+                            tags: ["toán"],
+                            confidence: 0.95,
+                            warnings: [],
+                          },
+                        ],
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const scanResult = await service.scanImage({
+      providerId: updated.id,
+      fileName: "de.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("img"),
+    });
+    expect(scanResult.questions).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstHeaders = new Headers(readFetchOptions(fetchMock.mock.calls[0]).headers);
+    const secondHeaders = new Headers(readFetchOptions(fetchMock.mock.calls[1]).headers);
+    expect(firstHeaders.get("x-goog-api-key")).toBe("gemini-primary-1111");
+    expect(secondHeaders.get("x-goog-api-key")).toBe("gemini-backup-3333");
+  });
 });

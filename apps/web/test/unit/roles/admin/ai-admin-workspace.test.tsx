@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resolveAiModelVisual,
@@ -64,7 +64,12 @@ const sampleProviders: AiProvider[] = [
     isDefault: true,
     healthStatus: "HEALTHY",
     hasApiKey: true,
-    maskedApiKey: "AIza••••••••9012",
+    maskedApiKey: "••••••••9012",
+    apiKeyCount: 2,
+    apiKeySlots: [
+      { id: "k1", label: "Key chính", maskedKey: "••••••••9012" },
+      { id: "k2", label: "Key phụ", maskedKey: "••••••••5678" },
+    ],
     lastCheckedAt: "2026-11-28T12:00:00.000Z",
     updatedAt: "2026-11-28T12:00:00.000Z",
   },
@@ -77,7 +82,9 @@ const sampleProviders: AiProvider[] = [
     isDefault: false,
     healthStatus: "UNKNOWN",
     hasApiKey: true,
-    maskedApiKey: "nvapi•••••••3456",
+    maskedApiKey: "••••••••3456",
+    apiKeyCount: 1,
+    apiKeySlots: [{ id: "k-nim", label: "Key 1", maskedKey: "••••••••3456" }],
     updatedAt: "2026-11-28T12:00:00.000Z",
   },
   {
@@ -90,7 +97,9 @@ const sampleProviders: AiProvider[] = [
     isDefault: false,
     healthStatus: "UNKNOWN",
     hasApiKey: true,
-    maskedApiKey: "sk-••••••••7890",
+    maskedApiKey: "••••••••7890",
+    apiKeyCount: 1,
+    apiKeySlots: [{ id: "k-cus", label: "Key 1", maskedKey: "••••••••7890" }],
     updatedAt: "2026-11-28T12:00:00.000Z",
   },
 ];
@@ -125,11 +134,11 @@ const sampleCatalog: ModelCatalog = {
 };
 
 describe("AI model & provider visual recognition", () => {
-  it("nhận diện chính xác biểu tượng dòng model và phân khúc cho từng nhà cung cấp", () => {
-    expect(resolveAiProviderVisual("GEMINI").shortLabel).toBe("Gemini");
-    expect(resolveAiProviderVisual("NVIDIA_NIM").shortLabel).toBe("NVIDIA NIM");
+  it("nhận diện chính xác biểu tượng nhà phát hành chính thức và từng dòng model", () => {
+    expect(resolveAiProviderVisual("GEMINI").shortLabel).toBe("Google Gemini");
+    expect(resolveAiProviderVisual("NVIDIA_NIM").shortLabel).toBe("NVIDIA");
     expect(resolveAiProviderVisual("OPENAI").shortLabel).toBe("OpenAI");
-    expect(resolveAiProviderVisual("CUSTOM").shortLabel).toBe("Custom API");
+    expect(resolveAiProviderVisual("CUSTOM").shortLabel).toBe("Custom");
 
     expect(resolveAiModelVisual("gemini-2.5-pro", "GEMINI").kind).toBe("gemini-pro");
     expect(resolveAiModelVisual("gemini-3.5-flash-lite", "GEMINI").kind).toBe("gemini-lite");
@@ -144,7 +153,7 @@ describe("AI model & provider visual recognition", () => {
   });
 });
 
-describe("AiAdminWorkspace compact UI without AI operations", () => {
+describe("AiAdminWorkspace 4-icon launcher & multi-API-key detail view", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     currentSearchParams = new URLSearchParams();
@@ -153,12 +162,12 @@ describe("AiAdminWorkspace compact UI without AI operations", () => {
 
   afterEach(cleanup);
 
-  it("ẩn hoàn toàn khối Trung tâm điều phối và Đối soát AI, chỉ giữ 3 phân khu gọn nhẹ kèm kệ chọn nhanh model có icon", async () => {
-    const openAiEditor = vi.fn();
+  it("chỉ hiển thị 4 biểu tượng nhà cung cấp ban đầu, bấm vào mới bung trang chi tiết và cho phép điền nhiều API key", async () => {
     const testAiProvider = vi.fn().mockResolvedValue(undefined);
     const removeAiProvider = vi.fn().mockResolvedValue(undefined);
     const saveAiTutorQuota = vi.fn().mockResolvedValue(undefined);
     const setSettings = vi.fn();
+    const reload = vi.fn().mockResolvedValue(undefined);
 
     render(
       <AiAdminWorkspace
@@ -168,47 +177,79 @@ describe("AiAdminWorkspace compact UI without AI operations", () => {
         modelCatalog={sampleCatalog}
         saving={false}
         saveAiTutorQuota={saveAiTutorQuota}
-        openAiEditor={openAiEditor}
         testAiProvider={testAiProvider}
         removeAiProvider={removeAiProvider}
+        reload={reload}
       />,
     );
 
-    expect(screen.queryByText("Trung tâm điều phối AI & Quét đề")).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /Đối soát/ })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    // Ban đầu chỉ hiển thị 4 ô biểu tượng: Google Gemini, NVIDIA, OpenAI và Custom (chưa hiện form chi tiết)
+    expect(screen.getByRole("button", { name: "Google Gemini" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "NVIDIA" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "OpenAI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Custom" })).toBeInTheDocument();
+    expect(screen.queryByText(/Danh sách API key/)).not.toBeInTheDocument();
 
-    // Bấm vào một chip model gợi ý (Gemini 2.5 Pro) mở ngay editor với đúng model đó
-    fireEvent.click(screen.getByRole("button", { name: /Gemini 2\.5 Pro/ }));
-    expect(openAiEditor).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "prov-gemini",
-        model: "gemini-2.5-pro",
-      }),
+    // Bấm vào biểu tượng Google Gemini -> hiển thị chi tiết của Gemini kèm 2 API key đã lưu
+    fireEvent.click(screen.getByRole("button", { name: "Google Gemini" }));
+    expect(screen.getByText("Danh sách API key (2)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nhãn API key 1")).toHaveValue("Key chính");
+    expect(screen.getByLabelText("Nhãn API key 2")).toHaveValue("Key phụ");
+
+    // Bấm "+ Thêm API key" để điền thêm API key thứ 3 và đổi sang model Gemini 2.5 Pro
+    fireEvent.click(screen.getByRole("button", { name: /Thêm API key/ }));
+    expect(screen.getByText("Danh sách API key (3)")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nhãn API key 3"), {
+      target: { value: "Key dự phòng 2" },
+    });
+    fireEvent.change(screen.getByLabelText("Giá trị API key 3"), {
+      target: { value: "AIzaSyNewBackupKey9999" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Gemini 2.5 Pro" }));
+
+    apiRequest.mockResolvedValueOnce({
+      ...sampleProviders[0]!,
+      model: "gemini-2.5-pro",
+      apiKeyCount: 3,
+      apiKeySlots: [
+        { id: "k1", label: "Key chính", maskedKey: "••••••••9012" },
+        { id: "k2", label: "Key phụ", maskedKey: "••••••••5678" },
+        { id: "k3", label: "Key dự phòng 2", maskedKey: "••••••••9999" },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Lưu cấu hình" }));
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        "/system/ai-providers",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            id: "prov-gemini",
+            provider: "GEMINI",
+            model: "gemini-2.5-pro",
+            enabled: true,
+            isDefault: true,
+            apiKeys: [
+              { id: "k1", label: "Key chính" },
+              { id: "k2", label: "Key phụ" },
+              { label: "Key dự phòng 2", apiKey: "AIzaSyNewBackupKey9999" },
+            ],
+          }),
+        }),
+      ),
     );
+    expect(reload).toHaveBeenCalledOnce();
 
-    // Xóa provider custom
+    // Quay lại màn hình 4 biểu tượng rồi bấm vào Custom ở dưới
+    fireEvent.click(screen.getByRole("button", { name: "Quay lại danh sách nhà cung cấp" }));
+    expect(screen.getByRole("button", { name: "Custom" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    expect(screen.getByRole("button", { name: "Xóa Cổng vLLM nội bộ" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Xóa Cổng vLLM nội bộ" }));
     expect(removeAiProvider).toHaveBeenCalledWith(
       expect.objectContaining({ id: "prov-custom" }),
     );
-
-    // Chuyển sang tab Phân công tác vụ & Quét đề
-    fireEvent.click(screen.getByRole("tab", { name: /Phân công tác vụ & Quét đề/ }));
-    expect(await screen.findByText("AI theo chức năng")).toBeInTheDocument();
-
-    // Chuyển sang tab Hạn mức hỏi đáp AI và chọn mức thiết lập nhanh "Ôn luyện sâu"
-    fireEvent.click(screen.getByRole("tab", { name: "Hạn mức hỏi đáp AI" }));
-    fireEvent.click(screen.getByRole("button", { name: /Ôn luyện sâu/ }));
-    expect(setSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        aiTutorMaxPerQuestion: 5,
-        aiTutorMaxPerExam: 30,
-      }),
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Lưu hạn mức hỏi đáp" }));
-    expect(saveAiTutorQuota).toHaveBeenCalledOnce();
   });
 
   it("chỉ hiển thị nút mũi tên quay lại cạnh tên chức năng và ẩn toàn bộ dòng mô tả trên trang Cấu hình", () => {
@@ -219,9 +260,6 @@ describe("AiAdminWorkspace compact UI without AI operations", () => {
     expect(
       screen.queryByText("Quản lý API key, model và nhà cung cấp dùng để đọc ảnh đề thi."),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Cấu hình, kiểm tra và chọn nhà cung cấp phòng học trực tuyến."),
-    ).not.toBeInTheDocument();
     unmount();
 
     currentSearchParams = new URLSearchParams("section=ai-providers");
@@ -229,9 +267,6 @@ describe("AiAdminWorkspace compact UI without AI operations", () => {
     const backBtn = screen.getByRole("button", { name: "Quay lại Cấu hình" });
     expect(backBtn).toHaveTextContent("");
     expect(screen.getByRole("heading", { level: 1, name: "AI và quét đề" })).toBeInTheDocument();
-    expect(
-      screen.queryByText("Quản lý API key, model và nhà cung cấp dùng để đọc ảnh đề thi."),
-    ).not.toBeInTheDocument();
     fireEvent.click(backBtn);
     expect(push).toHaveBeenCalledWith("/admin/settings");
   });

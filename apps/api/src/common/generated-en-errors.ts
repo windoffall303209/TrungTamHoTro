@@ -869,5 +869,6 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Trợ lý AI trả về định dạng gợi ý không hợp lệ.": "The AI tutor returned an invalid guidance format.",
   "Không tìm thấy khóa học của lớp.": "Course for this class could not be found.",
   "Đề kiểm tra này chưa bật tính năng hỏi đáp AI dẫn dắt.": "Guided AI tutoring is not enabled for this exam.",
-  "Không tìm thấy đề kiểm tra thuộc lớp giảng dạy của bạn.": "No exam belonging to your assigned classes was found."
+  "Không tìm thấy đề kiểm tra thuộc lớp giảng dạy của bạn.": "No exam belonging to your assigned classes was found.",
+  "API key phải có từ 8 đến 1.000 ký tự.": "API key must be between 8 and 1,000 characters."
 });

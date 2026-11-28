@@ -550,5 +550,6 @@ export function useSettingsModel() {
     saveAiProvider,
     testAiProvider,
     removeAiProvider,
+    reload: load,
   };
 }

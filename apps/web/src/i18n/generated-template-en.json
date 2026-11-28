@@ -278,5 +278,10 @@
   "Lọc ({{0}})": "Filter ({{0}})",
   "{{0}} lượt/câu · {{1}} lượt/đề": "{{0}} turns/question · {{1}} turns/exam",
   "Kiểm tra lúc {{0}}": "Checked at {{0}}",
-  "Mặc định: {{0}}": "Default: {{0}}"
+  "Mặc định: {{0}}": "Default: {{0}}",
+  "Đã lưu {{0}} ({{1}} API key đã mã hóa).": "Saved {{0}} ({{1}} encrypted API keys).",
+  "Đang lưu {{0}} (để trống nếu giữ nguyên)": "Stored {{0}} (leave blank to keep existing)",
+  "Giá trị API key {{0}}": "API key {{0}} value",
+  "Nhãn API key {{0}}": "API key {{0}} label",
+  "Xóa dòng API key {{0}}": "Remove API key row {{0}}"
 }

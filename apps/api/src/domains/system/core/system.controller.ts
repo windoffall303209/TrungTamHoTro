@@ -6,7 +6,8 @@ import { defer, finalize } from "rxjs";
 import { DatabaseEventsService, type SnapshotStreamEvent } from "../../../database/database-events.service.js";
 import { MetricsService } from "../../../observability/metrics.service.js";
 import { ApiTags } from "@nestjs/swagger";
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { Type } from "class-transformer";
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { parseOptionalQueryString, parsePageQuery, type PaginatedResult } from "../../../common/pagination.js";
 import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
@@ -45,7 +46,22 @@ class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL
 class RestoreBackupDto { @IsString() backupId!: string; @IsIn(["DRILL", "OPERATIONAL"]) mode!: "DRILL" | "OPERATIONAL"; @IsOptional() @IsString() @MaxLength(500) reason?: string; @IsOptional() @IsString() @MaxLength(191) targetDatabase?: string }
 class ExportDataDto { @IsString() category!: string; @IsIn(["CSV", "JSON"]) format!: "CSV" | "JSON" }
 class QueueStorageAuditDto { @IsOptional() @IsNumber() @Min(0) @Max(1) sampleRate?: number }
-class ConfigureAiProviderDto { @IsOptional() @IsString() id?: string; @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType; @IsOptional() @IsString() @MaxLength(100) name?: string; @IsString() @MinLength(1) @MaxLength(200) model!: string; @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string; @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string; @IsOptional() @IsBoolean() enabled?: boolean; @IsOptional() @IsBoolean() isDefault?: boolean }
+class AiApiKeySlotInputDto {
+  @IsOptional() @IsString() @MaxLength(100) id?: string;
+  @IsOptional() @IsString() @MaxLength(80) label?: string;
+  @IsOptional() @IsString() @MaxLength(1000) apiKey?: string;
+}
+class ConfigureAiProviderDto {
+  @IsOptional() @IsString() id?: string;
+  @IsIn(["GEMINI", "NVIDIA_NIM", "OPENAI", "CUSTOM"]) provider!: AiProviderType;
+  @IsOptional() @IsString() @MaxLength(100) name?: string;
+  @IsString() @MinLength(1) @MaxLength(200) model!: string;
+  @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string;
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(1000) apiKey?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => AiApiKeySlotInputDto) apiKeys?: AiApiKeySlotInputDto[];
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsBoolean() isDefault?: boolean;
+}
 
 @ApiTags("System") @Controller("system")
 /** API quản trị tập trung cho cấu hình, AI, tích hợp, sao lưu, xuất dữ liệu và giám sát. */

@@ -65,12 +65,12 @@ export default function SettingsScreen() {
     backup,
     saveLearnerEmailNotifications,
     saveAiTutorQuota,
-    openAiEditor,
     loadProviderModels,
     availableModelOptions,
     saveAiProvider,
     testAiProvider,
     removeAiProvider,
+    reload,
   } = model;
 
   if (!canConfigure) return <AccessDenied />;
@@ -243,9 +243,9 @@ export default function SettingsScreen() {
           modelCatalog={modelCatalog}
           saving={saving}
           saveAiTutorQuota={saveAiTutorQuota}
-          openAiEditor={openAiEditor}
           testAiProvider={testAiProvider}
           removeAiProvider={removeAiProvider}
+          reload={reload}
         />
       ) : null}
       {activeSection === "health" && health ? (

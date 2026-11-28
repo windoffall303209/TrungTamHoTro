@@ -72,6 +72,12 @@ export interface StorageOverview {
 
 export type AiProviderType = "GEMINI" | "NVIDIA_NIM" | "OPENAI" | "CUSTOM";
 
+export interface AiApiKeySlot {
+  id: string;
+  label: string;
+  maskedKey: string;
+}
+
 export interface AiProvider {
   id: string;
   provider: AiProviderType;
@@ -83,6 +89,8 @@ export interface AiProvider {
   healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR";
   hasApiKey: boolean;
   maskedApiKey: string;
+  apiKeyCount?: number;
+  apiKeySlots?: AiApiKeySlot[];
   lastCheckedAt?: string;
   updatedAt: string;
 }

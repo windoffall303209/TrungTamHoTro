@@ -313,5 +313,11 @@
   "Kiểm tra lúc": "Checked at",
   "lượt/câu ·": "turns/question ·",
   "lượt/đề": "turns/exam",
-  "Mặc định:": "Default:"
+  "Mặc định:": "Default:",
+  "(để trống nếu giữ nguyên)": "(leave blank to keep existing)",
+  "API key đã mã hóa).": "encrypted API keys).",
+  "Đang lưu": "Stored",
+  "Giá trị API key": "API key value",
+  "Nhãn API key": "API key label",
+  "Xóa dòng API key": "Remove API key row"
 }

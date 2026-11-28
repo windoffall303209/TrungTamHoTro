@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import type { AiProviderType } from "./settings.shared";
 
 export type AiModelGlyphKind =
@@ -42,38 +43,38 @@ export function resolveAiProviderVisual(provider: AiProviderType | string): AiPr
     case "GEMINI":
       return {
         provider: "GEMINI",
-        shortLabel: "Gemini",
-        vendorLabel: "Google DeepMind",
-        protocolLabel: "Generative Language API · Đa phương thức & OCR gốc",
+        shortLabel: "Google Gemini",
+        vendorLabel: "Google",
+        protocolLabel: "Generative Language API",
         containerClass:
-          "bg-sky-50 text-sky-600 border-sky-200/80 dark:bg-sky-950/60 dark:text-sky-400 dark:border-sky-800/70",
+          "bg-white border-slate-200/90 dark:bg-slate-900 dark:border-slate-800",
       };
     case "NVIDIA_NIM":
       return {
         provider: "NVIDIA_NIM",
-        shortLabel: "NVIDIA NIM",
-        vendorLabel: "NVIDIA Inference Microservices",
-        protocolLabel: "Vision-Language & Document Intelligence",
+        shortLabel: "NVIDIA",
+        vendorLabel: "NVIDIA NIM",
+        protocolLabel: "Inference Microservices",
         containerClass:
-          "bg-emerald-50 text-emerald-700 border-emerald-200/80 dark:bg-emerald-950/60 dark:text-emerald-400 dark:border-emerald-800/70",
+          "bg-white border-slate-200/90 dark:bg-slate-900 dark:border-slate-800",
       };
     case "OPENAI":
       return {
         provider: "OPENAI",
         shortLabel: "OpenAI",
-        vendorLabel: "OpenAI Platform",
-        protocolLabel: "Chat Completions · Suy luận & Cấu trúc JSON",
+        vendorLabel: "OpenAI",
+        protocolLabel: "Responses & Chat Completions",
         containerClass:
-          "bg-slate-100 text-slate-900 border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700",
+          "bg-white border-slate-200/90 dark:bg-slate-900 dark:border-slate-800",
       };
     default:
       return {
         provider: "CUSTOM",
-        shortLabel: "Custom API",
-        vendorLabel: "OpenAI-Compatible Endpoint",
-        protocolLabel: "Cổng kết nối tùy chỉnh (/v1/chat/completions)",
+        shortLabel: "Custom",
+        vendorLabel: "Custom Endpoint",
+        protocolLabel: "OpenAI-Compatible Gateway",
         containerClass:
-          "bg-amber-50 text-amber-700 border-amber-200/80 dark:bg-amber-950/60 dark:text-amber-400 dark:border-amber-800/70",
+          "bg-white border-slate-200/90 dark:bg-slate-900 dark:border-slate-800",
       };
   }
 }
@@ -297,7 +298,116 @@ export function resolveAiModelVisual(
   };
 }
 
-/** Vẽ biểu tượng vector sắc nét đại diện cho từng nhà cung cấp AI (Gemini, NVIDIA NIM, OpenAI, Custom). */
+const OPENAI_OFFICIAL_PATH =
+  "M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z";
+
+const NVIDIA_OFFICIAL_PATH =
+  "M8.948 8.798v-1.43a6.7 6.7 0 0 1 .424-.018c3.922-.124 6.493 3.374 6.493 3.374s-2.774 3.851-5.75 3.851c-.398 0-.787-.062-1.158-.185v-4.346c1.528.185 1.837.857 2.747 2.385l2.04-1.714s-1.492-1.952-4-1.952a6.016 6.016 0 0 0-.796.035m0-4.735v2.138l.424-.027c5.45-.185 9.01 4.47 9.01 4.47s-4.08 4.964-8.33 4.964c-.37 0-.733-.035-1.104-.097v1.325c.292.035.592.062.892.062 3.851 0 6.643-1.961 9.346-4.275.45.362 2.297 1.245 2.677 1.634-2.588 2.164-8.622 3.913-11.96 3.913-.336 0-.654-.018-.955-.053v1.864H24V4.063zm0 10.52v1.281c-3.657-.654-4.673-4.46-4.673-4.46s1.758-1.944 4.673-2.262v1.237h-.009c-1.528-.186-2.73 1.245-2.73 1.245s.672 2.412 2.739 2.96M2.456 10.9s2.164-3.197 6.5-3.533V6.201C4.153 6.59 0 10.653 0 10.653s2.35 6.802 8.948 7.42v-1.237c-4.84-.6-6.492-5.936-6.492-5.936Z";
+
+/** Vẽ SVG logo nhà phát hành chính thức của Google Gemini, NVIDIA, OpenAI và biểu tượng cổng Custom thiết kế riêng. */
+export function AiOfficialProviderLogo({
+  provider,
+  pixelSize = 64,
+}: {
+  provider: AiProviderType | string;
+  pixelSize?: number;
+}) {
+  const uid = useId().replace(/:/g, "");
+
+  if (provider === "GEMINI") {
+    const gradId = `gemini-official-${uid}`;
+    return (
+      <svg
+        aria-hidden="true"
+        width={pixelSize}
+        height={pixelSize}
+        viewBox="0 0 64 64"
+        fill="none"
+      >
+        <defs>
+          <linearGradient id={gradId} x1="8" y1="56" x2="56" y2="8" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#1C7EFF" />
+            <stop offset="42%" stopColor="#5783F7" />
+            <stop offset="74%" stopColor="#A16EE8" />
+            <stop offset="100%" stopColor="#E46373" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M32 4C33.15 19.65 44.35 30.85 60 32C44.35 33.15 33.15 44.35 32 60C30.85 44.35 19.65 33.15 4 32C19.65 30.85 30.85 19.65 32 4Z"
+          fill={`url(#${gradId})`}
+        />
+      </svg>
+    );
+  }
+
+  if (provider === "NVIDIA_NIM") {
+    return (
+      <svg
+        aria-hidden="true"
+        width={pixelSize}
+        height={pixelSize}
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <path d={NVIDIA_OFFICIAL_PATH} fill="#76B900" />
+      </svg>
+    );
+  }
+
+  if (provider === "OPENAI") {
+    return (
+      <svg
+        aria-hidden="true"
+        width={pixelSize}
+        height={pixelSize}
+        viewBox="0 0 24 24"
+        fill="none"
+        className="text-slate-950 dark:text-white"
+      >
+        <path d={OPENAI_OFFICIAL_PATH} fill="currentColor" />
+      </svg>
+    );
+  }
+
+  const customGradId = `custom-gateway-${uid}`;
+  return (
+    <svg
+      aria-hidden="true"
+      width={pixelSize}
+      height={pixelSize}
+      viewBox="0 0 64 64"
+      fill="none"
+    >
+      <defs>
+        <linearGradient id={customGradId} x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#0F172A" />
+          <stop offset="100%" stopColor="#0369A1" />
+        </linearGradient>
+      </defs>
+      <rect x="4" y="4" width="56" height="56" rx="15" fill={`url(#${customGradId})`} />
+      <polygon
+        points="32,16 45.8,24 45.8,40 32,48 18.2,40 18.2,24"
+        fill="#38BDF8"
+        fillOpacity="0.16"
+        stroke="#38BDF8"
+        strokeWidth="2.6"
+        strokeLinejoin="round"
+      />
+      <circle cx="32" cy="32" r="5.5" fill="#F8FAFC" />
+      <path
+        d="M32 9.5V16M32 48V54.5M12.5 20.8L18.2 24M45.8 40L51.5 43.2M51.5 20.8L45.8 24M18.2 40L12.5 43.2"
+        stroke="#7DD3FC"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+      />
+      <circle cx="32" cy="9.5" r="2.3" fill="#38BDF8" />
+      <circle cx="12.5" cy="43.2" r="2.3" fill="#38BDF8" />
+      <circle cx="51.5" cy="43.2" r="2.3" fill="#38BDF8" />
+    </svg>
+  );
+}
+
+/** Khung biểu tượng nhà cung cấp dùng chung ở nhiều kích cỡ từ combobox nhỏ đến tiêu đề trang. */
 export function AiProviderGlyph({
   provider,
   size = "md",
@@ -316,89 +426,14 @@ export function AiProviderGlyph({
         : size === "lg"
           ? "size-11 rounded-xl"
           : "size-9 rounded-xl";
-  const svgSize = size === "xs" ? 12 : size === "sm" ? 15 : size === "lg" ? 22 : 18;
+  const svgSize = size === "xs" ? 15 : size === "sm" ? 20 : size === "lg" ? 32 : 24;
 
   return (
     <span
       aria-hidden="true"
       className={`inline-grid shrink-0 place-items-center border ${boxClass} ${meta.containerClass} ${className}`}
     >
-      {meta.provider === "GEMINI" ? (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M12 2.5C12.5 7.6 16.4 11.5 21.5 12C16.4 12.5 12.5 16.4 12 21.5C11.5 16.4 7.6 12.5 2.5 12C7.6 11.5 11.5 7.6 12 2.5Z"
-            fill="currentColor"
-            fillOpacity="0.18"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <circle cx="12" cy="12" r="2" fill="currentColor" />
-        </svg>
-      ) : meta.provider === "NVIDIA_NIM" ? (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <path
-            d="M3.5 12C5.8 7.6 9.2 5.5 13 5.5C16.8 5.5 19.6 7.6 21 12C19.6 16.4 16.8 18.5 13 18.5C9.2 18.5 5.8 16.4 3.5 12Z"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M8.5 12L12.5 8.5L16.5 12L12.5 15.5L8.5 12Z"
-            fill="currentColor"
-            fillOpacity="0.22"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : meta.provider === "OPENAI" ? (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <polygon
-            points="12,3 19.8,7.5 19.8,16.5 12,21 4.2,16.5 4.2,7.5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <polygon
-            points="12,7.2 16.2,9.6 16.2,14.4 12,16.8 7.8,14.4 7.8,9.6"
-            fill="currentColor"
-            fillOpacity="0.16"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <rect
-            x="4"
-            y="4"
-            width="6.5"
-            height="6.5"
-            rx="1.5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          />
-          <rect
-            x="13.5"
-            y="13.5"
-            width="6.5"
-            height="6.5"
-            rx="1.5"
-            fill="currentColor"
-            fillOpacity="0.18"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          />
-          <path
-            d="M10.5 7.25H15C16.1 7.25 17 8.15 17 9.25V13.5M7.25 10.5V14.75C7.25 15.85 8.15 16.75 9.25 16.75H13.5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-          />
-        </svg>
-      )}
+      <AiOfficialProviderLogo provider={meta.provider} pixelSize={svgSize} />
     </span>
   );
 }
@@ -439,10 +474,7 @@ export function AiModelGlyph({
             strokeWidth="1.75"
             strokeLinejoin="round"
           />
-          <path
-            d="M12 8L15.2 12L12 16L8.8 12L12 8Z"
-            fill="currentColor"
-          />
+          <path d="M12 8L15.2 12L12 16L8.8 12L12 8Z" fill="currentColor" />
         </svg>
       ) : meta.kind === "gemini-lite" ? (
         <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
@@ -506,55 +538,9 @@ export function AiModelGlyph({
             strokeLinecap="round"
           />
         </svg>
-      ) : meta.kind === "openai-fast" ? (
+      ) : meta.kind === "openai-fast" || meta.kind === "openai-omni" || meta.kind === "openai-flagship" ? (
         <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <polygon
-            points="12,2.8 19.8,7.3 19.8,16.7 12,21.2 4.2,16.7 4.2,7.3"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M13 7.5L9.5 12.5H12.5L11 16.5L14.8 11.5H11.8L13 7.5Z"
-            fill="currentColor"
-          />
-        </svg>
-      ) : meta.kind === "openai-omni" ? (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <circle
-            cx="12"
-            cy="12"
-            r="8.5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          />
-          <circle
-            cx="12"
-            cy="12"
-            r="4"
-            fill="currentColor"
-            fillOpacity="0.22"
-            stroke="currentColor"
-            strokeWidth="1.75"
-          />
-          <circle cx="15.5" cy="8.5" r="1.1" fill="currentColor" />
-        </svg>
-      ) : meta.kind === "openai-flagship" ? (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
-          <polygon
-            points="12,2.8 19.8,7.3 19.8,16.7 12,21.2 4.2,16.7 4.2,7.3"
-            fill="currentColor"
-            fillOpacity="0.14"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M12 7V17M7.7 9.5L16.3 14.5M16.3 9.5L7.7 14.5"
-            stroke="currentColor"
-            strokeWidth="1.65"
-            strokeLinecap="round"
-          />
+          <path d={OPENAI_OFFICIAL_PATH} fill="currentColor" />
         </svg>
       ) : meta.kind === "claude" ? (
         <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none">
