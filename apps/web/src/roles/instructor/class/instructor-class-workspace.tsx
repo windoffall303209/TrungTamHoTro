@@ -72,9 +72,14 @@ import { isExamQuestionPreviewCurrent, toggleVisibleExamQuestions } from "@/lib/
 import { isMaterialForClass, loadClassMaterials } from "@/lib/materials";
 import { useApp } from "@/providers/app-provider";
 import { QuestionRenderPreview } from "@/features/questions/question-render-preview";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { Pagination, RichText } from "@/shared/ui/ui";
 import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
-import { AssignmentBuilderModal, type AssignmentBuilderModalProps } from "@/features/exams/assignment-builder-modal";
+import {
+  AssignmentBuilderModal,
+  distributeEqualQuestionScores,
+  type AssignmentBuilderModalProps,
+} from "@/features/exams/assignment-builder-modal";
 import {
   detectLectureLinkPlatform,
   filterClassQuestions,
@@ -345,6 +350,9 @@ export function InstructorClassWorkspace({
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDuration, setManualExamDuration] = useState(45);
   const [manualExamDueAt, setManualExamDueAt] = useState("");
+  const [manualExamTargetScore, setManualExamTargetScore] = useState(10);
+  const [manualExamQuestionScores, setManualExamQuestionScores] = useState<Record<string, number>>({});
+  const [manualExamCustomScored, setManualExamCustomScored] = useState(false);
   const [manualExamTutorEnabled, setManualExamTutorEnabled] = useState(false);
   const [examSaving, setExamSaving] = useState(false);
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
@@ -1187,8 +1195,8 @@ export function InstructorClassWorkspace({
         };
       });
       const totalScore = Math.round(data.questions.reduce((sum, question) => sum + question.score, 0) * 100) / 100;
-      if (!Number.isFinite(totalScore) || totalScore < 1) {
-        throw new Error("Tổng điểm đề thi phải ít nhất 1 điểm.");
+      if (!Number.isFinite(totalScore) || totalScore < 0.25) {
+        throw new Error("Tổng điểm đề thi phải ít nhất 0,25 điểm.");
       }
 
       const imported = await apiRequest<Array<{
@@ -1239,7 +1247,14 @@ export function InstructorClassWorkspace({
       }
       const description = data.description.trim() || "Bài tập tự luận: " + title;
       const instructions = [
-        ...essayQuestions.map((question, index) => `Câu ${index + 1}: ${question}`),
+        ...essayQuestions.map((question, index) => {
+          const qScore = data.essayQuestionScores?.[index];
+          const scoreLabel =
+            typeof qScore === "number" && Number.isFinite(qScore) && essayQuestions.length > 1
+              ? ` (${qScore} điểm)`
+              : "";
+          return `Câu ${index + 1}${scoreLabel}: ${question}`;
+        }),
         ...(data.attachedFile ? ["Xem hoặc tải tệp đề đính kèm để làm bài."] : []),
         "Nhập nội dung bài làm hoặc tải lên tệp câu trả lời.",
       ].join("\n\n");
@@ -1872,11 +1887,21 @@ export function InstructorClassWorkspace({
     return result;
   };
 
-  /** Tạo đề trắc nghiệm hoặc bài tập tự luận đã phát hành từ câu hỏi ngân hàng đúng theo loại bài đã chọn. */
+  /** Chia đều thang điểm mục tiêu cho danh sách mã câu hỏi ngân hàng đang chọn. */
+  const buildEqualBankScoreMap = (questionIds: string[], targetTotal: number): Record<string, number> => {
+    const equal = distributeEqualQuestionScores(
+      questionIds.length,
+      targetTotal >= 0.25 ? targetTotal : 10,
+    );
+    return Object.fromEntries(questionIds.map((qid, idx) => [qid, equal[idx] ?? 1]));
+  };
+
+  /** Tạo đề trắc nghiệm hoặc bài tập tự luận đã phát hành từ câu hỏi ngân hàng đúng theo loại bài và mức điểm đã chọn. */
   const persistAndCacheExam = async (
     title: string,
     selectedQuestions: ClassQuestion[],
     shuffleQuestions = false,
+    customScoresMap?: Record<string, number>,
   ): Promise<boolean> => {
     if (examSaving) return false;
     const trimmedTitle = title.trim();
@@ -1895,6 +1920,23 @@ export function InstructorClassWorkspace({
       return false;
     }
 
+    const fallbackEqual = distributeEqualQuestionScores(
+      selectedQuestions.length,
+      manualExamTargetScore >= 0.25 ? manualExamTargetScore : 10,
+    );
+    const resolvedScores = selectedQuestions.map((question, idx) => {
+      const candidate = customScoresMap?.[question.id];
+      return typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0.01
+        ? Math.round(candidate * 100) / 100
+        : (fallbackEqual[idx] ?? 1);
+    });
+    const resolvedTotalScore =
+      Math.round(resolvedScores.reduce((acc, sc) => acc + sc, 0) * 100) / 100;
+    if (!Number.isFinite(resolvedTotalScore) || resolvedTotalScore < 0.25 || resolvedTotalScore > 1000) {
+      notify("Tổng điểm bài tập cần nằm trong khoảng từ 0,25 đến 1000 điểm.", "error");
+      return false;
+    }
+
     if (bankBuilderAssignmentType === "ESSAY") {
       if (selectedQuestions.some((question) => question.type !== "Tự luận")) {
         notify("Bài tập tự luận chỉ nhận câu hỏi dạng Tự luận. Hãy bỏ chọn các câu trắc nghiệm.", "error");
@@ -1903,7 +1945,11 @@ export function InstructorClassWorkspace({
       setExamSaving(true);
       try {
         const instructions = [
-          ...selectedQuestions.map((question, idx) => `Câu ${idx + 1}: ${question.content.trim()}`),
+          ...selectedQuestions.map((question, idx) => {
+            const scoreLabel =
+              selectedQuestions.length > 1 ? ` (${resolvedScores[idx]} điểm)` : "";
+            return `Câu ${idx + 1}${scoreLabel}: ${question.content.trim()}`;
+          }),
           "Nhập nội dung bài làm hoặc tải lên tệp câu trả lời.",
         ].join("\n\n");
         let created = await apiRequest<Assignment>(
@@ -1917,12 +1963,12 @@ export function InstructorClassWorkspace({
               instructions,
               hidden: false,
               dueAt: closeAt.toISOString(),
-              maxScore: 10,
+              maxScore: resolvedTotalScore,
               rubric: [
                 {
                   title: "Phần tự luận",
                   description: "Điểm phần tự luận.",
-                  maxPoints: 10,
+                  maxPoints: resolvedTotalScore,
                 },
               ],
             }),
@@ -1942,7 +1988,7 @@ export function InstructorClassWorkspace({
         setSelectedAssignment(created);
         await loadClassData();
         notify(
-          `Đã tạo và phát hành bài tập tự luận '${created.title}' gồm ${selectedQuestions.length} câu (tổng 10 điểm).`,
+          `Đã tạo và phát hành bài tập tự luận '${created.title}' gồm ${selectedQuestions.length} câu (tổng ${resolvedTotalScore} điểm).`,
           "success",
         );
         return true;
@@ -1973,19 +2019,23 @@ export function InstructorClassWorkspace({
           title: trimmedTitle,
           questionIds: selectedQuestions.map((question) => question.id),
           durationMinutes: manualExamDuration,
-          totalScore: 10,
+          totalScore: resolvedTotalScore,
           openAt: openAt.toISOString(),
           closeAt: closeAt.toISOString(),
           attemptLimit: 1,
           shuffleQuestions,
           aiTutorEnabled: manualExamTutorEnabled,
+          scoreAllocations: selectedQuestions.map((question, idx) => ({
+            questionId: question.id,
+            score: resolvedScores[idx]!,
+          })),
         }),
       });
       if (!created?.id) throw new Error("Máy chủ không trả về đề thi vừa tạo.");
       const published = created;
       selectCreatedExam(published);
       await loadClassData();
-      notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu (tổng 10 điểm).", "success");
+      notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu (tổng " + resolvedTotalScore + " điểm).", "success");
       return true;
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể tạo đề thi.", "error");
@@ -2006,10 +2056,12 @@ export function InstructorClassWorkspace({
       notify("Một số câu hỏi không còn trong ngân hàng. Hãy chọn lại.", "error");
       return;
     }
-    if (await persistAndCacheExam(manualExamTitle, selected)) {
+    if (await persistAndCacheExam(manualExamTitle, selected, false, manualExamQuestionScores)) {
       setManualExamModalOpen(false);
       setManualExamTitle("");
       setManualExamSelectedQuestions([]);
+      setManualExamQuestionScores({});
+      setManualExamCustomScored(false);
     }
   };
 
@@ -2050,7 +2102,15 @@ export function InstructorClassWorkspace({
       }
       picked.push(...available.slice(0, group.count));
     }
-    setAiCriteriaPreviewList(shuffleQuestionPool(picked));
+    const shuffledPicked = shuffleQuestionPool(picked);
+    setAiCriteriaPreviewList(shuffledPicked);
+    setManualExamCustomScored(false);
+    setManualExamQuestionScores(
+      buildEqualBankScoreMap(
+        shuffledPicked.map((q) => q.id),
+        manualExamTargetScore,
+      ),
+    );
     notify("Đã chọn đủ " + picked.length + " câu theo ma trận độ khó. Hãy xem trước trước khi tạo đề.", "success");
   };
 
@@ -2065,10 +2125,12 @@ export function InstructorClassWorkspace({
       setAiCriteriaPreviewList([]);
       return;
     }
-    if (await persistAndCacheExam(manualExamTitle, aiCriteriaPreviewList)) {
+    if (await persistAndCacheExam(manualExamTitle, aiCriteriaPreviewList, false, manualExamQuestionScores)) {
       setManualExamModalOpen(false);
       setManualExamTitle("");
       setAiCriteriaPreviewList([]);
+      setManualExamQuestionScores({});
+      setManualExamCustomScored(false);
     }
   };
 
@@ -3025,6 +3087,9 @@ export function InstructorClassWorkspace({
               const targetType = questionBankTab === "ESSAY" ? "ESSAY" : "MULTIPLE_CHOICE";
               setOpenedFromCreationHub(false);
               setBankBuilderAssignmentType(targetType);
+              setManualExamTargetScore(10);
+              setManualExamQuestionScores({});
+              setManualExamCustomScored(false);
               setManualExamSelectedQuestions([]);
               setAiCriteriaPreviewList([]);
               setExamCreationMode("MANUAL");
@@ -4203,6 +4268,9 @@ export function InstructorClassWorkspace({
                     onClick={() => {
                       setOpenedFromCreationHub(true);
                       setBankBuilderAssignmentType(assignmentHubType);
+                      setManualExamTargetScore(10);
+                      setManualExamQuestionScores({});
+                      setManualExamCustomScored(false);
                       setManualExamSelectedQuestions([]);
                       setAiCriteriaPreviewList([]);
                       setExamCreationMode("MANUAL");
@@ -4812,8 +4880,8 @@ export function InstructorClassWorkspace({
                   </h3>
                   <p className="text-[11px] text-slate-500">
                     {bankBuilderAssignmentType === "ESSAY"
-                      ? `Ngân hàng lớp hiện có ${publishedQuestionStats.essay} câu tự luận đã xuất bản · Thang 10 điểm`
-                      : `Ngân hàng lớp hiện có ${publishedQuestionStats.multipleChoice} câu trắc nghiệm đã xuất bản · Thang 10 điểm`}
+                      ? `Ngân hàng lớp hiện có ${publishedQuestionStats.essay} câu tự luận đã xuất bản · Tổng ${manualExamTargetScore} điểm`
+                      : `Ngân hàng lớp hiện có ${publishedQuestionStats.multipleChoice} câu trắc nghiệm đã xuất bản · Tổng ${manualExamTargetScore} điểm`}
                   </p>
                 </div>
               </div>
@@ -4879,17 +4947,42 @@ export function InstructorClassWorkspace({
                 )}
               </div>
 
-              <div>
-                <label htmlFor="manual-exam-due-at" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Hạn nộp (để trống: sau 7 ngày):
-                </label>
-                <input
-                  id="manual-exam-due-at"
-                  type="datetime-local"
-                  value={manualExamDueAt}
-                  onChange={(event) => setManualExamDueAt(event.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="manual-exam-due-at" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Hạn nộp (để trống: sau 7 ngày):
+                  </label>
+                  <input
+                    id="manual-exam-due-at"
+                    type="datetime-local"
+                    value={manualExamDueAt}
+                    onChange={(event) => setManualExamDueAt(event.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 px-3 py-2">
+                  <label htmlFor="manual-exam-target-score" className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    Tổng điểm thang đề:
+                  </label>
+                  <ScoreStepperInput
+                    id="manual-exam-target-score"
+                    stepTargetLabel="tổng điểm ngân hàng"
+                    min={0.25}
+                    max={1000}
+                    value={manualExamTargetScore}
+                    onChange={(val) => {
+                      const safe = val >= 0.25 ? val : 0.25;
+                      setManualExamTargetScore(safe);
+                      setManualExamCustomScored(false);
+                      const activeIds =
+                        examCreationMode === "AI_CRITERIA"
+                          ? aiCriteriaPreviewList.map((q) => q.id)
+                          : manualExamSelectedQuestions;
+                      setManualExamQuestionScores(buildEqualBankScoreMap(activeIds, safe));
+                    }}
+                  />
+                </div>
               </div>
 
               {bankBuilderAssignmentType === "MULTIPLE_CHOICE" && (
@@ -4985,17 +5078,38 @@ export function InstructorClassWorkspace({
                         : `Chọn câu trắc nghiệm (${manualExamSelectedQuestions.length}/${scopedPublishedBankQuestions.length} câu đã xuất bản):`}
                     </span>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const visibleIds = manualExamVisibleQuestions.map((question) => question.id);
-                        setManualExamSelectedQuestions((selected) => toggleVisibleExamQuestions(selected, visibleIds));
-                      }}
-                      disabled={manualExamVisibleQuestions.length === 0}
-                      className="text-indigo-600 font-bold hover:underline cursor-pointer disabled:opacity-40"
-                    >
-                      {manualExamAllVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {manualExamSelectedQuestions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualExamCustomScored(false);
+                            setManualExamQuestionScores(
+                              buildEqualBankScoreMap(manualExamSelectedQuestions, manualExamTargetScore),
+                            );
+                          }}
+                          className="text-emerald-600 font-bold hover:underline cursor-pointer"
+                        >
+                          Chia đều điểm
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const visibleIds = manualExamVisibleQuestions.map((question) => question.id);
+                          const nextSelected = toggleVisibleExamQuestions(manualExamSelectedQuestions, visibleIds);
+                          setManualExamSelectedQuestions(nextSelected);
+                          setManualExamCustomScored(false);
+                          setManualExamQuestionScores(
+                            buildEqualBankScoreMap(nextSelected, manualExamTargetScore),
+                          );
+                        }}
+                        disabled={manualExamVisibleQuestions.length === 0}
+                        className="text-indigo-600 font-bold hover:underline cursor-pointer disabled:opacity-40"
+                      >
+                        {manualExamAllVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                      </button>
+                    </div>
                   </div>
 
                   {manualExamVisibleQuestions.length === 0 ? (
@@ -5006,48 +5120,92 @@ export function InstructorClassWorkspace({
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-                      {manualExamVisibleQuestions.map((q) => {
+                      {manualExamVisibleQuestions.map((q, qIdx) => {
                         const isSelected = manualExamSelectedQuestions.includes(q.id);
                         return (
-                          <label
+                          <div
                             key={q.id}
-                            className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition ${
+                            className={`p-3 rounded-xl border flex items-start justify-between gap-3 transition ${
                               isSelected
                                 ? "border-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30"
                                 : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-850"
                             }`}
                           >
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setManualExamSelectedQuestions((selected) =>
-                                    selected.includes(q.id) ? selected : [...selected, q.id]
-                                  );
-                                } else {
-                                  setManualExamSelectedQuestions(
-                                    (selected) => selected.filter((id) => id !== q.id)
-                                  );
-                                }
-                              }}
-                              className="mt-0.5 rounded text-indigo-600 accent-indigo-600"
-                            />
-                            <div className="flex-1 space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                  {q.type}
-                                </span>
-                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
-                                  {q.difficulty}
-                                </span>
-                                <span className="text-[10px] text-slate-400">Nguồn: {q.source}</span>
+                            <label className="flex flex-1 items-start gap-3 cursor-pointer min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  const nextSelected = e.target.checked
+                                    ? manualExamSelectedQuestions.includes(q.id)
+                                      ? manualExamSelectedQuestions
+                                      : [...manualExamSelectedQuestions, q.id]
+                                    : manualExamSelectedQuestions.filter((id) => id !== q.id);
+                                  setManualExamSelectedQuestions(nextSelected);
+                                  if (!manualExamCustomScored) {
+                                    setManualExamQuestionScores(
+                                      buildEqualBankScoreMap(nextSelected, manualExamTargetScore),
+                                    );
+                                  } else {
+                                    setManualExamQuestionScores((prev) => {
+                                      const next = { ...prev };
+                                      if (e.target.checked && next[q.id] === undefined) {
+                                        next[q.id] = 1;
+                                      }
+                                      const sum =
+                                        Math.round(
+                                          nextSelected.reduce((acc, id) => acc + (Number(next[id]) || 0), 0) * 100,
+                                        ) / 100;
+                                      if (sum >= 0.25) setManualExamTargetScore(sum);
+                                      return next;
+                                    });
+                                  }
+                                }}
+                                className="mt-0.5 rounded text-indigo-600 accent-indigo-600"
+                              />
+                              <div className="flex-1 space-y-1 min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                    {q.type}
+                                  </span>
+                                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                                    {q.difficulty}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">Nguồn: {q.source}</span>
+                                </div>
+                                <RichText className="font-semibold text-slate-800 dark:text-slate-200 [&>p]:my-0">
+                                  {q.content}
+                                </RichText>
                               </div>
-                              <RichText className="font-semibold text-slate-800 dark:text-slate-200 [&>p]:my-0">
-                                {q.content}
-                              </RichText>
-                            </div>
-                          </label>
+                            </label>
+                            {isSelected && (
+                              <div className="shrink-0 flex items-center gap-1.5">
+                                <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Điểm:</span>
+                                <ScoreStepperInput
+                                  ariaLabel={`Điểm câu ngân hàng ${qIdx + 1}`}
+                                  stepTargetLabel={`câu ngân hàng ${qIdx + 1}`}
+                                  min={0.25}
+                                  max={1000}
+                                  value={manualExamQuestionScores[q.id] ?? 1}
+                                  onChange={(val) => {
+                                    setManualExamCustomScored(true);
+                                    setManualExamQuestionScores((prev) => {
+                                      const next = { ...prev, [q.id]: val };
+                                      const sum =
+                                        Math.round(
+                                          manualExamSelectedQuestions.reduce(
+                                            (acc, id) => acc + (Number(next[id]) || 0),
+                                            0,
+                                          ) * 100,
+                                        ) / 100;
+                                      if (sum >= 0.25) setManualExamTargetScore(sum);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
                         );
                       })}
                     </div>
@@ -5196,7 +5354,7 @@ export function InstructorClassWorkspace({
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <button
                       type="button"
                       onClick={handleTriggerAiCriteriaSelection}
@@ -5206,30 +5364,74 @@ export function InstructorClassWorkspace({
                       <span>Lọc câu hỏi & Xem trước</span>
                     </button>
                     {aiCriteriaPreviewIsCurrent && (
-                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                        ✓ Đã chọn {aiCriteriaPreviewList.length} câu hỏi theo mốc
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualExamCustomScored(false);
+                            setManualExamQuestionScores(
+                              buildEqualBankScoreMap(
+                                aiCriteriaPreviewList.map((q) => q.id),
+                                manualExamTargetScore,
+                              ),
+                            );
+                          }}
+                          className="text-indigo-600 font-bold hover:underline cursor-pointer"
+                        >
+                          Chia đều điểm
+                        </button>
+                        <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                          ✓ Đã chọn {aiCriteriaPreviewList.length} câu hỏi theo mốc
+                        </span>
+                      </div>
                     )}
                   </div>
 
-                  {/* Danh sách câu hỏi AI đã lọc để giáo viên kiểm tra */}
+                  {/* Danh sách câu hỏi AI đã lọc để giáo viên kiểm tra và chỉnh điểm từng câu */}
                   {aiCriteriaPreviewIsCurrent && (
                     <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {aiCriteriaPreviewList.map((q, idx) => (
                         <div
                           key={q.id || idx}
-                          className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/20 dark:bg-emerald-950/20 space-y-1"
+                          className="p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/20 dark:bg-emerald-950/20 space-y-1.5"
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300">
-                              Câu {idx + 1}
-                            </span>
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                              {q.type}
-                            </span>
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
-                              {q.difficulty}
-                            </span>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/80 text-emerald-700 dark:text-emerald-300">
+                                Câu {idx + 1}
+                              </span>
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                {q.type}
+                              </span>
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60">
+                                {q.difficulty}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Điểm:</span>
+                              <ScoreStepperInput
+                                ariaLabel={`Điểm câu ma trận ${idx + 1}`}
+                                stepTargetLabel={`câu ma trận ${idx + 1}`}
+                                min={0.25}
+                                max={1000}
+                                value={manualExamQuestionScores[q.id] ?? 1}
+                                onChange={(val) => {
+                                  setManualExamCustomScored(true);
+                                  setManualExamQuestionScores((prev) => {
+                                    const next = { ...prev, [q.id]: val };
+                                    const sum =
+                                      Math.round(
+                                        aiCriteriaPreviewList.reduce(
+                                          (acc, item) => acc + (Number(next[item.id]) || 0),
+                                          0,
+                                        ) * 100,
+                                      ) / 100;
+                                    if (sum >= 0.25) setManualExamTargetScore(sum);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </div>
                           </div>
                           <RichText className="font-semibold text-slate-800 dark:text-slate-200 text-xs [&>p]:my-0">
                             {q.content}

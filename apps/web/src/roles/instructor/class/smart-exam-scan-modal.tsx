@@ -27,6 +27,7 @@ import type { RoleCode } from "@/lib/app-types";
 import { toLocalDateTimeInput } from "@/lib/date-time";
 import type { Question, QuestionImportResult } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { RichText } from "@/shared/ui/ui";
 
 const MAX_SCAN_IMAGES = 5;
@@ -254,6 +255,7 @@ export function SmartExamScanModal({
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [targetScaleScore, setTargetScaleScore] = useState(10);
   const [essayMaxScore, setEssayMaxScore] = useState(10);
   const [attachFirstImage, setAttachFirstImage] = useState(true);
 
@@ -301,6 +303,7 @@ export function SmartExamScanModal({
       setMaxAttempts(1);
       setShuffleQuestions(false);
       setAiTutorEnabled(false);
+      setTargetScaleScore(10);
       setEssayMaxScore(10);
       setAttachFirstImage(true);
     }
@@ -485,9 +488,11 @@ export function SmartExamScanModal({
         setProviderLabel(`${result.provider} / ${result.model}`);
         setQuestions((prev) => {
           const combined = [...prev, ...mapped];
-          return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
-            ? rebalanceScannedQuestionScores(combined, 10)
-            : combined;
+          if (isAssignmentMode && !customScoresEdited) {
+            const target = targetMode === "ESSAY" ? essayMaxScore : targetScaleScore;
+            return rebalanceScannedQuestionScores(combined, target);
+          }
+          return combined;
         });
         setImages((prev) =>
           prev.map((img) => (img.id === target.id ? { ...img, scanned: true } : img)),
@@ -710,8 +715,8 @@ export function SmartExamScanModal({
     if (!validateScannedQuestions(isMcAssignment)) return;
 
     if (isMcAssignment) {
-      if (totalObjectiveScore < 1) {
-        notify("Tổng điểm đề trắc nghiệm phải đạt ít nhất 1 điểm.", "error");
+      if (totalObjectiveScore < 0.25) {
+        notify("Tổng điểm đề trắc nghiệm phải đạt ít nhất 0,25 điểm.", "error");
         return;
       }
       if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) {
@@ -722,9 +727,18 @@ export function SmartExamScanModal({
         notify("Số lượt làm bài cần nằm trong khoảng 1–10.", "error");
         return;
       }
-    } else if (!Number.isFinite(essayMaxScore) || essayMaxScore < 1 || essayMaxScore > 1000) {
-      notify("Thang điểm bài tự luận cần nằm trong khoảng 1–1000.", "error");
-      return;
+    } else {
+      for (let i = 0; i < questions.length; i += 1) {
+        const sc = questions[i]!.score;
+        if (!Number.isFinite(sc) || sc < 0.01 || Math.abs(Math.round(sc * 100) - sc * 100) > 1e-6) {
+          notify(`Câu ${i + 1}: Điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.`, "error");
+          return;
+        }
+      }
+      if (!Number.isFinite(essayMaxScore) || essayMaxScore < 0.25 || essayMaxScore > 1000) {
+        notify("Thang điểm bài tự luận cần nằm trong khoảng 0,25–1000.", "error");
+        return;
+      }
     }
 
     setSaving(true);
@@ -761,8 +775,10 @@ export function SmartExamScanModal({
           })
         : [];
 
-      const essayItems = !isMcAssignment
-        ? questions.map((q) => q.content.trim()).filter(Boolean)
+      const essayEntries = !isMcAssignment
+        ? questions
+            .map((q) => ({ text: q.content.trim(), score: Math.round(q.score * 100) / 100 }))
+            .filter((entry) => Boolean(entry.text))
         : [];
 
       await onSaveAssignment({
@@ -770,7 +786,10 @@ export function SmartExamScanModal({
         description: assignmentDescription.trim(),
         type: isMcAssignment ? "MULTIPLE_CHOICE" : "ESSAY",
         questions: builderQuestions,
-        essayQuestions: essayItems,
+        essayQuestions: essayEntries.map((entry) => entry.text),
+        ...(!isMcAssignment && essayEntries.length > 0
+          ? { essayQuestionScores: essayEntries.map((entry) => entry.score) }
+          : {}),
         attachedFile:
           !isMcAssignment && attachFirstImage && images[0]?.file
             ? images[0].file
@@ -1127,6 +1146,28 @@ export function SmartExamScanModal({
 
                 {targetMode === "MULTIPLE_CHOICE" ? (
                   <>
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                      <label
+                        htmlFor="scan-mc-scale"
+                        className="text-xs font-bold text-slate-700 dark:text-slate-300"
+                      >
+                        Thang điểm chia đều
+                      </label>
+                      <ScoreStepperInput
+                        id="scan-mc-scale"
+                        stepTargetLabel="thang điểm đề"
+                        min={0.25}
+                        max={1000}
+                        value={targetScaleScore}
+                        onChange={(val) => {
+                          const safe = val >= 0.25 ? val : 0.25;
+                          setTargetScaleScore(safe);
+                          if (!customScoresEdited && questions.length > 0) {
+                            setQuestions((prev) => rebalanceScannedQuestionScores(prev, safe));
+                          }
+                        }}
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-2.5">
                       <div>
                         <label
@@ -1188,22 +1229,27 @@ export function SmartExamScanModal({
                 ) : (
                   <>
                     <div className="grid grid-cols-1 gap-2.5">
-                      <div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
                         <label
                           htmlFor="scan-essay-score"
-                          className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                          className="text-xs font-bold text-slate-700 dark:text-slate-300"
                         >
                           Thang điểm bài tự luận
                         </label>
-                        <input
+                        <ScoreStepperInput
                           id="scan-essay-score"
-                          type="number"
-                          min={1}
+                          stepTargetLabel="thang điểm tự luận"
+                          min={0.25}
                           max={1000}
-                          step={0.25}
                           value={essayMaxScore}
-                          onChange={(event) => setEssayMaxScore(Number(event.target.value))}
-                          className={fieldInputClass}
+                          onChange={(val) => {
+                            const safe = val >= 0.25 ? val : 0.25;
+                            setEssayMaxScore(safe);
+                            setCustomScoresEdited(false);
+                            if (questions.length > 0) {
+                              setQuestions((prev) => rebalanceScannedQuestionScores(prev, safe));
+                            }
+                          }}
                         />
                       </div>
                       <div>
@@ -1261,17 +1307,18 @@ export function SmartExamScanModal({
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                {targetMode === "MULTIPLE_CHOICE" && questions.length > 0 && (
+                {isAssignmentMode && questions.length > 0 && (
                   <button
                     type="button"
                     disabled={saving || scanning}
                     onClick={() => {
                       setCustomScoresEdited(false);
-                      setQuestions((prev) => rebalanceScannedQuestionScores(prev, 10));
+                      const target = targetMode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                      setQuestions((prev) => rebalanceScannedQuestionScores(prev, target));
                     }}
                     className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300 cursor-pointer"
                   >
-                    Chia đều 10 điểm
+                    Chia đều điểm
                   </button>
                 )}
                 {questions.length > 0 && (
@@ -1293,9 +1340,15 @@ export function SmartExamScanModal({
                   onClick={() =>
                     setQuestions((prev) => {
                       const next = [...prev, createBlankEditableQuestion(targetMode)];
-                      return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
-                        ? rebalanceScannedQuestionScores(next, 10)
-                        : next;
+                      if (isAssignmentMode && !customScoresEdited) {
+                        const target = targetMode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                        return rebalanceScannedQuestionScores(next, target);
+                      }
+                      if (targetMode === "ESSAY" && customScoresEdited) {
+                        const sum = Math.round(next.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100) / 100;
+                        if (sum >= 0.25) setEssayMaxScore(sum);
+                      }
+                      return next;
                     })
                   }
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
@@ -1331,11 +1384,7 @@ export function SmartExamScanModal({
                         </span>
                         {targetMode === "ESSAY" ? (
                           <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                            Tự luận (~
-                            {(essayMaxScore / Math.max(1, questions.length))
-                              .toFixed(2)
-                              .replace(/\.00$/, "")}{" "}
-                            điểm)
+                            Tự luận
                           </span>
                         ) : (
                           <select
@@ -1376,23 +1425,34 @@ export function SmartExamScanModal({
                           <option value={2}>Thông hiểu</option>
                           <option value={3}>Vận dụng</option>
                         </select>
-                        {targetMode === "MULTIPLE_CHOICE" && (
-                          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                        {isAssignmentMode && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
                             <span>Điểm:</span>
-                            <input
-                              aria-label={`Điểm câu ${index + 1}`}
-                              type="number"
-                              min="0.01"
-                              step="0.01"
+                            <ScoreStepperInput
+                              ariaLabel={`Điểm câu ${index + 1}`}
+                              stepTargetLabel={`câu ${index + 1}`}
+                              min={0.25}
+                              max={1000}
                               disabled={saving}
                               value={question.score}
-                              onChange={(event) => {
+                              onChange={(val) => {
                                 setCustomScoresEdited(true);
-                                updateQuestion(question.id, { score: Number(event.target.value) });
+                                setQuestions((prev) => {
+                                  const next = prev.map((item) =>
+                                    item.id === question.id ? { ...item, score: val } : item,
+                                  );
+                                  if (targetMode === "ESSAY") {
+                                    const sum =
+                                      Math.round(
+                                        next.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100,
+                                      ) / 100;
+                                    if (sum >= 0.25) setEssayMaxScore(sum);
+                                  }
+                                  return next;
+                                });
                               }}
-                              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                             />
-                          </label>
+                          </span>
                         )}
                         <span className="text-[11px] font-medium text-slate-400">
                           Tin cậy {Math.round(question.confidence * 100)}%
@@ -1406,9 +1466,18 @@ export function SmartExamScanModal({
                         onClick={() =>
                           setQuestions((prev) => {
                             const filtered = prev.filter((entry) => entry.id !== question.id);
-                            return targetMode === "MULTIPLE_CHOICE" && !customScoresEdited
-                              ? rebalanceScannedQuestionScores(filtered, 10)
-                              : filtered;
+                            if (isAssignmentMode && !customScoresEdited) {
+                              const target = targetMode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                              return rebalanceScannedQuestionScores(filtered, target);
+                            }
+                            if (targetMode === "ESSAY" && customScoresEdited) {
+                              const sum =
+                                Math.round(
+                                  filtered.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100,
+                                ) / 100;
+                              if (sum >= 0.25) setEssayMaxScore(sum);
+                            }
+                            return filtered;
                           })
                         }
                         className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-950/30 cursor-pointer"

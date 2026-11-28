@@ -1,5 +1,6 @@
 "use client";
 import { MaterialSearchControls } from "@/features/materials/material-search";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
@@ -97,6 +98,7 @@ export function ExamEditorDialog({
       }
     >
       <form
+        noValidate
         className="space-y-5"
         onSubmit={(event) =>
           createMode === "AI" ? void generateAiExam(event) : void create(event)
@@ -207,7 +209,7 @@ export function ExamEditorDialog({
                 ) : (
                   filteredSelectableQuestions.map((question) => (
                     <label
-                      className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_5rem] items-start gap-3 rounded-lg px-2.5 py-2 text-xs sm:text-sm text-slate-800 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-slate-800 transition-colors"
+                      className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-lg px-2.5 py-2 text-xs sm:text-sm text-slate-800 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-slate-800 transition-colors"
                       key={question.id}
                     >
                       <input
@@ -239,23 +241,21 @@ export function ExamEditorDialog({
                         </span>
                       </span>
                       {form.questionIds.includes(question.id) ? (
-                        <input
-                          aria-label={`Điểm câu ${question.content}`}
-                          className={`${inputClass} text-center font-extrabold tabular-nums`}
-                          min={0.01}
-                          onChange={(event) =>
+                        <ScoreStepperInput
+                          ariaLabel={`Điểm câu ${question.content}`}
+                          stepTargetLabel="câu hỏi"
+                          min={0.25}
+                          max={1000}
+                          value={form.scoreAllocations[question.id] ?? 0}
+                          onChange={(val) =>
                             setForm((current) => ({
                               ...current,
                               scoreAllocations: {
                                 ...current.scoreAllocations,
-                                [question.id]: Number(event.target.value),
+                                [question.id]: val,
                               },
                             }))
                           }
-                          onClick={(event) => event.stopPropagation()}
-                          step="0.01"
-                          type="number"
-                          value={form.scoreAllocations[question.id] ?? 0}
                         />
                       ) : (
                         <span />
@@ -565,20 +565,22 @@ export function ExamEditorDialog({
               />
             </Field>
             <Field label="Tổng điểm">
-              <input
-                className={inputClass}
-                min={1}
-                type="number"
+              <ScoreStepperInput
+                ariaLabel="Tổng điểm"
+                size="md"
+                stepTargetLabel="tổng điểm"
+                min={0.25}
+                max={1000}
                 value={form.totalScore}
-                onChange={(e) =>
+                onChange={(val) =>
                   setForm((current) => ({
                     ...current,
-                    totalScore: Number(e.target.value),
+                    totalScore: val,
                     scoreAllocations:
                       createMode === "MANUAL"
                         ? distributeScores(
                             current.questionIds,
-                            Number(e.target.value),
+                            val,
                           )
                         : current.scoreAllocations,
                   }))

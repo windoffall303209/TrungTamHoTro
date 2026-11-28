@@ -292,7 +292,7 @@ export class CreateExamDto {
   @IsString() @MinLength(3) title!: string;
   @IsArray() @ArrayMinSize(1) @IsString({ each: true }) questionIds!: string[];
   @IsInt() @Min(1) durationMinutes!: number;
-  @IsNumber() @Min(1) totalScore!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.25) @Max(1000) totalScore!: number;
   @IsDateString() openAt!: string;
   @IsDateString() closeAt!: string;
   @IsInt() @Min(1) @Max(10) attemptLimit!: number;

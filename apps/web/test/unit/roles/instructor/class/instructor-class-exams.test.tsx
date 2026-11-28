@@ -370,6 +370,13 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
     expect(screen.queryByRole("button", { name: "Tất cả" })).not.toBeInTheDocument();
     expect(screen.getByText(/Ngân hàng lớp hiện có 1 câu tự luận đã xuất bản/)).toBeVisible();
 
+    // Cho phép chỉnh mức điểm trực tiếp ở Cách 4 (Ngân hàng câu hỏi) với bước nhảy 0,25 điểm
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect((screen.getByLabelText("Điểm câu ngân hàng 1") as HTMLInputElement).value).toBe("10");
+    fireEvent.click(screen.getByRole("button", { name: "Tăng 0,25 câu ngân hàng 1" }));
+    expect((screen.getByLabelText("Điểm câu ngân hàng 1") as HTMLInputElement).value).toBe("10.25");
+    expect(screen.getByText(/Tổng 10\.25 điểm/)).toBeVisible();
+
     // Bấm "Chọn cách tạo khác" quay thẳng về Hub với loại đề "Đề Tự luận" được giữ nguyên để chọn sang Cách 3
     fireEvent.click(screen.getAllByRole("button", { name: /Chọn cách tạo khác/ })[0]!);
     expect(await screen.findByText(/Loại bài đang chọn: Đề Tự luận/)).toBeVisible();

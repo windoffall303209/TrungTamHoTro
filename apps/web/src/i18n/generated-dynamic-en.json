@@ -297,5 +297,16 @@
   "Số lượng câu trắc nghiệm cần bốc ngẫu nhiên (tối đa": "Number of multiple-choice questions to draw randomly (max",
   "Số lượng câu tự luận cần bốc ngẫu nhiên (tối đa": "Number of essay questions to draw randomly (max",
   "Tổng số lượng câu trắc nghiệm trong đề (khả dụng": "Total multiple-choice questions in exam (available",
-  "Tổng số lượng câu tự luận trong bài (khả dụng": "Total essay questions in assignment (available"
+  "Tổng số lượng câu tự luận trong bài (khả dụng": "Total essay questions in assignment (available",
+  ": điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.": ": question score must be at least 0.01 with at most 2 decimal places.",
+  "câu (tổng": "questions (total",
+  "câu ma trận": "matrix question",
+  "câu ngân hàng": "bank question",
+  "câu trắc nghiệm đã xuất bản · Tổng": "published multiple-choice questions · Total",
+  "câu tự luận đã xuất bản · Tổng": "published essay questions · Total",
+  "Điểm câu ma trận": "Matrix question score",
+  "Điểm câu ngân hàng": "Bank question score",
+  "điểm).": "points).",
+  "Giảm 0,25": "Decrease by 0.25",
+  "Tăng 0,25": "Increase by 0.25"
 }

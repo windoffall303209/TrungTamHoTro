@@ -182,6 +182,12 @@ describe("SmartExamScanModal", () => {
     expect(await screen.findByDisplayValue("Câu hỏi trắc nghiệm OCR 4")).toBeInTheDocument();
     expect(screen.getByText(/4 câu · Tổng 10 điểm/)).toBeInTheDocument();
 
+    // Bấm nút + tăng 0,25 điểm rồi bấm - giảm 0,25 điểm trên câu 1
+    fireEvent.click(screen.getByRole("button", { name: "Tăng 0,25 câu 1" }));
+    expect((screen.getByLabelText("Điểm câu 1") as HTMLInputElement).value).toBe("2.75");
+    fireEvent.click(screen.getByRole("button", { name: "Giảm 0,25 câu 1" }));
+    expect((screen.getByLabelText("Điểm câu 1") as HTMLInputElement).value).toBe("2.5");
+
     expect(screen.queryByRole("button", { name: /Chỉ lưu vào ngân hàng/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Lưu & Tạo đề trắc nghiệm (4 câu)" }));
     await waitFor(() => expect(onSaveAssignment).toHaveBeenCalledTimes(1));

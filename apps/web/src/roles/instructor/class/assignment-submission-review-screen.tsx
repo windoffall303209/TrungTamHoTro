@@ -31,6 +31,7 @@ import type {
 import { useApp } from "@/providers/app-provider";
 import { useI18n } from "@/providers/i18n-provider";
 import { AccessDenied } from "@/shared/auth/access-denied";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { Button, Field, RichText, StatusBadge, inputClass } from "@/shared/ui/ui";
 import { UserAvatar } from "@/shared/ui/user-avatar";
 
@@ -417,23 +418,20 @@ const SubmissionGradingForm = memo(function SubmissionGradingForm({
                   {row.label} :
                 </label>
                 <div className="flex items-center gap-2 shrink-0">
-                  <input
+                  <ScoreStepperInput
                     id={`rubric-score-${row.key}`}
-                    aria-label={`Điểm ${row.label}`}
-                    className={`${inputClass} py-1.5 px-2.5 text-center text-xs sm:text-sm font-bold tabular-nums w-24`}
+                    ariaLabel={`Điểm ${row.label}`}
+                    stepTargetLabel={row.label}
                     max={row.maxPoints}
                     min={0}
                     placeholder="?"
-                    step={0.25}
-                    type="number"
                     disabled={!canGrade || saving || isVirtualZero}
                     value={rawValue}
-                    onChange={(event) => {
+                    onChange={(_val, rawText) => {
                       if (!row.criterionId) return;
-                      const nextVal = event.target.value;
                       setRubricScores((prev) => ({
                         ...prev,
-                        [row.criterionId!]: nextVal,
+                        [row.criterionId!]: rawText,
                       }));
                     }}
                   />

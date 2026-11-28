@@ -4,6 +4,7 @@ import {
   AssignmentBuilderModal,
   distributeEqualQuestionScores,
 } from "../../../../src/features/exams/assignment-builder-modal";
+import { stepScoreByQuarter } from "../../../../src/shared/ui/score-stepper-input";
 
 const api = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api-client", () => ({ apiRequest: api }));
@@ -92,4 +93,34 @@ it("tự động chia đều tổng 10 điểm khi tách 4 câu từ tệp và c
   expect(screen.getByText(/5 câu · Tổng 10 điểm/)).toBeVisible();
   const updatedScoreInputs = screen.getAllByLabelText("Điểm câu hỏi") as HTMLInputElement[];
   expect(updatedScoreInputs.map((el) => Number(el.value))).toEqual([2, 2, 2, 2, 2]);
+
+  // Bấm nút + tăng 0,25 điểm cho câu 1 -> 2.25 điểm, tổng điểm thành 10.25
+  expect(stepScoreByQuarter(2, 1)).toBe(2.25);
+  expect(stepScoreByQuarter(2.25, -1)).toBe(2);
+  fireEvent.click(screen.getByRole("button", { name: "Tăng 0,25 câu 1" }));
+  expect(Number((screen.getAllByLabelText("Điểm câu hỏi")[0] as HTMLInputElement).value)).toBe(2.25);
+  expect(screen.getByText(/5 câu · Tổng 10[.,]25 điểm/)).toBeVisible();
+});
+
+it("cho phép sửa điểm từng câu hỏi tự luận theo bước nhảy 0,25 điểm ngay trong nội dung bài", async () => {
+  api.mockResolvedValueOnce({ maxFileSizeMb: 12, allowedMimeTypes: [] });
+
+  render(
+    <AssignmentBuilderModal
+      open
+      onClose={vi.fn()}
+      initialType="ESSAY"
+      initialMethod="MANUAL"
+      targetClassName="Ngữ văn 10"
+      onSaveAssignment={vi.fn()}
+    />,
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: /Thêm câu tự luận/ }));
+  const essayScoreInputs = screen.getAllByLabelText("Điểm câu hỏi") as HTMLInputElement[];
+  expect(essayScoreInputs.map((el) => Number(el.value))).toEqual([5, 5]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Tăng 0,25 câu tự luận 1" }));
+  expect(Number((screen.getAllByLabelText("Điểm câu hỏi")[0] as HTMLInputElement).value)).toBe(5.25);
+  expect(screen.getByText(/2 câu · Tổng 10\.25 điểm/)).toBeVisible();
 });

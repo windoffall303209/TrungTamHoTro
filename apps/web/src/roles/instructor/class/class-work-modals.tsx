@@ -23,6 +23,7 @@ import { localDateTimeToIso, parseLocalDateTimeInput } from "@/lib/date-time";
 import type { RoleCode } from "@/lib/app-types";
 import type { Assignment, Exam, ExamAttempt, Material, Question } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { RichText } from "@/shared/ui/ui";
 import type { ClassQuestion } from "./instructor-class-workspace.helpers";
 
@@ -808,6 +809,7 @@ export function ClassExamEditModal({
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [balanceTargetScore, setBalanceTargetScore] = useState(10);
   const [questions, setQuestions] = useState<EditableExamQuestion[]>([]);
   const [selectedBankQuestionId, setSelectedBankQuestionId] = useState("");
 
@@ -822,6 +824,7 @@ export function ClassExamEditModal({
     setShuffleQuestions(Boolean(exam.shuffleQuestions));
     setAiTutorEnabled(Boolean(exam.aiTutorEnabled));
     setHidden(Boolean(exam.hidden));
+    setBalanceTargetScore(exam.totalScore >= 0.25 ? exam.totalScore : 10);
     setQuestions([]);
     setSelectedBankQuestionId("");
     setLoading(true);
@@ -883,10 +886,10 @@ export function ClassExamEditModal({
     );
   };
 
-  // Chia đều điểm tổng của đề cho các câu hỏi hiện có.
+  // Chia đều điểm tổng mục tiêu cho các câu hỏi hiện có trong đề.
   const handleBalanceScores = () => {
     if (!questions.length) return;
-    const target = exam.totalScore >= 1 ? exam.totalScore : 10;
+    const target = balanceTargetScore >= 0.25 ? balanceTargetScore : 10;
     const base = Math.floor((target / questions.length) * 100) / 100;
     const remainder = Math.round((target - base * (questions.length - 1)) * 100) / 100;
     setQuestions((prev) =>
@@ -999,8 +1002,8 @@ export function ClassExamEditModal({
           return;
         }
       }
-      if (computedTotalScore < 1) {
-        notify("Tổng điểm của đề phải đạt ít nhất 1 điểm.", "error");
+      if (computedTotalScore < 0.25) {
+        notify("Tổng điểm của đề phải đạt ít nhất 0,25 điểm.", "error");
         return;
       }
     }
@@ -1279,6 +1282,15 @@ export function ClassExamEditModal({
                   </div>
                   {!hasAttempts && (
                     <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-slate-600 dark:text-slate-300">Thang chia đều:</span>
+                      <ScoreStepperInput
+                        ariaLabel="Thang điểm chia đều đề thi"
+                        stepTargetLabel="thang điểm chia đều"
+                        min={0.25}
+                        max={1000}
+                        value={balanceTargetScore}
+                        onChange={(val) => setBalanceTargetScore(val >= 0.25 ? val : 0.25)}
+                      />
                       <button
                         type="button"
                         onClick={handleBalanceScores}
@@ -1334,20 +1346,20 @@ export function ClassExamEditModal({
                             Câu {qIdx + 1} · {QUESTION_TYPE_LABELS[q.type] ?? q.type}
                           </span>
                           <div className="flex items-center gap-2">
-                            <label className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+                            <span className="inline-flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
                               <span>Điểm:</span>
-                              <input
-                                type="number"
-                                min={0.01}
-                                step={0.01}
+                              <ScoreStepperInput
+                                ariaLabel={`Điểm câu ${qIdx + 1}`}
+                                stepTargetLabel={`câu ${qIdx + 1}`}
+                                min={0.25}
+                                max={1000}
                                 disabled={hasAttempts}
                                 value={q.score}
-                                onChange={(event) =>
-                                  updateQuestion(qIdx, { score: Number(event.target.value), dirtyContent: q.dirtyContent })
+                                onChange={(val) =>
+                                  updateQuestion(qIdx, { score: val, dirtyContent: q.dirtyContent })
                                 }
-                                className="w-20 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-center font-bold"
                               />
-                            </label>
+                            </span>
                             {!hasAttempts && questions.length > 1 && (
                               <button
                                 type="button"
@@ -1781,16 +1793,14 @@ export function ClassAssignmentEditModal({
                 <label htmlFor="edit-assignment-score" className="mb-1 block font-bold text-slate-700 dark:text-slate-300">
                   Điểm tối đa
                 </label>
-                <input
+                <ScoreStepperInput
                   id="edit-assignment-score"
-                  type="number"
+                  stepTargetLabel="điểm tối đa"
                   min={0.25}
                   max={1000}
-                  step={0.25}
                   disabled={isClosed}
                   value={maxScore}
-                  onChange={(event) => setMaxScore(Number(event.target.value))}
-                  className={fieldClass}
+                  onChange={(val) => setMaxScore(val)}
                 />
               </div>
             )}
@@ -1820,32 +1830,28 @@ export function ClassAssignmentEditModal({
                   <label htmlFor="edit-assignment-mc-score" className="mb-1 block font-semibold text-slate-700 dark:text-slate-300">
                     Phần trắc nghiệm
                   </label>
-                  <input
+                  <ScoreStepperInput
                     id="edit-assignment-mc-score"
-                    type="number"
+                    stepTargetLabel="phần trắc nghiệm"
                     min={0}
                     max={1000}
-                    step={0.25}
                     disabled={isClosed}
                     value={mcScoreInput}
-                    onChange={(event) => setMcScoreInput(event.target.value)}
-                    className={fieldClass}
+                    onChange={(_val, raw) => setMcScoreInput(raw)}
                   />
                 </div>
                 <div>
                   <label htmlFor="edit-assignment-essay-score" className="mb-1 block font-semibold text-slate-700 dark:text-slate-300">
                     Phần tự luận
                   </label>
-                  <input
+                  <ScoreStepperInput
                     id="edit-assignment-essay-score"
-                    type="number"
+                    stepTargetLabel="phần tự luận"
                     min={0}
                     max={1000}
-                    step={0.25}
                     disabled={isClosed}
                     value={essayScoreInput}
-                    onChange={(event) => setEssayScoreInput(event.target.value)}
-                    className={fieldClass}
+                    onChange={(_val, raw) => setEssayScoreInput(raw)}
                   />
                 </div>
               </div>
@@ -1869,21 +1875,20 @@ export function ClassAssignmentEditModal({
                       }
                       className={`${fieldClass} flex-1`}
                     />
-                    <input
-                      type="number"
+                    <ScoreStepperInput
+                      ariaLabel={`Điểm tiêu chí ${index + 1}`}
+                      stepTargetLabel={`tiêu chí ${index + 1}`}
                       min={0.25}
                       max={1000}
-                      step={0.25}
                       disabled={isClosed}
                       value={criterion.maxPoints}
-                      onChange={(event) =>
+                      onChange={(val) =>
                         setRubric((rows) =>
                           rows.map((row, idx) =>
-                            idx === index ? { ...row, maxPoints: Number(event.target.value) } : row,
+                            idx === index ? { ...row, maxPoints: val } : row,
                           ),
                         )
                       }
-                      className="w-24 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1.5 text-center font-bold"
                     />
                   </div>
                 ))}

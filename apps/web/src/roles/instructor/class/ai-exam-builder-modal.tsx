@@ -23,6 +23,7 @@ import { apiRequest } from "@/lib/api-client";
 import type { RoleCode } from "@/lib/app-types";
 import { toLocalDateTimeInput } from "@/lib/date-time";
 import { useApp } from "@/providers/app-provider";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
 import { RichText } from "@/shared/ui/ui";
 
 export type AiAssignmentMode = "MULTIPLE_CHOICE" | "ESSAY";
@@ -226,6 +227,7 @@ export function AiExamBuilderModal({
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [targetScaleScore, setTargetScaleScore] = useState(10);
   const [essayMaxScore, setEssayMaxScore] = useState(10);
 
   const totalObjectiveScore = useMemo(
@@ -256,6 +258,7 @@ export function AiExamBuilderModal({
       setMaxAttempts(1);
       setShuffleQuestions(false);
       setAiTutorEnabled(false);
+      setTargetScaleScore(10);
       setEssayMaxScore(10);
     }
   }, [defaultSubject, initialMode, open, targetClassEndAt]);
@@ -308,9 +311,15 @@ export function AiExamBuilderModal({
 
       setQuestions((prev) => {
         const combined = [...prev, ...mapped];
-        return mode === "MULTIPLE_CHOICE" && !customScoresEdited
-          ? rebalanceAiDraftScores(combined, 10)
-          : combined;
+        if (!customScoresEdited) {
+          const target = mode === "ESSAY" ? essayMaxScore : targetScaleScore;
+          return rebalanceAiDraftScores(combined, target);
+        }
+        if (mode === "ESSAY") {
+          const sum = Math.round(combined.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100) / 100;
+          if (sum >= 0.25) setEssayMaxScore(sum);
+        }
+        return combined;
       });
       setAiMeta({
         provider: response.provider,
@@ -382,20 +391,20 @@ export function AiExamBuilderModal({
           notify(`Câu ${idx + 1}: Phương án được chọn làm đáp án đúng đang trống.`, "error");
           return;
         }
-        if (
-          !Number.isFinite(q.score) ||
-          q.score < 0.01 ||
-          Math.abs(Math.round(q.score * 100) - q.score * 100) > 1e-6
-        ) {
-          notify(`Câu ${idx + 1}: Điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.`, "error");
-          return;
-        }
+      }
+      if (
+        !Number.isFinite(q.score) ||
+        q.score < 0.01 ||
+        Math.abs(Math.round(q.score * 100) - q.score * 100) > 1e-6
+      ) {
+        notify(`Câu ${idx + 1}: Điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.`, "error");
+        return;
       }
     }
 
     if (mode === "MULTIPLE_CHOICE") {
-      if (totalObjectiveScore < 1) {
-        notify("Tổng điểm đề trắc nghiệm phải đạt ít nhất 1 điểm.", "error");
+      if (totalObjectiveScore < 0.25) {
+        notify("Tổng điểm đề trắc nghiệm phải đạt ít nhất 0,25 điểm.", "error");
         return;
       }
       if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 600) {
@@ -406,8 +415,8 @@ export function AiExamBuilderModal({
         notify("Số lượt làm bài cần nằm trong khoảng 1–10.", "error");
         return;
       }
-    } else if (!Number.isFinite(essayMaxScore) || essayMaxScore < 1 || essayMaxScore > 1000) {
-      notify("Thang điểm bài tự luận cần nằm trong khoảng 1–1000.", "error");
+    } else if (!Number.isFinite(essayMaxScore) || essayMaxScore < 0.25 || essayMaxScore > 1000) {
+      notify("Thang điểm bài tự luận cần nằm trong khoảng 0,25–1000.", "error");
       return;
     }
 
@@ -440,15 +449,22 @@ export function AiExamBuilderModal({
             })
           : [];
 
-      const essayItems =
-        mode === "ESSAY" ? questions.map((q) => q.content.trim()).filter(Boolean) : [];
+      const essayEntries =
+        mode === "ESSAY"
+          ? questions
+              .map((q) => ({ text: q.content.trim(), score: Math.round(q.score * 100) / 100 }))
+              .filter((entry) => Boolean(entry.text))
+          : [];
 
       await onSaveAssignment({
         title: cleanTitle,
         description: description.trim(),
         type: mode,
         questions: builderQuestions,
-        essayQuestions: essayItems,
+        essayQuestions: essayEntries.map((entry) => entry.text),
+        ...(mode === "ESSAY" && essayEntries.length > 0
+          ? { essayQuestionScores: essayEntries.map((entry) => entry.score) }
+          : {}),
         ...(mode === "ESSAY"
           ? {
               scoreBreakdown: {
@@ -735,6 +751,28 @@ export function AiExamBuilderModal({
 
               {mode === "MULTIPLE_CHOICE" ? (
                 <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
+                    <label
+                      htmlFor="ai-mc-scale"
+                      className="text-xs font-bold text-slate-700 dark:text-slate-300"
+                    >
+                      Thang điểm chia đều
+                    </label>
+                    <ScoreStepperInput
+                      id="ai-mc-scale"
+                      stepTargetLabel="thang điểm đề"
+                      min={0.25}
+                      max={1000}
+                      value={targetScaleScore}
+                      onChange={(val) => {
+                        const safe = val >= 0.25 ? val : 0.25;
+                        setTargetScaleScore(safe);
+                        if (!customScoresEdited && questions.length > 0) {
+                          setQuestions((prev) => rebalanceAiDraftScores(prev, safe));
+                        }
+                      }}
+                    />
+                  </div>
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
                       <label
@@ -802,22 +840,27 @@ export function AiExamBuilderModal({
                 </>
               ) : (
                 <>
-                  <div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
                     <label
                       htmlFor="ai-essay-max-score"
-                      className="mb-1 block text-xs font-bold text-slate-700 dark:text-slate-300"
+                      className="text-xs font-bold text-slate-700 dark:text-slate-300"
                     >
                       Thang điểm bài tự luận
                     </label>
-                    <input
+                    <ScoreStepperInput
                       id="ai-essay-max-score"
-                      type="number"
-                      min={1}
+                      stepTargetLabel="thang điểm tự luận"
+                      min={0.25}
                       max={1000}
-                      step={0.25}
                       value={essayMaxScore}
-                      onChange={(event) => setEssayMaxScore(Number(event.target.value))}
-                      className={fieldInputClass}
+                      onChange={(val) => {
+                        const safe = val >= 0.25 ? val : 0.25;
+                        setEssayMaxScore(safe);
+                        setCustomScoresEdited(false);
+                        if (questions.length > 0) {
+                          setQuestions((prev) => rebalanceAiDraftScores(prev, safe));
+                        }
+                      }}
                     />
                   </div>
                   <div>
@@ -857,17 +900,18 @@ export function AiExamBuilderModal({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {mode === "MULTIPLE_CHOICE" && questions.length > 0 && (
+                {questions.length > 0 && (
                   <button
                     type="button"
                     disabled={saving || generating}
                     onClick={() => {
                       setCustomScoresEdited(false);
-                      setQuestions((prev) => rebalanceAiDraftScores(prev, 10));
+                      const target = mode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                      setQuestions((prev) => rebalanceAiDraftScores(prev, target));
                     }}
                     className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 cursor-pointer"
                   >
-                    Chia đều 10 điểm
+                    Chia đều điểm
                   </button>
                 )}
                 {questions.length > 0 && (
@@ -889,9 +933,18 @@ export function AiExamBuilderModal({
                   onClick={() =>
                     setQuestions((prev) => {
                       const next = [...prev, createBlankAiQuestion(mode)];
-                      return mode === "MULTIPLE_CHOICE" && !customScoresEdited
-                        ? rebalanceAiDraftScores(next, 10)
-                        : next;
+                      if (!customScoresEdited) {
+                        const target = mode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                        return rebalanceAiDraftScores(next, target);
+                      }
+                      if (mode === "ESSAY") {
+                        const sum =
+                          Math.round(
+                            next.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100,
+                          ) / 100;
+                        if (sum >= 0.25) setEssayMaxScore(sum);
+                      }
+                      return next;
                     })
                   }
                   className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 cursor-pointer"
@@ -928,32 +981,38 @@ export function AiExamBuilderModal({
                         <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-extrabold text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
                           Câu {index + 1}
                         </span>
-                        {mode === "ESSAY" ? (
+                        {mode === "ESSAY" && (
                           <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                            Tự luận (~
-                            {(essayMaxScore / Math.max(1, questions.length))
-                              .toFixed(2)
-                              .replace(/\.00$/, "")}{" "}
-                            điểm)
+                            Tự luận
                           </span>
-                        ) : (
-                          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            <span>Điểm câu hỏi:</span>
-                            <input
-                              aria-label={`Điểm câu ${index + 1}`}
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              disabled={saving}
-                              value={question.score}
-                              onChange={(event) => {
-                                setCustomScoresEdited(true);
-                                updateQuestion(question.id, { score: Number(event.target.value) });
-                              }}
-                              className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                            />
-                          </label>
                         )}
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          <span>Điểm câu hỏi:</span>
+                          <ScoreStepperInput
+                            ariaLabel={`Điểm câu ${index + 1}`}
+                            stepTargetLabel={`câu ${index + 1}`}
+                            min={0.25}
+                            max={1000}
+                            disabled={saving}
+                            value={question.score}
+                            onChange={(val) => {
+                              setCustomScoresEdited(true);
+                              setQuestions((prev) => {
+                                const next = prev.map((item) =>
+                                  item.id === question.id ? { ...item, score: val } : item,
+                                );
+                                if (mode === "ESSAY") {
+                                  const sum =
+                                    Math.round(
+                                      next.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100,
+                                    ) / 100;
+                                  if (sum >= 0.25) setEssayMaxScore(sum);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </span>
                       </div>
 
                       <button
@@ -963,9 +1022,18 @@ export function AiExamBuilderModal({
                         onClick={() =>
                           setQuestions((prev) => {
                             const filtered = prev.filter((entry) => entry.id !== question.id);
-                            return mode === "MULTIPLE_CHOICE" && !customScoresEdited
-                              ? rebalanceAiDraftScores(filtered, 10)
-                              : filtered;
+                            if (!customScoresEdited) {
+                              const target = mode === "ESSAY" ? essayMaxScore : targetScaleScore;
+                              return rebalanceAiDraftScores(filtered, target);
+                            }
+                            if (mode === "ESSAY") {
+                              const sum =
+                                Math.round(
+                                  filtered.reduce((acc, q) => acc + (Number(q.score) || 0), 0) * 100,
+                                ) / 100;
+                              if (sum >= 0.25) setEssayMaxScore(sum);
+                            }
+                            return filtered;
                           })
                         }
                         className="rounded-lg p-1.5 text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:hover:bg-rose-950/30 cursor-pointer"

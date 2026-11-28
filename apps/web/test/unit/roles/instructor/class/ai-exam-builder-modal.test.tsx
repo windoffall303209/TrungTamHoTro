@@ -151,6 +151,11 @@ describe("AiExamBuilderModal", () => {
       await screen.findByDisplayValue("Phân tích sự biến thiên và vẽ bảng biến thiên của hàm số bậc ba."),
     ).toBeInTheDocument();
     expect(screen.getByText(/1\. Tìm tập xác định/)).toBeVisible();
+    expect((screen.getByLabelText("Điểm câu 1") as HTMLInputElement).value).toBe("5");
+
+    // Tăng điểm câu tự luận 1 thêm 0,25 -> 5.25 điểm, tổng điểm tự luận tự động cập nhật thành 10.25
+    fireEvent.click(screen.getByRole("button", { name: "Tăng 0,25 câu 1" }));
+    expect((screen.getByLabelText("Điểm câu 1") as HTMLInputElement).value).toBe("5.25");
 
     fireEvent.change(screen.getByLabelText("Nội dung câu 2"), {
       target: { value: "Biện luận số nghiệm thực của phương trình bằng phương pháp đồ thị." },
@@ -165,6 +170,7 @@ describe("AiExamBuilderModal", () => {
     const savedPayload = onSaveAssignment.mock.calls[0]?.[0] as {
       type: string;
       essayQuestions: string[];
+      essayQuestionScores?: number[];
       scoreBreakdown?: { essayPoints: number };
     };
     expect(savedPayload.type).toBe("ESSAY");
@@ -172,6 +178,7 @@ describe("AiExamBuilderModal", () => {
       "Phân tích sự biến thiên và vẽ bảng biến thiên của hàm số bậc ba.",
       "Biện luận số nghiệm thực của phương trình bằng phương pháp đồ thị.",
     ]);
-    expect(savedPayload.scoreBreakdown?.essayPoints).toBe(10);
+    expect(savedPayload.essayQuestionScores).toEqual([5.25, 5]);
+    expect(savedPayload.scoreBreakdown?.essayPoints).toBe(10.25);
   });
 });
