@@ -1,7 +1,13 @@
 "use client";
 import { AccessDenied } from "@/shared/auth/access-denied";
-import { AiGradingOperations } from "@/roles/admin/ai-grading-operations";
-import { AiTaskSettings } from "@/roles/admin/ai-task-settings";
+import { AiAdminWorkspace } from "@/roles/admin/ai-admin-workspace";
+import {
+  AiModelGlyph,
+  AiModelIdentityBadge,
+  AiProviderGlyph,
+  resolveAiModelVisual,
+  resolveAiProviderVisual,
+} from "./ai-model-icons";
 import { PageHeader } from "@/shared/ui/page-header";
 import { SearchableSelect } from "@/shared/ui/searchable-select";
 import { Button, Field, inputClass, Modal, StatusBadge } from "@/shared/ui/ui";
@@ -9,7 +15,6 @@ import { activeLocale } from "@/i18n/runtime";
 import {
   Activity,
   ArrowLeft,
-  Bot,
   ChevronRight,
   CloudCog,
   DatabaseBackup,
@@ -17,7 +22,6 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
-  Trash2,
 } from "lucide-react";
 import { SettingsSection, settingsSections } from "./settings.shared";
 import { useSettingsModel } from "./use-settings-model";
@@ -237,130 +241,17 @@ export default function SettingsScreen() {
         </section>
       ) : null}
       {activeSection === "ai-providers" ? (
-        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 md:px-6">
-            <div>
-              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
-                Nhà cung cấp AI
-              </h2>
-              <p className="mt-1 max-w-2xl text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                API key được mã hóa và không hiển thị lại. Lưu nhà cung cấp, sau
-                đó phân công model riêng cho từng chức năng bên dưới.
-              </p>
-            </div>
-            <Button
-              onClick={() => openAiEditor(undefined, "CUSTOM")}
-              variant="secondary"
-            >
-              <Bot size={17} />
-              Thêm custom
-            </Button>
-          </div>
-          <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">
-            {settings ? (
-              <div className="px-5 py-5 md:px-6 space-y-4">
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-slate-100">
-                    Hạn mức hỏi đáp AI khi làm bài
-                  </h3>
-                  <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                    Giới hạn số lần học viên được hỏi trợ lý AI dẫn dắt trên từng câu hỏi và tổng thể một đề (chỉ áp dụng cho các đề được giảng viên bật cho phép hỏi đáp AI).
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
-                  <Field label="Số lượt hỏi tối đa / 1 câu (1–20)">
-                    <input
-                      aria-label="Số lượt hỏi tối đa mỗi câu"
-                      className={inputClass}
-                      min={1}
-                      max={20}
-                      type="number"
-                      value={settings.aiTutorMaxPerQuestion}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          aiTutorMaxPerQuestion: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </Field>
-                  <Field label="Số lượt hỏi tối đa / 1 đề (1–200)">
-                    <input
-                      aria-label="Số lượt hỏi tối đa mỗi đề"
-                      className={inputClass}
-                      min={1}
-                      max={200}
-                      type="number"
-                      value={settings.aiTutorMaxPerExam}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          aiTutorMaxPerExam: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </Field>
-                </div>
-                <Button
-                  disabled={saving}
-                  loading={saving}
-                  onClick={() => void saveAiTutorQuota()}
-                  type="button"
-                >
-                  <Save size={15} />
-                  Lưu hạn mức hỏi đáp
-                </Button>
-              </div>
-            ) : null}
-            <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
-            <AiGradingOperations />
-            {aiProviders.map((item) => (
-              <article
-                className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-6"
-                key={item.id}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-bold text-slate-900 dark:text-slate-100">{item.name}</h3>
-                    {item.isDefault ? <StatusBadge status="DEFAULT" /> : null}
-                    <StatusBadge status={item.healthStatus} />
-                  </div>
-                  <p className="mt-1 truncate text-sm text-slate-600 dark:text-slate-300">
-                    {item.model} · {item.maskedApiKey}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {item.enabled ? "Đang bật" : "Đang tắt"}
-                    {item.lastCheckedAt
-                      ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString(activeLocale())}`
-                      : " · chưa kiểm tra kết nối"}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 md:justify-end">
-                  <Button onClick={() => openAiEditor(item)} variant="ghost">
-                    Cấu hình
-                  </Button>
-                  {item.hasApiKey ? (
-                    <Button
-                      onClick={() => void testAiProvider(item)}
-                      variant="secondary"
-                    >
-                      Kiểm tra
-                    </Button>
-                  ) : null}
-                  {item.provider === "CUSTOM" && item.hasApiKey ? (
-                    <Button
-                      aria-label={`Xóa ${item.name}`}
-                      onClick={() => void removeAiProvider(item)}
-                      variant="ghost"
-                    >
-                      <Trash2 size={16} />
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        <AiAdminWorkspace
+          settings={settings}
+          setSettings={setSettings}
+          aiProviders={aiProviders}
+          modelCatalog={modelCatalog}
+          saving={saving}
+          saveAiTutorQuota={saveAiTutorQuota}
+          openAiEditor={openAiEditor}
+          testAiProvider={testAiProvider}
+          removeAiProvider={removeAiProvider}
+        />
       ) : null}
       {activeSection === "health" && health ? (
         <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-7">
@@ -399,7 +290,7 @@ export default function SettingsScreen() {
             <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Dung lượng lưu trữ</p>
           </div>
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
-            <p className="tabular text-2xl font-extrabold text-indigo-600 dark:text-indigo-400">
+            <p className="tabular text-2xl font-extrabold text-sky-700 dark:text-sky-300">
               {health.queueDepth}
             </p>
             <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Tác vụ đang chờ</p>
@@ -794,6 +685,20 @@ export default function SettingsScreen() {
           className="space-y-4"
           onSubmit={(event) => void saveAiProvider(event)}
         >
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-3.5 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <AiProviderGlyph provider={aiForm.provider} size="md" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {editingAi?.name || resolveAiProviderVisual(aiForm.provider).shortLabel}
+                </p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {resolveAiProviderVisual(aiForm.provider).protocolLabel}
+                </p>
+              </div>
+            </div>
+            {editingAi ? <StatusBadge status={editingAi.healthStatus} /> : null}
+          </div>
           {aiForm.provider === "CUSTOM" ? (
             <Field label="Tên hiển thị">
               <input
@@ -807,32 +712,55 @@ export default function SettingsScreen() {
               />
             </Field>
           ) : null}
-          <Field label="Model">
-            <div className="space-y-2">
+          <Field label="Model mặc định">
+            <div className="space-y-2.5">
               {modelMode === "catalog" && availableModelOptions.length ? (
                 <SearchableSelect
                   aria-label={`Tìm model ${aiForm.provider}`}
                   emptyMessage="Không tìm thấy model phù hợp. Chuyển sang nhập thủ công để dùng model khác."
                   onChange={(model) => setAiForm({ ...aiForm, model })}
-                  options={availableModelOptions.map((model) => ({
-                    ...model,
-                    keywords: `${model.value} ${model.label}`,
-                  }))}
+                  options={availableModelOptions.map((model) => {
+                    const modelMeta = resolveAiModelVisual(
+                      model.value,
+                      aiForm.provider,
+                    );
+                    return {
+                      ...model,
+                      badge: modelMeta.tierBadge,
+                      description: model.description || modelMeta.capabilityLabel,
+                      keywords: `${model.value} ${model.label} ${modelMeta.familyLabel}`,
+                      icon: (
+                        <AiModelGlyph
+                          model={model.value}
+                          provider={aiForm.provider}
+                          size="xs"
+                        />
+                      ),
+                    };
+                  })}
                   placeholder="Gõ tên model để tìm trong danh sách…"
                   value={aiForm.model}
                 />
               ) : (
-                <input
-                  aria-label={`Nhập model ${aiForm.provider}`}
-                  className={inputClass}
-                  maxLength={200}
-                  onChange={(event) =>
-                    setAiForm({ ...aiForm, model: event.target.value })
-                  }
-                  placeholder="org/model-name"
-                  required
-                  value={aiForm.model}
-                />
+                <div className="space-y-2">
+                  <input
+                    aria-label={`Nhập model ${aiForm.provider}`}
+                    className={inputClass}
+                    maxLength={200}
+                    onChange={(event) =>
+                      setAiForm({ ...aiForm, model: event.target.value })
+                    }
+                    placeholder="org/model-name"
+                    required
+                    value={aiForm.model}
+                  />
+                  {aiForm.model.trim() ? (
+                    <AiModelIdentityBadge
+                      model={aiForm.model}
+                      provider={aiForm.provider}
+                    />
+                  ) : null}
+                </div>
               )}
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <span className="max-w-xl text-xs leading-5 text-[var(--ink-muted)]">

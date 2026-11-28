@@ -1,13 +1,15 @@
 "use client";
 
 import { Check, ChevronDown, Search, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 export interface SearchableSelectOption {
   value: string;
   label: string;
   description?: string;
   keywords?: string;
+  icon?: ReactNode;
+  badge?: string;
 }
 
 interface SearchableSelectProps {
@@ -57,17 +59,27 @@ export function SearchableSelect({
     setActiveIndex(0);
   };
 
+  const showSelectedIcon = !open && Boolean(selected?.icon);
+
   return (
     <div className="relative min-w-0">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={15} />
+        {showSelectedIcon ? (
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2">
+            {selected?.icon}
+          </span>
+        ) : (
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={15} />
+        )}
         <input
           aria-activedescendant={open && filtered[activeIndex] ? `${listboxId}-${activeIndex}` : undefined}
           aria-autocomplete="list"
           aria-controls={listboxId}
           aria-expanded={open}
           aria-label={ariaLabel}
-          className="min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 py-2 pl-9 pr-16 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 shadow-2xs"
+          className={`min-h-10 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 py-2 ${
+            showSelectedIcon ? "pl-10" : "pl-9"
+          } pr-16 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none transition-all duration-150 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/15 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-slate-800/50 shadow-2xs`}
           disabled={disabled}
           onBlur={() => {
             if (blurTimer.current !== null) clearTimeout(blurTimer.current);
@@ -123,11 +135,11 @@ export function SearchableSelect({
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={15} />
       </div>
       {open ? (
-        <div className="absolute z-50 mt-1.5 max-h-64 w-full overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1 shadow-lg dark:shadow-2xl" id={listboxId} role="listbox">
+        <div className="absolute z-50 mt-1.5 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-1.5 shadow-lg dark:shadow-2xl" id={listboxId} role="listbox">
           {filtered.length ? filtered.map((option, index) => (
             <button
               aria-selected={option.value === value}
-              className={`flex min-h-9 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+              className={`flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left transition-colors ${
                 index === activeIndex
                   ? "bg-sky-50 dark:bg-slate-800 text-sky-800 dark:text-sky-300"
                   : "text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60"
@@ -140,9 +152,19 @@ export function SearchableSelect({
               role="option"
               type="button"
             >
-              <span className="min-w-0">
-                <strong className="block truncate text-xs sm:text-sm font-semibold">{option.label}</strong>
-                {option.description ? <small className="mt-0.5 block truncate text-[11px] font-normal text-slate-400 dark:text-slate-500">{option.description}</small> : null}
+              <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                {option.icon ? <span className="shrink-0">{option.icon}</span> : null}
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <strong className="truncate text-xs sm:text-sm font-semibold">{option.label}</strong>
+                    {option.badge ? (
+                      <span className="shrink-0 rounded-md bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                        {option.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  {option.description ? <small className="mt-0.5 block truncate text-[11px] font-normal text-slate-500 dark:text-slate-400">{option.description}</small> : null}
+                </span>
               </span>
               {option.value === value ? <Check className="shrink-0 text-sky-600 dark:text-sky-400" size={15} /> : null}
             </button>

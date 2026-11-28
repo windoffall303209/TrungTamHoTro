@@ -275,5 +275,8 @@
   "Tăng 0,25 {{0}}": "Increase {{0}} by 0.25",
   "tiêu chí {{0}}": "criterion {{0}}",
   "Độ khó {{0}}": "Difficulty {{0}}",
-  "Lọc ({{0}})": "Filter ({{0}})"
+  "Lọc ({{0}})": "Filter ({{0}})",
+  "{{0}} lượt/câu · {{1}} lượt/đề": "{{0}} turns/question · {{1}} turns/exam",
+  "Kiểm tra lúc {{0}}": "Checked at {{0}}",
+  "Mặc định: {{0}}": "Default: {{0}}"
 }

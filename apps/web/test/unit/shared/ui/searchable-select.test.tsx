@@ -36,4 +36,26 @@ describe("SearchableSelect", () => {
     cleanup();
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("hiển thị icon nhận diện và huy hiệu phân khúc của model trong danh sách và khi đã chọn", () => {
+    render(
+      <SearchableSelect
+        aria-label="Chọn model AI"
+        onChange={vi.fn()}
+        options={[
+          {
+            value: "gemini-2.5-flash",
+            label: "Gemini 2.5 Flash",
+            badge: "Flash · Đa năng",
+            icon: <span data-testid="icon-gemini-flash" />,
+          },
+        ]}
+        value="gemini-2.5-flash"
+      />,
+    );
+
+    expect(screen.getByTestId("icon-gemini-flash")).toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("combobox", { name: "Chọn model AI" }));
+    expect(screen.getByText("Flash · Đa năng")).toBeInTheDocument();
+  });
 });
