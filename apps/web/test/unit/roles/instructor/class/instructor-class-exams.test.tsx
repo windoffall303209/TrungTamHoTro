@@ -382,4 +382,89 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
     expect(await screen.findByText(/Loại bài đang chọn: Đề Tự luận/)).toBeVisible();
     expect(screen.getByRole("button", { name: /3\. Tạo đề tự luận bằng AI/ })).toBeVisible();
   });
+
+  it("hỗ trợ tìm kiếm theo từ khóa và lọc chọn nhiều mức độ khó cùng hàng Chọn câu trắc nghiệm ở Ngân hàng câu hỏi", async () => {
+    const bankMcEasy = {
+      id: "q-mc-easy",
+      courseId: "course-1",
+      type: "SINGLE_CHOICE",
+      content: "Tính chu vi hình chữ nhật chiều dài 8 cm, chiều rộng 5 cm.",
+      options: ["26 cm", "20 cm"],
+      correctAnswers: ["26 cm"],
+      difficulty: 1,
+      tags: ["Hình học"],
+      status: "PUBLISHED",
+      version: 1,
+    };
+    const bankMcMedium = {
+      id: "q-mc-medium",
+      courseId: "course-1",
+      type: "SINGLE_CHOICE",
+      content: "Giải phương trình bậc hai x^2 - 5x + 6 = 0.",
+      options: ["x = 2; x = 3", "x = 1; x = 6"],
+      correctAnswers: ["x = 2; x = 3"],
+      difficulty: 2,
+      tags: ["Đại số"],
+      status: "PUBLISHED",
+      version: 1,
+    };
+    const bankMcHard = {
+      id: "q-mc-hard",
+      courseId: "course-1",
+      type: "SINGLE_CHOICE",
+      content: "Tìm giá trị tham số m để hàm số đồng biến trên R.",
+      options: ["m >= 0", "m > 1"],
+      correctAnswers: ["m >= 0"],
+      difficulty: 3,
+      tags: ["Giải tích"],
+      status: "PUBLISHED",
+      version: 1,
+    };
+
+    request.mockImplementation(async (url: string) => {
+      if (url.includes("/folders")) return { assignments: [], materials: [], lectures: [] };
+      if (url.startsWith("/materials/search")) return { items: [], page: 1, pageSize: 50, total: 0, totalPages: 1 };
+      if (url.startsWith("/exams/page?")) return { items: [sampleExam], page: 1, pageSize: 100, total: 1 };
+      if (url === `/academic/assignments?classId=${classItem.id}`) return [];
+      if (url === `/instructor/classes/${classItem.id}/learners`) return [];
+      if (url.startsWith("/instructor/question-bank/questions")) {
+        return [bankMcEasy, bankMcMedium, bankMcHard];
+      }
+      return [];
+    });
+
+    render(<InstructorClassWorkspace item={classItem} course={null} />);
+    await screen.findByRole("button", { name: /Đề kiểm tra chương một/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /Tạo bài tập/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Đề Trắc nghiệm/ }));
+    fireEvent.click(screen.getByRole("button", { name: /4\. Chọn câu trắc nghiệm từ Ngân hàng/ }));
+
+    expect(await screen.findByText(/Tính chu vi hình chữ nhật/)).toBeVisible();
+    expect(screen.getByText(/Giải phương trình bậc hai/)).toBeVisible();
+    expect(screen.getByText(/Tìm giá trị tham số m/)).toBeVisible();
+
+    // Bấm nút Lọc -> mở dropdown và chọn đồng thời 2 mức độ khó: "Cơ bản" và "Vận dụng"
+    fireEvent.click(screen.getByRole("button", { name: /^Lọc$/ }));
+    const filterGroup = screen.getByRole("group", { name: "Lọc mức độ khó câu hỏi" });
+    fireEvent.click(within(filterGroup).getByLabelText("Độ khó Cơ bản"));
+    fireEvent.click(within(filterGroup).getByLabelText("Độ khó Vận dụng"));
+
+    expect(screen.getByRole("button", { name: "Lọc (2)" })).toBeVisible();
+    expect(screen.getByText(/Tính chu vi hình chữ nhật/)).toBeVisible();
+    expect(screen.getByText(/Tìm giá trị tham số m/)).toBeVisible();
+    expect(screen.queryByText(/Giải phương trình bậc hai/)).not.toBeInTheDocument();
+
+    // Gõ từ khóa vào ô tìm kiếm cùng hàng -> lọc giao giữa từ khóa và 2 mức độ khó đang chọn
+    fireEvent.change(screen.getByLabelText("Tìm kiếm câu hỏi ngân hàng"), {
+      target: { value: "tham số m" },
+    });
+    expect(screen.getByText(/Tìm giá trị tham số m/)).toBeVisible();
+    expect(screen.queryByText(/Tính chu vi hình chữ nhật/)).not.toBeInTheDocument();
+
+    // Xóa từ khóa tìm kiếm và bỏ lọc độ khó -> hiện lại đủ 3 câu
+    fireEvent.click(screen.getByRole("button", { name: "Xóa từ khóa tìm kiếm" }));
+    fireEvent.click(within(filterGroup).getByRole("button", { name: "Bỏ lọc" }));
+    expect(screen.getByText(/Giải phương trình bậc hai/)).toBeVisible();
+  });
 });

@@ -113,19 +113,42 @@ export function getClassQuestionStats(questions: ReadonlyArray<{ type: string }>
   };
 }
 
-// Dùng cùng quy tắc phân loại câu hỏi cho ngân hàng, chọn đề thủ công, AI và chọn ngẫu nhiên.
+export const BANK_DIFFICULTY_LEVELS = [
+  "Cơ bản",
+  "Thông hiểu",
+  "Vận dụng",
+  "Vận dụng cao",
+] as const;
+
+export type BankDifficultyLevel = (typeof BANK_DIFFICULTY_LEVELS)[number];
+
+// Dùng cùng quy tắc phân loại câu hỏi cho ngân hàng, chọn đề thủ công (hỗ trợ lọc đa độ khó và tìm kiếm), AI và chọn ngẫu nhiên.
 export function filterClassQuestions(
   questions: ReadonlyArray<ClassQuestion>,
   scope: "ALL" | "MULTIPLE_CHOICE" | "ESSAY",
-  difficulty = "ALL",
+  difficulty: string | ReadonlyArray<string> = "ALL",
   search = "",
 ): ClassQuestion[] {
   const query = search.toLowerCase().trim();
+  const multiDifficulties = Array.isArray(difficulty)
+    ? new Set(difficulty.filter(Boolean))
+    : null;
   return questions.filter((question) => {
     if (scope === "MULTIPLE_CHOICE" && question.type === "Tự luận") return false;
     if (scope === "ESSAY" && question.type !== "Tự luận") return false;
-    if (difficulty !== "ALL" && question.difficulty !== difficulty) return false;
-    return !query || question.content.toLowerCase().includes(query) || question.source?.toLowerCase().includes(query);
+    if (multiDifficulties) {
+      if (multiDifficulties.size > 0 && !multiDifficulties.has(question.difficulty)) {
+        return false;
+      }
+    } else if (difficulty !== "ALL" && question.difficulty !== difficulty) {
+      return false;
+    }
+    if (!query) return true;
+    return (
+      question.content.toLowerCase().includes(query) ||
+      Boolean(question.source?.toLowerCase().includes(query)) ||
+      Boolean(question.options?.some((opt) => opt.toLowerCase().includes(query)))
+    );
   });
 }
 

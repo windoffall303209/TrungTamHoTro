@@ -273,5 +273,7 @@
   "Ngân hàng lớp hiện có {{0}} câu trắc nghiệm đã xuất bản · Tổng {{1}} điểm": "Class bank currently has {{0}} published multiple-choice questions · Total {{1}} points",
   "Ngân hàng lớp hiện có {{0}} câu tự luận đã xuất bản · Tổng {{1}} điểm": "Class bank currently has {{0}} published essay questions · Total {{1}} points",
   "Tăng 0,25 {{0}}": "Increase {{0}} by 0.25",
-  "tiêu chí {{0}}": "criterion {{0}}"
+  "tiêu chí {{0}}": "criterion {{0}}",
+  "Độ khó {{0}}": "Difficulty {{0}}",
+  "Lọc ({{0}})": "Filter ({{0}})"
 }

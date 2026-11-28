@@ -117,6 +117,10 @@ describe("instructor class workspace helpers", () => {
       .toEqual(["essay", "multi"]);
     expect(filterClassQuestions(questions, "MULTIPLE_CHOICE", "Cơ bản", " PHÂN ").map((question) => question.id))
       .toEqual(["choice"]);
+    expect(filterClassQuestions(questions, "MULTIPLE_CHOICE", ["Cơ bản", "Thông hiểu"]).map((question) => question.id))
+      .toEqual(["choice", "multi"]);
+    expect(filterClassQuestions(questions, "MULTIPLE_CHOICE", [], "").map((question) => question.id))
+      .toEqual(["choice", "multi"]);
     expect(questions.map((question) => question.id)).toEqual(["choice", "essay", "multi"]);
   });
 

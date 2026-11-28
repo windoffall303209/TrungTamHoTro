@@ -81,6 +81,7 @@ import {
   type AssignmentBuilderModalProps,
 } from "@/features/exams/assignment-builder-modal";
 import {
+  BANK_DIFFICULTY_LEVELS,
   detectLectureLinkPlatform,
   filterClassQuestions,
   getClassQuestionStats,
@@ -356,6 +357,10 @@ export function InstructorClassWorkspace({
   const [manualExamTutorEnabled, setManualExamTutorEnabled] = useState(false);
   const [examSaving, setExamSaving] = useState(false);
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
+  const [manualExamSearch, setManualExamSearch] = useState("");
+  const [manualExamDifficulties, setManualExamDifficulties] = useState<string[]>([]);
+  const [manualDifficultyDropdownOpen, setManualDifficultyDropdownOpen] = useState(false);
+  const manualDifficultyFilterRef = useRef<HTMLDivElement | null>(null);
 
   // Kiểu 2: Chọn mốc để AI chọn câu hỏi
   const [aiCriteriaQuestionCount, setAiCriteriaQuestionCount] = useState(10);
@@ -429,7 +434,48 @@ export function InstructorClassWorkspace({
     () => filterClassQuestions(publishedClassQuestions, bankBuilderAssignmentType),
     [publishedClassQuestions, bankBuilderAssignmentType],
   );
-  const manualExamVisibleQuestions = scopedPublishedBankQuestions;
+  const manualExamVisibleQuestions = useMemo(
+    () =>
+      filterClassQuestions(
+        publishedClassQuestions,
+        bankBuilderAssignmentType,
+        manualExamDifficulties,
+        manualExamSearch,
+      ),
+    [publishedClassQuestions, bankBuilderAssignmentType, manualExamDifficulties, manualExamSearch],
+  );
+  const manualExamDifficultyCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const level of BANK_DIFFICULTY_LEVELS) counts[level] = 0;
+    for (const q of scopedPublishedBankQuestions) {
+      counts[q.difficulty] = (counts[q.difficulty] ?? 0) + 1;
+    }
+    return counts;
+  }, [scopedPublishedBankQuestions]);
+
+  // Tự động đóng dropdown lọc độ khó khi giảng viên bấm ra ngoài hoặc nhấn phím Escape.
+  useEffect(() => {
+    if (!manualDifficultyDropdownOpen) return;
+    // Đóng menu lọc độ khó khi click chuột bên ngoài vùng tham chiếu.
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        manualDifficultyFilterRef.current &&
+        !manualDifficultyFilterRef.current.contains(event.target as Node)
+      ) {
+        setManualDifficultyDropdownOpen(false);
+      }
+    };
+    // Đóng menu lọc độ khó khi nhấn phím Escape.
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setManualDifficultyDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [manualDifficultyDropdownOpen]);
   const manualExamAllVisibleSelected = manualExamVisibleQuestions.length > 0 &&
     manualExamVisibleQuestions.every((question) => manualExamSelectedQuestions.includes(question.id));
   const publishedQuestionStats = useMemo(() => getClassQuestionStats(publishedClassQuestions), [publishedClassQuestions]);
@@ -3091,6 +3137,9 @@ export function InstructorClassWorkspace({
               setManualExamQuestionScores({});
               setManualExamCustomScored(false);
               setManualExamSelectedQuestions([]);
+              setManualExamSearch("");
+              setManualExamDifficulties([]);
+              setManualDifficultyDropdownOpen(false);
               setAiCriteriaPreviewList([]);
               setExamCreationMode("MANUAL");
               setManualExamTitle(
@@ -4272,6 +4321,9 @@ export function InstructorClassWorkspace({
                       setManualExamQuestionScores({});
                       setManualExamCustomScored(false);
                       setManualExamSelectedQuestions([]);
+                      setManualExamSearch("");
+                      setManualExamDifficulties([]);
+                      setManualDifficultyDropdownOpen(false);
                       setAiCriteriaPreviewList([]);
                       setExamCreationMode("MANUAL");
                       setCreationHubOpen(false);
@@ -5071,14 +5123,126 @@ export function InstructorClassWorkspace({
                   ================================================================= */}
               {examCreationMode === "MANUAL" && (
                 <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
                       {bankBuilderAssignmentType === "ESSAY"
                         ? `Chọn câu tự luận (${manualExamSelectedQuestions.length}/${scopedPublishedBankQuestions.length} câu đã xuất bản):`
                         : `Chọn câu trắc nghiệm (${manualExamSelectedQuestions.length}/${scopedPublishedBankQuestions.length} câu đã xuất bản):`}
                     </span>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-1 flex-wrap items-center justify-end gap-2 min-w-[260px]">
+                      <div className="relative flex-1 min-w-[150px] max-w-[220px]">
+                        <Search
+                          size={13}
+                          aria-hidden="true"
+                          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                          type="text"
+                          value={manualExamSearch}
+                          onChange={(e) => setManualExamSearch(e.target.value)}
+                          placeholder="Tìm câu hỏi, nguồn..."
+                          aria-label="Tìm kiếm câu hỏi ngân hàng"
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-7 pr-6 py-1.5 text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        {manualExamSearch.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setManualExamSearch("")}
+                            aria-label="Xóa từ khóa tìm kiếm"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div ref={manualDifficultyFilterRef} className="relative shrink-0">
+                        <button
+                          type="button"
+                          aria-expanded={manualDifficultyDropdownOpen}
+                          aria-haspopup="true"
+                          onClick={() => setManualDifficultyDropdownOpen((prev) => !prev)}
+                          className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition cursor-pointer whitespace-nowrap ${
+                            manualExamDifficulties.length > 0
+                              ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+                              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                          }`}
+                        >
+                          <Filter size={13} aria-hidden="true" />
+                          <span>
+                            {manualExamDifficulties.length > 0
+                              ? `Lọc (${manualExamDifficulties.length})`
+                              : "Lọc"}
+                          </span>
+                          <ChevronDown
+                            size={13}
+                            aria-hidden="true"
+                            className={`transition-transform ${manualDifficultyDropdownOpen ? "rotate-180" : ""}`}
+                          />
+                        </button>
+
+                        {manualDifficultyDropdownOpen && (
+                          <div
+                            role="group"
+                            aria-label="Lọc mức độ khó câu hỏi"
+                            className="absolute right-0 top-full z-30 mt-1.5 w-56 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 shadow-xl space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between px-1 pb-1 border-b border-slate-100 dark:border-slate-800">
+                              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                Mức độ khó
+                              </span>
+                              {manualExamDifficulties.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setManualExamDifficulties([])}
+                                  className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
+                                >
+                                  Bỏ lọc
+                                </button>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              {BANK_DIFFICULTY_LEVELS.map((level) => {
+                                const checked = manualExamDifficulties.includes(level);
+                                return (
+                                  <label
+                                    key={level}
+                                    className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer transition ${
+                                      checked
+                                        ? "bg-indigo-50/80 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 font-semibold"
+                                        : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70"
+                                    }`}
+                                  >
+                                    <span className="flex items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        aria-label={`Độ khó ${level}`}
+                                        checked={checked}
+                                        onChange={(e) => {
+                                          setManualExamDifficulties((prev) =>
+                                            e.target.checked
+                                              ? prev.includes(level)
+                                                ? prev
+                                                : [...prev, level]
+                                              : prev.filter((item) => item !== level),
+                                          );
+                                        }}
+                                        className="rounded text-indigo-600 accent-indigo-600"
+                                      />
+                                      <span>{level}</span>
+                                    </span>
+                                    <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                      {manualExamDifficultyCounts[level] ?? 0}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {manualExamSelectedQuestions.length > 0 && (
                         <button
                           type="button"
@@ -5088,7 +5252,7 @@ export function InstructorClassWorkspace({
                               buildEqualBankScoreMap(manualExamSelectedQuestions, manualExamTargetScore),
                             );
                           }}
-                          className="text-emerald-600 font-bold hover:underline cursor-pointer"
+                          className="text-emerald-600 font-bold hover:underline cursor-pointer whitespace-nowrap"
                         >
                           Chia đều điểm
                         </button>
@@ -5105,7 +5269,7 @@ export function InstructorClassWorkspace({
                           );
                         }}
                         disabled={manualExamVisibleQuestions.length === 0}
-                        className="text-indigo-600 font-bold hover:underline cursor-pointer disabled:opacity-40"
+                        className="text-indigo-600 font-bold hover:underline cursor-pointer disabled:opacity-40 whitespace-nowrap"
                       >
                         {manualExamAllVisibleSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
                       </button>
@@ -5113,10 +5277,26 @@ export function InstructorClassWorkspace({
                   </div>
 
                   {manualExamVisibleQuestions.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center text-xs text-slate-500">
-                      {bankBuilderAssignmentType === "ESSAY"
-                        ? "Ngân hàng lớp hiện chưa có câu hỏi tự luận nào đã xuất bản."
-                        : "Ngân hàng lớp hiện chưa có câu hỏi trắc nghiệm nào đã xuất bản."}
+                    <div className="rounded-xl border border-dashed border-slate-200 dark:border-slate-700 p-6 text-center text-xs text-slate-500 space-y-2">
+                      <p>
+                        {scopedPublishedBankQuestions.length === 0
+                          ? bankBuilderAssignmentType === "ESSAY"
+                            ? "Ngân hàng lớp hiện chưa có câu hỏi tự luận nào đã xuất bản."
+                            : "Ngân hàng lớp hiện chưa có câu hỏi trắc nghiệm nào đã xuất bản."
+                          : "Không tìm thấy câu hỏi phù hợp với từ khóa hoặc bộ lọc độ khó đang chọn."}
+                      </p>
+                      {scopedPublishedBankQuestions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualExamSearch("");
+                            setManualExamDifficulties([]);
+                          }}
+                          className="font-bold text-indigo-600 hover:underline cursor-pointer"
+                        >
+                          Xóa tìm kiếm & bộ lọc
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
