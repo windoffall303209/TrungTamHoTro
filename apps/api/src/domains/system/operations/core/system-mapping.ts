@@ -24,6 +24,23 @@ export function mapSettings(
 ): SystemSettings {
   const fallback = defaultSettings();
   const record = serviceContext.asRecord(value);
+  const rawPerQuestion = Math.trunc(
+    serviceContext.numberValue(
+      record.aiTutorMaxPerQuestion,
+      fallback.aiTutorMaxPerQuestion,
+    ),
+  );
+  const aiTutorMaxPerQuestion = Math.max(1, Math.min(20, rawPerQuestion || fallback.aiTutorMaxPerQuestion));
+  const rawPerExam = Math.trunc(
+    serviceContext.numberValue(
+      record.aiTutorMaxPerExam,
+      fallback.aiTutorMaxPerExam,
+    ),
+  );
+  const aiTutorMaxPerExam = Math.max(
+    aiTutorMaxPerQuestion,
+    Math.min(200, rawPerExam || fallback.aiTutorMaxPerExam),
+  );
   return {
     centerName: serviceContext.stringValue(
       record.centerName,
@@ -57,6 +74,8 @@ export function mapSettings(
       record.learnerEmailNotificationsEnabled,
       fallback.learnerEmailNotificationsEnabled,
     ),
+    aiTutorMaxPerQuestion,
+    aiTutorMaxPerExam,
     version,
     updatedBy,
     updatedAt: updatedAt.toISOString(),

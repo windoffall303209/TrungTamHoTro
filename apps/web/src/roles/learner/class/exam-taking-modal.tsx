@@ -16,8 +16,13 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { apiRequest } from "@/lib/api-client";
-import type { Question } from "@/lib/learning-types";
+import type {
+  ExamAttemptTutorState,
+  ExamTutorAskResult,
+  Question,
+} from "@/lib/learning-types";
 import { RichText } from "@/shared/ui/ui";
+import { QuestionAiTutorPanel } from "./question-ai-tutor-panel";
 
 type ExamApiOption = string | { key?: string; text?: string; value?: string };
 type ExamApiQuestion = Omit<Question, "options"> & {
@@ -37,6 +42,7 @@ export interface ExamTakingData {
   totalScore?: number;
   closeAt?: string;
   questionScores?: Record<string, number>;
+  aiTutorEnabled?: boolean;
 }
 
 interface QuestionItem {
@@ -195,6 +201,9 @@ export function ExamTakingModal({
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [confirmSubmitModalOpen, setConfirmSubmitModalOpen] = useState(false);
   const [reviewFilter, setReviewFilter] = useState<"all" | "correct" | "wrong">("all");
+  const [tutorState, setTutorState] = useState<ExamAttemptTutorState | null>(null);
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorLoadError, setTutorLoadError] = useState<string | null>(null);
 
   const deadlineRef = useRef<number | null>(null);
   const serverOffsetRef = useRef(0);
@@ -204,6 +213,7 @@ export function ExamTakingModal({
   const examDurationMinutes = exam?.durationMinutes;
   const examCloseAt = exam?.closeAt;
   const examTotalScore = exam?.totalScore;
+  const examAiTutorEnabled = Boolean(exam?.aiTutorEnabled);
 
   // Tải danh sách câu hỏi THẬT từ PostgreSQL Database khi mở bài thi
   useEffect(() => {
@@ -377,7 +387,51 @@ export function ExamTakingModal({
     setStartConfirmed(isInstructorPreview);
     setExitConfirmOpen(false);
     setConfirmSubmitModalOpen(false);
+    setTutorState(null);
+    setTutorLoading(false);
+    setTutorLoadError(null);
   }, [open, examId, examDurationMinutes, isInstructorPreview]);
+
+  /** Tải cấu hình gợi ý mẫu, hạn mức và lịch sử hỏi đáp AI của lượt làm bài đang mở khi đề cho phép. */
+  const loadAttemptTutorState = useCallback(async (activeAttemptId: string) => {
+    setTutorLoading(true);
+    setTutorLoadError(null);
+    try {
+      const state = await apiRequest<ExamAttemptTutorState>(
+        `/learner/exam-attempts/${encodeURIComponent(activeAttemptId)}/ai-tutor`,
+      );
+      setTutorState(state);
+    } catch (error) {
+      setTutorLoadError(
+        error instanceof Error ? error.message : "Không tải được khung gia sư AI.",
+      );
+    } finally {
+      setTutorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open || isInstructorPreview || !examAiTutorEnabled || !attemptId || isSubmitted) return;
+    void loadAttemptTutorState(attemptId);
+  }, [attemptId, examAiTutorEnabled, isInstructorPreview, isSubmitted, loadAttemptTutorState, open]);
+
+  /** Đồng bộ lượt trả lời mới của gia sư AI và cập nhật hạn mức còn lại ngay trên giao diện. */
+  const handleTutorTurnCompleted = useCallback((result: ExamTutorAskResult) => {
+    setTutorState((prev) => {
+      if (!prev) return prev;
+      const qId = result.turn.questionId;
+      const existingThread = prev.threads[qId] ?? [];
+      const alreadyPresent = existingThread.some((item) => item.id === result.turn.id);
+      return {
+        ...prev,
+        quota: result.quota,
+        threads: {
+          ...prev.threads,
+          [qId]: alreadyPresent ? existingThread : [...existingThread, result.turn],
+        },
+      };
+    });
+  }, []);
 
   // Đồng hồ học viên dùng thời hạn thật của lượt thi trên máy chủ; bản xem trước của giáo viên bắt đầu khi xác nhận.
   useEffect(() => {
@@ -1037,8 +1091,8 @@ export function ExamTakingModal({
 
             {/* Thân Bài Thi (Bố cục 2 cột chuyên nghiệp) */}
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-hidden">
-              {/* CỘT TRÁI (Lg 8): Nội dung câu hỏi và các đáp án trắc nghiệm */}
-              <div className="lg:col-span-8 flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 p-5 sm:p-6 overflow-y-auto">
+              {/* CỘT TRÁI: Nội dung câu hỏi và các đáp án trắc nghiệm */}
+              <div className={`${examAiTutorEnabled ? "lg:col-span-7" : "lg:col-span-8"} flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 p-5 sm:p-6 overflow-y-auto`}>
                 <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <span className="text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
@@ -1174,8 +1228,8 @@ export function ExamTakingModal({
                 </div>
               </div>
 
-              {/* CỘT PHẢI (Lg 4): Bảng Ô Số Thứ Tự Các Câu Hỏi (Question Palette Grid) */}
-              <div className="lg:col-span-4 flex flex-col p-4 sm:p-5 bg-slate-50/50 dark:bg-[#16171f] overflow-y-auto space-y-4">
+              {/* CỘT PHẢI: Bảng Ô Số Thứ Tự Các Câu Hỏi + Khung Gia Sư AI Dẫn Dắt (khi giảng viên bật) */}
+              <div className={`${examAiTutorEnabled ? "lg:col-span-5" : "lg:col-span-4"} flex flex-col min-h-0 p-4 sm:p-5 bg-slate-50/50 dark:bg-[#16171f] overflow-y-auto space-y-4`}>
                 <div>
                   <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     Danh sách câu hỏi
@@ -1193,11 +1247,12 @@ export function ExamTakingModal({
                 </div>
 
                 {/* LƯỚI CÁC Ô SỐ THỨ TỰ CÂU HỎI */}
-                <div className="grid grid-cols-5 gap-2.5 pt-1">
+                <div className={`grid ${examAiTutorEnabled ? "grid-cols-6 sm:grid-cols-8 lg:grid-cols-6" : "grid-cols-5"} gap-2 pt-1 shrink-0`}>
                   {questions.map((q, idx) => {
                     const hasAnswer = answers[idx] !== undefined;
                     const isFlagged = flagged[idx];
                     const isCurrent = currentIdx === idx;
+                    const hasTutorChat = Boolean(tutorState?.threads[String(q.id)]?.length);
 
                     let bgClass =
                       "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700";
@@ -1217,16 +1272,44 @@ export function ExamTakingModal({
                         key={q.id}
                         type="button"
                         onClick={() => setCurrentIdx(idx)}
-                        className={`h-10 rounded-xl border flex items-center justify-center text-xs font-bold transition-all hover:scale-105 cursor-pointer relative ${bgClass}`}
+                        className={`h-9 rounded-xl border flex items-center justify-center text-xs font-bold transition-all hover:scale-105 cursor-pointer relative ${bgClass}`}
                       >
                         <span>{idx + 1}</span>
                         {isFlagged && (
                           <span className="absolute top-1 right-1 size-1.5 rounded-full bg-amber-500" />
                         )}
+                        {hasTutorChat && !isFlagged && (
+                          <span className="absolute top-1 right-1 size-1.5 rounded-full bg-indigo-500" />
+                        )}
                       </button>
                     );
                   })}
                 </div>
+
+                {examAiTutorEnabled && (
+                  <QuestionAiTutorPanel
+                    attemptId={attemptId}
+                    questionId={String(currentQ.id)}
+                    questionNumber={currentIdx + 1}
+                    enabled={examAiTutorEnabled && (isInstructorPreview || tutorState?.enabled !== false)}
+                    isInstructorPreview={isInstructorPreview}
+                    draftAnswer={
+                      currentQ.options.length > 0
+                        ? currentQ.type === "MULTIPLE_CHOICE"
+                          ? (multiAnswers[currentIdx] ?? [])
+                              .map((key) => currentQ.options.find((opt) => opt.key === key)?.text)
+                              .filter(Boolean)
+                              .join("; ")
+                          : currentQ.options.find((opt) => opt.key === answers[currentIdx])?.text
+                        : essayTextAnswers[currentIdx]
+                    }
+                    tutorState={tutorState}
+                    loadingState={tutorLoading}
+                    loadStateError={tutorLoadError}
+                    onRetryLoadState={attemptId ? () => void loadAttemptTutorState(attemptId) : undefined}
+                    onTurnCompleted={handleTutorTurnCompleted}
+                  />
+                )}
               </div>
             </div>
           </>

@@ -132,6 +132,15 @@ export function ClassExamPreviewModal({
                 {exam.hidden ? <EyeOff size={11} /> : <Eye size={11} />}
                 <span>{exam.hidden ? "Đã ẩn với học sinh" : "Đang hiển thị"}</span>
               </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                  exam.aiTutorEnabled
+                    ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                }`}
+              >
+                <span>{exam.aiTutorEnabled ? "Hỏi đáp AI: Đang bật" : "Hỏi đáp AI: Đang tắt"}</span>
+              </span>
             </div>
             <h2 id="class-exam-preview-title" className="mt-1.5 text-lg font-extrabold text-slate-900 dark:text-white">
               {exam.title}
@@ -797,6 +806,7 @@ export function ClassExamEditModal({
   const [closeAt, setCloseAt] = useState("");
   const [attemptLimit, setAttemptLimit] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
+  const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [questions, setQuestions] = useState<EditableExamQuestion[]>([]);
   const [selectedBankQuestionId, setSelectedBankQuestionId] = useState("");
@@ -810,6 +820,7 @@ export function ClassExamEditModal({
     setCloseAt(toLocalDateTimeInput(exam.closeAt));
     setAttemptLimit(exam.attemptLimit);
     setShuffleQuestions(Boolean(exam.shuffleQuestions));
+    setAiTutorEnabled(Boolean(exam.aiTutorEnabled));
     setHidden(Boolean(exam.hidden));
     setQuestions([]);
     setSelectedBankQuestionId("");
@@ -1093,6 +1104,7 @@ export function ClassExamEditModal({
           closeAt: localDateTimeToIso(closeAt),
           attemptLimit,
           shuffleQuestions,
+          aiTutorEnabled,
           ...(exam.randomSeed ? { randomSeed: exam.randomSeed } : {}),
           scoreAllocations: finalScores,
           expectedVersion: currentVersion,
@@ -1245,6 +1257,16 @@ export function ClassExamEditModal({
                     className="size-4 accent-blue-600"
                   />
                   <span>Ẩn bài tập với học sinh</span>
+                </label>
+
+                <label className="inline-flex items-center gap-2 font-semibold text-indigo-700 dark:text-indigo-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={aiTutorEnabled}
+                    onChange={(event) => setAiTutorEnabled(event.target.checked)}
+                    className="size-4 accent-indigo-600"
+                  />
+                  <span>Cho phép hỏi đáp AI dẫn dắt theo từng câu</span>
                 </label>
               </div>
 

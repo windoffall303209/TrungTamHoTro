@@ -10,6 +10,8 @@ export interface SystemSettings {
   notificationSender: string;
   maintenanceMode: boolean;
   learnerEmailNotificationsEnabled: boolean;
+  aiTutorMaxPerQuestion: number;
+  aiTutorMaxPerExam: number;
   version: number;
   updatedBy: string;
   updatedAt: IsoDateTimeString;
@@ -182,6 +184,7 @@ export interface AiCallMetric {
     | "DOCUMENT_QA"
     | "STUDY_GUIDE"
     | "GRADING_ASSIST"
+    | "TUTOR_ASSIST"
     | "HEALTH_CHECK";
   outcome: "SUCCESS" | "ERROR";
   count: number;

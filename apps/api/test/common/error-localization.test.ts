@@ -45,6 +45,12 @@ describe("error localization", () => {
     expect(localizeErrorMessage("Provider từ chối dữ liệu khi hỏi đáp tài liệu (400). Kiểm tra model và định dạng request.", "en-US")).toBe(
       "Provider rejected the payload while running document Q&A (400). Check the model and request format.",
     );
+    expect(localizeErrorMessage("Provider đã hết hạn mức khi hỏi đáp dẫn dắt bài tập (429). Hãy thử lại sau hoặc đổi model.", "en-US")).toBe(
+      "Provider quota exceeded while running Socratic tutor guidance (429). Try again later or switch models.",
+    );
+    expect(localizeErrorMessage("Giảng viên không bật tính năng hỏi đáp AI cho đề này.", "en-US")).toBe(
+      "The instructor has not enabled AI tutor Q&A for this exam.",
+    );
     expect(localizeErrorMessage("Resend từ chối yêu cầu gửi email (validation_error).", "en-US")).toBe(
       "Resend rejected the email request (validation_error).",
     );

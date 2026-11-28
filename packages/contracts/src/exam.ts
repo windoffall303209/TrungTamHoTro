@@ -57,6 +57,7 @@ export interface ExamAiContext {
 /** Hợp đồng đề kiểm tra dùng chung; mọi trường điểm Decimal được chuẩn hóa thành number. */
 export interface LearningExam {
   hidden?: boolean;
+  aiTutorEnabled?: boolean;
   id: string;
   classId: string;
   title: string;
@@ -72,6 +73,53 @@ export interface LearningExam {
   randomSeed?: string;
   questionScores?: Record<string, DecimalNumber>;
   aiContext?: ExamAiContext;
+}
+
+export type AiTutorPresetKey =
+  | "CONCEPT_HINT"
+  | "FIRST_STEP"
+  | "KEY_CLUES"
+  | "APPROACH_STRATEGY";
+
+/** Câu hỏi gợi mở mẫu cho phép học viên bấm chọn nhanh và tái sử dụng bộ nhớ đệm theo câu hỏi. */
+export interface AiTutorPresetPrompt {
+  key: AiTutorPresetKey;
+  label: string;
+  prompt: string;
+}
+
+/** Một lượt hỏi đáp dẫn dắt đã hoàn tất giữa học viên và trợ lý AI trên một câu hỏi cụ thể. */
+export interface ExamTutorTurn {
+  id: string;
+  questionId: string;
+  presetKey?: AiTutorPresetKey | null;
+  userPrompt: string;
+  aiReply: string;
+  fromCache: boolean;
+  createdAt: IsoDateTimeString;
+}
+
+/** Trạng thái hạn mức hỏi đáp AI còn lại của lượt làm bài theo từng câu và trên toàn đề. */
+export interface ExamTutorQuotaSnapshot {
+  maxPerQuestion: number;
+  maxPerExam: number;
+  examUsed: number;
+  examRemaining: number;
+  questionUsedById: Record<string, number>;
+}
+
+/** Toàn bộ lịch sử hội thoại theo từng câu hỏi và cấu hình gợi ý mẫu của lượt thi đang mở. */
+export interface ExamAttemptTutorState {
+  enabled: boolean;
+  presets: AiTutorPresetPrompt[];
+  quota: ExamTutorQuotaSnapshot;
+  threads: Record<string, ExamTutorTurn[]>;
+}
+
+/** Kết quả trả về ngay sau một lượt hỏi đáp dẫn dắt thành công. */
+export interface ExamTutorAskResult {
+  turn: ExamTutorTurn;
+  quota: ExamTutorQuotaSnapshot;
 }
 
 export interface LearnerExamSummary extends LearningExam {

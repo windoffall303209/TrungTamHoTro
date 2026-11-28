@@ -567,7 +567,7 @@ export function useExamsModel() {
     const draft =
       restoreEditorDraft(key);
     setEditingExam(null);
-    setForm(draft?.form ?? blank);
+    setForm(draft?.form ? { ...blank, ...draft.form } : blank);
     setAiConfig(
       draft?.aiConfig ?? {
         ...blankAiConfig,
@@ -597,21 +597,24 @@ export function useExamsModel() {
     setCreateMode("MANUAL");
     setQuestionQuery("");
     setForm(
-      draft?.form ?? {
-        classId: item.classId,
-        title: item.title,
-        questionIds: [...item.questionIds],
-        durationMinutes: item.durationMinutes,
-        totalScore: item.totalScore,
-        openAt: toLocalDateTimeInput(item.openAt),
-        closeAt: toLocalDateTimeInput(item.closeAt),
-        attemptLimit: item.attemptLimit,
-        shuffleQuestions: item.shuffleQuestions ?? false,
-        randomSeed: item.randomSeed ?? "wind-exam-2026",
-        scoreAllocations:
-          item.questionScores ??
-          distributeScores(item.questionIds, item.totalScore),
-      },
+      draft?.form
+        ? { ...blank, ...draft.form }
+        : {
+            classId: item.classId,
+            title: item.title,
+            questionIds: [...item.questionIds],
+            durationMinutes: item.durationMinutes,
+            totalScore: item.totalScore,
+            openAt: toLocalDateTimeInput(item.openAt),
+            closeAt: toLocalDateTimeInput(item.closeAt),
+            attemptLimit: item.attemptLimit,
+            shuffleQuestions: item.shuffleQuestions ?? false,
+            aiTutorEnabled: item.aiTutorEnabled ?? false,
+            randomSeed: item.randomSeed ?? "wind-exam-2026",
+            scoreAllocations:
+              item.questionScores ??
+              distributeScores(item.questionIds, item.totalScore),
+          },
     );
     setOpen(true);
   }, [restoreEditorDraft, session.user.id, session.roleCode]);
@@ -989,6 +992,7 @@ export function useExamsModel() {
     classes,
     attemptQuestions,
     attempt,
+    activeExam,
     answerDrafts,
     setAnswerDrafts,
     results,

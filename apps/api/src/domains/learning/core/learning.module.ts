@@ -23,12 +23,13 @@ import { AiStudyDraftService } from "../ai/ai-study-draft.service.js";
 import { AiGradingAssistService } from "../ai/ai-grading-assist.service.js";
 import { AiGradingStoreService } from "../ai/ai-grading-store.service.js";
 import { AiGradingOperationsController, AiGradingOperationsService } from "../ai/ai-grading-operations.js";
+import { AiExamTutorService } from "../ai/ai-exam-tutor.service.js";
 
 @Module({
   imports: [SystemModule],
   controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, ClassFeedController, AiGradingOperationsController],
-  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, ClassFeedService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService],
-  exports: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService],
+  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, ClassFeedService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService, AiExamTutorService],
+  exports: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AiExamTutorService],
 })
 /** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */
 export class LearningModule {}

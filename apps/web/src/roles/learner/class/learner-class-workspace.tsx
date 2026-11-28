@@ -110,6 +110,7 @@ interface AssignmentItem {
   subtypeText?: string;
   scoringMethod?: string;
   createdAt?: string;
+  aiTutorEnabled?: boolean;
   latestAttempt?: AttemptRecord;
 }
 
@@ -576,6 +577,7 @@ export function LearnerClassWorkspace({
       remainingAttempts: assignment.remainingAttempts,
       totalScore: assignment.maxScore,
       closeAt: assignment.dueAt,
+      aiTutorEnabled: assignment.aiTutorEnabled,
     });
   };
 
@@ -688,6 +690,7 @@ export function LearnerClassWorkspace({
         remainingAttempts: exam.remainingAttempts,
         attemptLimit: exam.attemptLimit,
         completedAttempts: Math.max(0, exam.attemptLimit - exam.remainingAttempts - (exam.availabilityStatus === "IN_PROGRESS" ? 1 : 0)),
+        aiTutorEnabled: Boolean(exam.aiTutorEnabled),
         latestAttempt,
         subtypeText: "Trắc nghiệm",
         scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm lần chấm mới nhất" : "Lần đầu tiên",

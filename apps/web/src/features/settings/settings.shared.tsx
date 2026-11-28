@@ -18,6 +18,8 @@ export interface Settings {
   notificationSender: string;
   maintenanceMode: boolean;
   learnerEmailNotificationsEnabled: boolean;
+  aiTutorMaxPerQuestion: number;
+  aiTutorMaxPerExam: number;
   version: number;
   updatedBy: string;
   updatedAt: string;

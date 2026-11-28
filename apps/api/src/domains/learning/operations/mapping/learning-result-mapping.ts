@@ -19,6 +19,7 @@ export function mapExam(row: ExamWithQuestions): LearningExam {
     id: row.id,
     classId: row.classId,
     hidden: row.hidden,
+    aiTutorEnabled: row.aiTutorEnabled,
     title: row.title,
     questionIds: row.questions.map(({ questionId }) => questionId),
     durationMinutes: row.durationMinutes,

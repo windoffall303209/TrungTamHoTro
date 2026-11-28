@@ -353,6 +353,7 @@ export function InstructorClassWorkspace({
   const [aiTopic, setAiTopic] = useState("Hàm số & Khảo sát đồ thị");
   const [aiQuestionCount, setAiQuestionCount] = useState(5);
   const [aiDifficulty, setAiDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">("MEDIUM");
+  const [aiExamTutorEnabled, setAiExamTutorEnabled] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const aiRequestRef = useRef<{ signature: string; id: string } | null>(null);
   const [aiGeneratedExam, setAiGeneratedExam] = useState<AiGeneratedExamResult | null>(null);
@@ -363,6 +364,7 @@ export function InstructorClassWorkspace({
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDuration, setManualExamDuration] = useState(45);
   const [manualExamDueAt, setManualExamDueAt] = useState("");
+  const [manualExamTutorEnabled, setManualExamTutorEnabled] = useState(false);
   const [examSaving, setExamSaving] = useState(false);
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
   const [manualExamFilterScope, setManualExamFilterScope] = useState<"ALL" | "MULTIPLE_CHOICE" | "ESSAY">("ALL");
@@ -1225,6 +1227,7 @@ export function InstructorClassWorkspace({
           closeAt: new Date(dueAt).toISOString(),
           attemptLimit: data.settings.maxAttempts,
           shuffleQuestions: data.settings.shuffleQuestions,
+          aiTutorEnabled: Boolean(data.settings.aiTutorEnabled),
           scoreAllocations: questionIds.map((questionId, index) => ({
             questionId,
             score: data.questions[index]!.score,
@@ -1676,6 +1679,7 @@ export function InstructorClassWorkspace({
         totalScore: selectedClassExam.totalScore,
         closeAt: selectedClassExam.closeAt,
         questionScores: selectedClassExam.questionScores,
+        aiTutorEnabled: selectedClassExam.aiTutorEnabled,
       });
       return;
     }
@@ -1866,7 +1870,7 @@ export function InstructorClassWorkspace({
       notify("Chuyên đề phải có ít nhất 5 ký tự và số câu trong khoảng 1–50.", "error");
       return;
     }
-    const signature = JSON.stringify([item.id, aiSubject, topic, aiQuestionCount, aiDifficulty]);
+    const signature = JSON.stringify([item.id, aiSubject, topic, aiQuestionCount, aiDifficulty, aiExamTutorEnabled]);
     if (aiRequestRef.current?.signature !== signature) {
       aiRequestRef.current = { signature, id: crypto.randomUUID() };
     }
@@ -1888,6 +1892,7 @@ export function InstructorClassWorkspace({
           openAt: openAt.toISOString(),
           closeAt: new Date(openAt.getTime() + 7 * 86400000).toISOString(),
           attemptLimit: 1,
+          aiTutorEnabled: aiExamTutorEnabled,
           clientRequestId: aiRequestRef.current.id,
         }),
       });
@@ -2018,6 +2023,7 @@ export function InstructorClassWorkspace({
           closeAt: closeAt.toISOString(),
           attemptLimit: 1,
           shuffleQuestions,
+          aiTutorEnabled: manualExamTutorEnabled,
         }),
       });
       if (!created?.id) throw new Error("Máy chủ không trả về đề thi vừa tạo.");
@@ -3508,6 +3514,7 @@ export function InstructorClassWorkspace({
             totalScore: target.totalScore,
             closeAt: target.closeAt,
             questionScores: target.questionScores,
+            aiTutorEnabled: target.aiTutorEnabled,
           });
         }}
         onEditExam={(target) => setEditingClassExam(target)}
@@ -4599,6 +4606,23 @@ export function InstructorClassWorkspace({
                 </div>
               </div>
 
+              <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiExamTutorEnabled}
+                  onChange={(e) => setAiExamTutorEnabled(e.target.checked)}
+                  className="mt-0.5 size-4 accent-indigo-600"
+                />
+                <span>
+                  <span className="block font-bold text-slate-900 dark:text-slate-100">
+                    Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+                  </span>
+                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                    AI chỉ gợi mở phương pháp giải theo từng câu hỏi, không đưa ra đáp án đúng.
+                  </span>
+                </span>
+              </label>
+
               <button
                 type="button"
                 onClick={handleTriggerAiExamGen}
@@ -4981,6 +5005,23 @@ export function InstructorClassWorkspace({
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs"
                 />
               </div>
+
+              <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={manualExamTutorEnabled}
+                  onChange={(event) => setManualExamTutorEnabled(event.target.checked)}
+                  className="mt-0.5 size-4 accent-indigo-600"
+                />
+                <span>
+                  <span className="block font-bold text-slate-900 dark:text-slate-100">
+                    Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+                  </span>
+                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                    Mỗi câu hỏi có khung chat gợi ý riêng theo hạn mức hệ thống, không tiết lộ đáp án.
+                  </span>
+                </span>
+              </label>
 
               {/* BỘ CHỌN 3 KIỂU TẠO ĐỀ */}
               <div className="space-y-2">

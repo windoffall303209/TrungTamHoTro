@@ -1,5 +1,7 @@
 export type {
   AiGeneratedExamResult,
+  AiTutorPresetKey,
+  AiTutorPresetPrompt,
   ClassCapabilities,
   ClassClosureReadiness,
   ClassProgressReport,
@@ -10,6 +12,10 @@ export type {
   ExamAnalytics,
   ExamAttempt,
   ExamAttemptReview,
+  ExamAttemptTutorState,
+  ExamTutorAskResult,
+  ExamTutorQuotaSnapshot,
+  ExamTutorTurn,
   ForumPost,
   ForumTopic,
   InstructorRole,

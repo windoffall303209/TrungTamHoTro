@@ -207,5 +207,9 @@
   "Đã chấm ({{0}}/{{1}})": "Graded ({{0}}/{{1}})",
   "Đã lưu {{0}}/{{1}} câu và phát hành.": "Saved {{0}}/{{1}} questions and published.",
   "Điểm {{0}}": "Score for {{0}}",
-  "Điểm cao nhất trong {{0}} lần làm bài": "Highest score across {{0}} attempts"
+  "Điểm cao nhất trong {{0}} lần làm bài": "Highest score across {{0}} attempts",
+  "Gia sư AI dẫn dắt câu {{0}}": "Socratic AI Tutor · Question {{0}}",
+  "Hỏi gia sư AI dẫn dắt câu {{0}}": "Ask AI Tutor for Question {{0}}",
+  "Nhập câu hỏi cho gia sư AI ở câu {{0}}": "Enter a question for the AI tutor on Question {{0}}",
+  "Thu gọn gia sư AI câu {{0}}": "Collapse AI Tutor for Question {{0}}"
 }

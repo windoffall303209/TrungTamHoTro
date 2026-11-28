@@ -70,4 +70,24 @@ describe("AI task routing UI", () => {
     expect(screen.queryByLabelText("Gemini hỗ trợ ngữ cảnh")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lưu hỏi đáp tài liệu" })).toBeEnabled();
   });
+
+  it("cho phép định tuyến độc lập tác vụ Gia sư dẫn dắt bài tập (TUTOR_ASSIST)", async () => {
+    render(<AiTaskSettings providers={providers} catalog={{ NVIDIA_NIM: [{ value: "llama", label: "Llama", description: "" }] }} />);
+    const tutorProvider = await screen.findByLabelText("Nhà cung cấp Gia sư dẫn dắt bài tập");
+    expect(within(tutorProvider).getByRole("option", { name: "Gemini" })).toBeInTheDocument();
+    expect(within(tutorProvider).getByRole("option", { name: "NIM" })).toBeInTheDocument();
+    expect(within(tutorProvider).getByRole("option", { name: "Custom" })).toBeInTheDocument();
+    fireEvent.change(tutorProvider, { target: { value: "nim" } });
+    fireEvent.change(screen.getByLabelText("Model Gia sư dẫn dắt bài tập"), { target: { value: "llama" } });
+    fireEvent.click(screen.getByRole("button", { name: "Lưu gia sư dẫn dắt bài tập" }));
+    await waitFor(() =>
+      expect(apiRequest).toHaveBeenCalledWith(
+        "/system/ai-tasks",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ task: "TUTOR_ASSIST", providerId: "nim", model: "llama" }),
+        }),
+      ),
+    );
+  });
 });

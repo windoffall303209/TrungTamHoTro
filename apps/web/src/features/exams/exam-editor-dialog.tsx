@@ -618,7 +618,7 @@ export function ExamEditorDialog({
               />
             </Field>
           </div>
-          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700">
+          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700 dark:text-slate-200">
             <input
               checked={form.shuffleQuestions}
               className="size-5 accent-sky-600"
@@ -642,6 +642,24 @@ export function ExamEditorDialog({
               />
             </Field>
           ) : null}
+          <label className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3.5 text-sm text-slate-800 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-slate-200 cursor-pointer">
+            <input
+              checked={Boolean(form.aiTutorEnabled)}
+              className="mt-0.5 size-5 accent-indigo-600"
+              onChange={(event) =>
+                setForm({ ...form, aiTutorEnabled: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block font-bold">
+                Cho phép hỏi đáp AI dẫn dắt theo từng câu
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-400">
+                Học viên có thể hỏi cách tiếp cận từng câu theo hạn mức do quản trị viên quy định; AI chỉ gợi ý hướng tư duy, không giải hộ đáp án.
+              </span>
+            </span>
+          </label>
           <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-4 md:-bottom-7">
             <Button
               className="mr-auto"

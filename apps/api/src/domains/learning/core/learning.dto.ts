@@ -22,7 +22,7 @@ import {
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
 import { OmitType } from "@nestjs/swagger";
-import type { LearningQuestion } from "./learning.types.js";
+import type { AiTutorPresetKey, LearningQuestion } from "./learning.types.js";
 
 /** Từ khóa tùy chọn để tìm đoạn trong tài liệu đã được kiểm tra quyền. */
 export class ClassFolderDto {
@@ -297,12 +297,35 @@ export class CreateExamDto {
   @IsDateString() closeAt!: string;
   @IsInt() @Min(1) @Max(10) attemptLimit!: number;
   @IsOptional() @IsBoolean() shuffleQuestions = false;
+  @IsOptional() @IsBoolean() aiTutorEnabled = false;
   @IsOptional() @IsString() @MinLength(3) @MaxLength(100) randomSeed?: string;
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ExamScoreAllocationDto)
   scoreAllocations?: ExamScoreAllocationDto[];
+}
+
+/** Yêu cầu hỏi đáp dẫn dắt AI cho một câu hỏi trong lượt làm bài đang mở. */
+export class AskExamTutorDto {
+  @IsOptional()
+  @IsIn(["CONCEPT_HINT", "FIRST_STEP", "KEY_CLUES", "APPROACH_STRATEGY"])
+  presetKey?: AiTutorPresetKey;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
+  @IsString()
+  @MaxLength(1_000)
+  message?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1_000)
+  draftAnswer?: string;
+
+  @IsOptional()
+  @IsIn(["VI", "EN", "BILINGUAL"])
+  language: "VI" | "EN" | "BILINGUAL" = "VI";
 }
 
 /** Đáp án tạm thời của một câu trong lượt thi đang làm. */

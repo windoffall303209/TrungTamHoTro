@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, Headers, HttpCode, Param, Patch, Post, Put, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Header, Headers, HttpCode, Optional, Param, Patch, Post, Put, Query, Req, Res, StreamableFile, UploadedFile, UseInterceptors } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { rethrowWithRangeHeaders, sendRangedStreamableFile } from "../../../infrastructure/http-range-stream.js";
 import { ApiTags } from "@nestjs/swagger";
@@ -11,15 +11,16 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { AskExamTutorDto, ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
 import type { MaterialAccessAction, MaterialSearchResult, MaterialSummaryBucket, QuestionSummary, UploadedMaterialFile } from "../core/learning.shared.js";
 import { ContentMaterialService } from "./content-material.service.js";
 import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
-import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
+import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, ExamAttemptTutorState, ExamTutorAskResult, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
 import { AiProviderService, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
+import { AiExamTutorService } from "../ai/ai-exam-tutor.service.js";
 import { MaterialAiContextDto, MaterialAiQuestionDto, MaterialAiQuestionStatusDto, MaterialAiHistoryQueryDto, MaterialStudyGuideDto, StudyDraftListQueryDto } from "../core/learning.dto.js";
 import { EditExamQuestionDto, EditStudyDraftDto, PublishStudyDraftDto, UnpublishStudyDraftDto, SubmitExamDto } from "../core/learning.dto.js";
 import { isInlineSafeMime, USER_FILE_CSP } from "../../../infrastructure/file-signature.js";
@@ -34,6 +35,7 @@ export class ContentController {
     private readonly aiProviders: AiProviderService,
     private readonly aiRequests: AiGenerationRequestService,
     private readonly materialAi: AiMaterialContextService,
+    @Optional() private readonly examTutor?: AiExamTutorService,
   ) {}
 
   /** Chặn mọi thao tác tạo, sửa, xuất bản và AI trên câu hỏi/đề thi đối với vai trò chỉ xem. */
@@ -512,6 +514,7 @@ export class ContentController {
       closeAt: input.closeAt,
       attemptLimit: input.attemptLimit,
       shuffleQuestions: input.shuffleQuestions,
+      aiTutorEnabled: input.aiTutorEnabled,
       randomSeed: input.randomSeed,
     }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, canonicalRequestId, session.user.id);
     const draftWarning = exam.status === "PUBLISHED" ? [] : ["Đề đã được lưu ở dạng nháp vì chưa đủ điều kiện công bố; hãy kiểm tra rồi công bố thủ công."];
@@ -546,6 +549,27 @@ export class ContentController {
   @Post("learner/exam-attempts/:attemptId/submit") @RequirePermissions("exam:view")
   /** Chốt lượt thi, tự chấm phần hỗ trợ được và chuyển trạng thái phù hợp. */
   submitAttempt(@Param("attemptId") attemptId: string, @Body() input: SubmitAttemptDto, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttempt> { return this.exams.submitAttemptWithAnswers(attemptId, session.user.id, input.answers ?? []); }
+
+  @Get("learner/exam-attempts/:attemptId/ai-tutor") @RequirePermissions("exam:view")
+  @Header("Cache-Control", "no-store")
+  /** Nạp cấu hình gợi ý mẫu, hạn mức còn lại và lịch sử chat dẫn dắt theo từng câu của lượt làm bài. */
+  getAttemptTutorState(@Param("attemptId") attemptId: string, @CurrentSession() session: AuthenticatedSession): Promise<ExamAttemptTutorState> {
+    if (!this.examTutor) throw new BadRequestException("Dịch vụ gia sư AI chưa được khởi tạo.");
+    return this.examTutor.getAttemptTutorState(attemptId, session.user.id);
+  }
+
+  @Post("learner/exam-attempts/:attemptId/questions/:questionId/ai-tutor") @RequirePermissions("exam:view")
+  @Header("Cache-Control", "no-store")
+  /** Gửi câu hỏi gợi ý mẫu hoặc câu hỏi tự nhập của học viên để nhận hướng dẫn Socratic cho đúng câu đang làm. */
+  askAttemptQuestionTutor(
+    @Param("attemptId") attemptId: string,
+    @Param("questionId") questionId: string,
+    @Body() input: AskExamTutorDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<ExamTutorAskResult> {
+    if (!this.examTutor) throw new BadRequestException("Dịch vụ gia sư AI chưa được khởi tạo.");
+    return this.examTutor.askQuestionTutor(attemptId, questionId, session.user.id, input);
+  }
 
   @Get("learner/attempts/:attemptId/result") @RequirePermissions("exam:view")
   /** Trả kết quả một lượt thi thuộc học viên hiện tại. */

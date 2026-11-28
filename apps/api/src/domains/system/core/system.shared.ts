@@ -36,6 +36,8 @@ export const defaultSettings = (): SystemSettings => ({
   notificationSender: "Wind EDU",
   maintenanceMode: false,
   learnerEmailNotificationsEnabled: false,
+  aiTutorMaxPerQuestion: 3,
+  aiTutorMaxPerExam: 15,
   version: 1,
   updatedBy: "system",
   updatedAt: new Date().toISOString(),

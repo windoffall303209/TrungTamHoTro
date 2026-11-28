@@ -55,7 +55,7 @@ export function ExamPreviewDialog({
     >
       {previewExam ? (
         <div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-5">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 my-5">
             <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
               <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                 Lớp học
@@ -89,6 +89,14 @@ export function ExamPreviewDialog({
                 {previewExam.shuffleQuestions
                   ? "Có xáo trộn"
                   : "Theo thứ tự gốc"}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3.5 text-center">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                Hỏi đáp AI
+              </p>
+              <p className={`mt-1 text-sm font-bold ${previewExam.aiTutorEnabled ? "text-indigo-600 dark:text-indigo-400" : "text-slate-500 dark:text-slate-400"}`}>
+                {previewExam.aiTutorEnabled ? "Đã bật dẫn dắt" : "Đang tắt"}
               </p>
             </div>
           </div>

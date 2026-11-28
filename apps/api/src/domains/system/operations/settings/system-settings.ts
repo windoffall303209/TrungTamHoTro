@@ -15,6 +15,8 @@ function serializeSettingPayload(settings: SystemSettings): Record<string, unkno
     notificationSender: settings.notificationSender,
     maintenanceMode: settings.maintenanceMode,
     learnerEmailNotificationsEnabled: settings.learnerEmailNotificationsEnabled,
+    aiTutorMaxPerQuestion: settings.aiTutorMaxPerQuestion,
+    aiTutorMaxPerExam: settings.aiTutorMaxPerExam,
   };
 }
 
@@ -56,6 +58,24 @@ export async function updateSettings(
     throw new BadRequestException(
       "Quota lưu trữ phải từ 100 đến 1.000.000 MB.",
     );
+  if (
+    input.aiTutorMaxPerQuestion !== undefined &&
+    (!Number.isInteger(input.aiTutorMaxPerQuestion) ||
+      input.aiTutorMaxPerQuestion < 1 ||
+      input.aiTutorMaxPerQuestion > 20)
+  )
+    throw new BadRequestException(
+      "Giới hạn hỏi AI mỗi câu phải từ 1 đến 20 lượt.",
+    );
+  if (
+    input.aiTutorMaxPerExam !== undefined &&
+    (!Number.isInteger(input.aiTutorMaxPerExam) ||
+      input.aiTutorMaxPerExam < 1 ||
+      input.aiTutorMaxPerExam > 200)
+  )
+    throw new BadRequestException(
+      "Giới hạn hỏi AI mỗi đề phải từ 1 đến 200 lượt.",
+    );
   if (input.allowedMimeTypes) assertNoActiveContentMimeTypes(input.allowedMimeTypes);
   if (input.timezone) {
     try {
@@ -83,7 +103,12 @@ export async function updateSettings(
             existing.updatedBy,
           )
         : defaultSettings();
-      const next = serializeSettingPayload({ ...current, ...input }) as Record<
+      const merged = { ...current, ...input };
+      if (merged.aiTutorMaxPerExam < merged.aiTutorMaxPerQuestion)
+        throw new BadRequestException(
+          "Giới hạn hỏi AI mỗi đề không được nhỏ hơn giới hạn của một câu hỏi.",
+        );
+      const next = serializeSettingPayload(merged) as Record<
         string,
         string | number | boolean | string[]
       >;
@@ -125,6 +150,10 @@ export async function updateSettings(
     updatedBy: actorId,
     updatedAt: new Date().toISOString(),
   };
+  if (next.aiTutorMaxPerExam < next.aiTutorMaxPerQuestion)
+    throw new BadRequestException(
+      "Giới hạn hỏi AI mỗi đề không được nhỏ hơn giới hạn của một câu hỏi.",
+    );
   serviceContext.settings = next;
   serviceContext.log(
     actorId,

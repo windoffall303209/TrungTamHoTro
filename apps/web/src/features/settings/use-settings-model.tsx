@@ -154,6 +154,8 @@ export function useSettingsModel() {
             maintenanceMode: settings.maintenanceMode,
             learnerEmailNotificationsEnabled:
               settings.learnerEmailNotificationsEnabled,
+            aiTutorMaxPerQuestion: settings.aiTutorMaxPerQuestion,
+            aiTutorMaxPerExam: settings.aiTutorMaxPerExam,
           }),
         }),
       );
@@ -162,6 +164,45 @@ export function useSettingsModel() {
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không lưu được cấu hình.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Kiểm tra và lưu riêng hạn mức hỏi đáp AI mỗi câu / mỗi đề ngay từ trang quản trị AI. */
+  const saveAiTutorQuota = async () => {
+    if (!settings) return;
+    const perQuestion = Math.trunc(Number(settings.aiTutorMaxPerQuestion));
+    const perExam = Math.trunc(Number(settings.aiTutorMaxPerExam));
+    if (!Number.isInteger(perQuestion) || perQuestion < 1 || perQuestion > 20) {
+      notify("Giới hạn hỏi AI mỗi câu phải từ 1 đến 20 lượt.", "error");
+      return;
+    }
+    if (!Number.isInteger(perExam) || perExam < 1 || perExam > 200) {
+      notify("Giới hạn hỏi AI mỗi đề phải từ 1 đến 200 lượt.", "error");
+      return;
+    }
+    if (perExam < perQuestion) {
+      notify("Giới hạn hỏi AI mỗi đề không được nhỏ hơn giới hạn của một câu hỏi.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await apiRequest<Settings>("/system/settings", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          aiTutorMaxPerQuestion: perQuestion,
+          aiTutorMaxPerExam: perExam,
+        }),
+      });
+      setSettings(updated);
+      notify("Đã lưu hạn mức hỏi đáp AI cho bài tập.");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không lưu được hạn mức hỏi đáp AI.",
         "error",
       );
     } finally {
@@ -502,6 +543,7 @@ export function useSettingsModel() {
     testMeeting,
     backup,
     saveLearnerEmailNotifications,
+    saveAiTutorQuota,
     openAiEditor,
     loadProviderModels,
     availableModelOptions,

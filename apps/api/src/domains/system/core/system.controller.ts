@@ -33,12 +33,12 @@ import { AllowDuringMaintenance } from "../operations/allow-during-maintenance.d
 
 class ConfigureAiTaskDto {
   @IsOptional() @IsString() @MaxLength(200) contextProviderId?: string;
-  @IsIn(["SCAN_IMAGE", "GENERATE_EXAM", "DOCUMENT_CONTEXT", "DOCUMENT_QA", "GRADING_ASSIST"]) task!: "SCAN_IMAGE" | "GENERATE_EXAM" | "DOCUMENT_CONTEXT" | "DOCUMENT_QA" | "GRADING_ASSIST";
+  @IsIn(["SCAN_IMAGE", "GENERATE_EXAM", "DOCUMENT_CONTEXT", "DOCUMENT_QA", "GRADING_ASSIST", "TUTOR_ASSIST"]) task!: "SCAN_IMAGE" | "GENERATE_EXAM" | "DOCUMENT_CONTEXT" | "DOCUMENT_QA" | "GRADING_ASSIST" | "TUTOR_ASSIST";
   @IsString() @MinLength(1) @MaxLength(200) providerId!: string;
   @IsString() @MinLength(1) @MaxLength(200) model!: string;
 }
 
-class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean }
+class UpdateSettingsDto { @IsOptional() @IsString() centerName?: string; @IsOptional() @IsString() timezone?: string; @IsOptional() @IsString() locale?: string; @IsOptional() @IsInt() @Min(1) @Max(500) maxFileSizeMb?: number; @IsOptional() @IsInt() @Min(100) @Max(1_000_000) storageQuotaMb?: number; @IsOptional() @IsArray() @IsString({ each: true }) allowedMimeTypes?: string[]; @IsOptional() @IsString() notificationSender?: string; @IsOptional() @IsBoolean() maintenanceMode?: boolean; @IsOptional() @IsBoolean() learnerEmailNotificationsEnabled?: boolean; @IsOptional() @IsInt() @Min(1) @Max(20) aiTutorMaxPerQuestion?: number; @IsOptional() @IsInt() @Min(1) @Max(200) aiTutorMaxPerExam?: number }
 class ToggleIntegrationDto { @IsBoolean() enabled!: boolean }
 class ConfigureIntegrationDto { @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"]) provider!: IntegrationConfig["provider"]; @IsOptional() @IsString() @MaxLength(150) credentialReference?: string; @IsOptional() @IsString() @MaxLength(2048) webhookUrl?: string }
 class RunBackupDto { @IsIn(["FULL", "INCREMENTAL"]) type!: "FULL" | "INCREMENTAL" }

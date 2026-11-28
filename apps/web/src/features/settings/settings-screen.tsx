@@ -60,6 +60,7 @@ export default function SettingsScreen() {
     testMeeting,
     backup,
     saveLearnerEmailNotifications,
+    saveAiTutorQuota,
     openAiEditor,
     loadProviderModels,
     availableModelOptions,
@@ -256,6 +257,61 @@ export default function SettingsScreen() {
             </Button>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800 border-t border-slate-100 dark:border-slate-800">
+            {settings ? (
+              <div className="px-5 py-5 md:px-6 space-y-4">
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-slate-100">
+                    Hạn mức hỏi đáp AI khi làm bài
+                  </h3>
+                  <p className="mt-1 text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                    Giới hạn số lần học viên được hỏi trợ lý AI dẫn dắt trên từng câu hỏi và tổng thể một đề (chỉ áp dụng cho các đề được giảng viên bật cho phép hỏi đáp AI).
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 max-w-2xl">
+                  <Field label="Số lượt hỏi tối đa / 1 câu (1–20)">
+                    <input
+                      aria-label="Số lượt hỏi tối đa mỗi câu"
+                      className={inputClass}
+                      min={1}
+                      max={20}
+                      type="number"
+                      value={settings.aiTutorMaxPerQuestion}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          aiTutorMaxPerQuestion: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </Field>
+                  <Field label="Số lượt hỏi tối đa / 1 đề (1–200)">
+                    <input
+                      aria-label="Số lượt hỏi tối đa mỗi đề"
+                      className={inputClass}
+                      min={1}
+                      max={200}
+                      type="number"
+                      value={settings.aiTutorMaxPerExam}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          aiTutorMaxPerExam: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </Field>
+                </div>
+                <Button
+                  disabled={saving}
+                  loading={saving}
+                  onClick={() => void saveAiTutorQuota()}
+                  type="button"
+                >
+                  <Save size={15} />
+                  Lưu hạn mức hỏi đáp
+                </Button>
+              </div>
+            ) : null}
             <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
             <AiGradingOperations />
             {aiProviders.map((item) => (
@@ -420,6 +476,38 @@ export default function SettingsScreen() {
                       setSettings({
                         ...settings,
                         storageQuotaMb: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Hạn mức hỏi AI mỗi câu (lượt)">
+                  <input
+                    className={inputClass}
+                    min={1}
+                    max={20}
+                    type="number"
+                    value={settings.aiTutorMaxPerQuestion}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        aiTutorMaxPerQuestion: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Hạn mức hỏi AI mỗi đề (lượt)">
+                  <input
+                    className={inputClass}
+                    min={1}
+                    max={200}
+                    type="number"
+                    value={settings.aiTutorMaxPerExam}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        aiTutorMaxPerExam: Number(e.target.value),
                       })
                     }
                   />

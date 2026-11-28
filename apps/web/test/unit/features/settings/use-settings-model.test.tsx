@@ -21,7 +21,8 @@ function makeSettings(centerName: string): Settings {
     centerName, timezone: "Asia/Bangkok", locale: "vi",
     maxFileSizeMb: 10, storageQuotaMb: 100, allowedMimeTypes: [],
     notificationSender: "support@example.com", maintenanceMode: false,
-    learnerEmailNotificationsEnabled: false, version: 1,
+    learnerEmailNotificationsEnabled: false,
+    aiTutorMaxPerQuestion: 3, aiTutorMaxPerExam: 15, version: 1,
     updatedAt: "2026-10-31T00:00:00Z", updatedBy: "admin",
   };
 }

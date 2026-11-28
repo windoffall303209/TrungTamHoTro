@@ -115,5 +115,105 @@ describe("ExamTakingModal learner attempt lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Bắt đầu làm bài" }));
     await waitFor(() => expect(mockApiRequest).toHaveBeenCalledWith("/learner/exams/exam-2/attempts", { method: "POST" }));
     expect(await screen.findByText("Trình bày khái niệm REST")).toBeInTheDocument();
+    expect(screen.queryByText(/Gia sư AI dẫn dắt/)).not.toBeInTheDocument();
+    expect(mockApiRequest).not.toHaveBeenCalledWith(expect.stringContaining("/ai-tutor"));
+  });
+
+  it("tách biệt khung chat gia sư AI theo từng câu, hỗ trợ câu hỏi mẫu có cache và cập nhật quota 2 tầng", async () => {
+    mockApiRequest.mockImplementation((path: string, init?: { method?: string; body?: string }) => {
+      if (path === "/learner/exams/exam-tutor/attempts") {
+        return Promise.resolve({
+          id: "attempt-tutor-1",
+          startedAt: new Date().toISOString(),
+          serverTime: new Date().toISOString(),
+          answers: {},
+        });
+      }
+      if (path === "/learner/exams/exam-tutor/questions") {
+        return Promise.resolve([
+          { id: "q-1", type: "SINGLE_CHOICE", content: "Giải phương trình bậc hai", options: ["x = 1", "x = 2"], correctAnswers: [] },
+          { id: "q-2", type: "ESSAY", content: "Phân tích độ phức tạp thuật toán", options: [], correctAnswers: [] },
+        ]);
+      }
+      if (path === "/learner/exam-attempts/attempt-tutor-1/ai-tutor") {
+        return Promise.resolve({
+          enabled: true,
+          presets: [
+            {
+              key: "FIRST_STEP",
+              label: "Gợi ý bước đầu tiên",
+              prompt: "Em chưa biết bắt đầu từ đâu, hãy gợi ý cho em bước phân tích đầu tiên để làm câu này.",
+            },
+          ],
+          quota: {
+            maxPerQuestion: 2,
+            maxPerExam: 5,
+            examUsed: 0,
+            examRemaining: 5,
+            questionUsedById: {},
+          },
+          threads: {},
+        });
+      }
+      if (path === "/learner/exam-attempts/attempt-tutor-1/questions/q-1/ai-tutor" && init?.method === "POST") {
+        const parsed = JSON.parse(init.body ?? "{}") as { presetKey?: string; message?: string };
+        return Promise.resolve({
+          turn: {
+            id: "turn-q1-1",
+            questionId: "q-1",
+            presetKey: parsed.presetKey ?? null,
+            userPrompt: parsed.presetKey
+              ? "Em chưa biết bắt đầu từ đâu, hãy gợi ý cho em bước phân tích đầu tiên để làm câu này."
+              : (parsed.message ?? ""),
+            aiReply: "Trước hết hãy tính biệt thức $\\Delta = b^2 - 4ac$ rồi xét dấu của nó nhé?",
+            fromCache: true,
+            createdAt: new Date().toISOString(),
+          },
+          quota: {
+            maxPerQuestion: 2,
+            maxPerExam: 5,
+            examUsed: 1,
+            examRemaining: 4,
+            questionUsedById: { "q-1": 1 },
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    const exam = {
+      id: "exam-tutor",
+      title: "Đề có gia sư AI",
+      durationMinutes: 30,
+      totalScore: 10,
+      totalQuestions: 2,
+      remainingAttempts: 1,
+      aiTutorEnabled: true,
+    };
+
+    const { container } = render(<ExamTakingModal open exam={exam} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Bắt đầu làm bài" }));
+
+    expect(await screen.findByText(/Gia sư AI dẫn dắt · Câu 1/)).toBeInTheDocument();
+    expect(await screen.findByText(/Câu này: 2\/2/)).toBeInTheDocument();
+    expect(screen.getByText(/Toàn đề: 5\/5/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Gợi ý bước đầu tiên/ }));
+
+    expect(await screen.findByText(/Gợi ý tức thì/)).toBeInTheDocument();
+    expect(container.querySelector(".katex-mathml annotation")?.textContent).toContain("\\Delta = b^2 - 4ac");
+    expect(await screen.findByText(/Câu này: 1\/2/)).toBeInTheDocument();
+    expect(screen.getByText(/Toàn đề: 4\/5/)).toBeInTheDocument();
+
+    // Chuyển sang Câu 2: khung chat của Câu 2 độc lập hoàn toàn, hạn mức câu là 2/2 nhưng toàn đề còn 4/5.
+    fireEvent.click(screen.getByRole("button", { name: "Câu tiếp theo" }));
+    expect(await screen.findByText(/Gia sư AI dẫn dắt · Câu 2/)).toBeInTheDocument();
+    expect(screen.queryByText(/Gợi ý tức thì/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/Câu này: 2\/2/)).toBeInTheDocument();
+    expect(screen.getByText(/Toàn đề: 4\/5/)).toBeInTheDocument();
+
+    // Quay lại Câu 1: lịch sử dẫn dắt của Câu 1 vẫn giữ nguyên.
+    fireEvent.click(screen.getByRole("button", { name: "Câu trước" }));
+    expect(await screen.findByText(/Gợi ý tức thì/)).toBeInTheDocument();
   });
 });

@@ -663,6 +663,8 @@ model Question {
   author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
   exams          ExamQuestion[]
   answers        AttemptAnswer[]
+  tutorPresetCaches AiTutorPresetCache[]
+  tutorTurns     ExamAttemptTutorTurn[]
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
@@ -675,6 +677,7 @@ model Question {
 
 model Exam {
   hidden          Boolean        @default(false)
+  aiTutorEnabled  Boolean        @default(false) @map("ai_tutor_enabled")
   id              String         @id @default(cuid())
   classId         String         @map("class_id")
   title           String         @db.VarChar(255)
@@ -728,11 +731,51 @@ model ExamAttempt {
   learner          User             @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
   answers          AttemptAnswer[]
   regradeRequests  RegradeRequest[]
+  tutorTurns       ExamAttemptTutorTurn[]
 
   @@unique([examId, learnerId, attemptNo])
   @@index([learnerId, status])
   @@index([examId, status, submittedAt])
   @@map("exam_attempts")
+}
+
+model AiTutorPresetCache {
+  id             String    @id @db.VarChar(191)
+  questionId     String    @map("question_id") @db.VarChar(191)
+  contentHash    String    @map("content_hash") @db.VarChar(64)
+  presetKey      String    @map("preset_key") @db.VarChar(64)
+  language       String    @db.VarChar(16)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  reply          String?   @db.Text
+  model          String?   @db.VarChar(200)
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  question       Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId, presetKey, language])
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_tutor_preset_caches_state_created_id_idx")
+  @@map("ai_tutor_preset_caches")
+}
+
+model ExamAttemptTutorTurn {
+  id         String      @id @default(cuid())
+  attemptId  String      @map("attempt_id")
+  questionId String      @map("question_id")
+  presetKey  String?     @map("preset_key") @db.VarChar(64)
+  userPrompt String      @map("user_prompt") @db.Text
+  aiReply    String      @map("ai_reply") @db.Text
+  fromCache  Boolean     @default(false) @map("from_cache")
+  model      String?     @db.VarChar(200)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, questionId, createdAt])
+  @@index([attemptId, createdAt])
+  @@map("exam_attempt_tutor_turns")
 }
 
 

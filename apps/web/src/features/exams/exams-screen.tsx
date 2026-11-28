@@ -1,4 +1,8 @@
 "use client";
+import { useCallback, useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api-client";
+import type { ExamAttemptTutorState, ExamTutorAskResult } from "@/lib/learning-types";
+import { QuestionAiTutorPanel } from "@/roles/learner/class/question-ai-tutor-panel";
 import { AccessDenied } from "@/shared/auth/access-denied";
 import { PageHeader } from "@/shared/ui/page-header";
 import { RequestError } from "@/shared/ui/request-error";
@@ -16,6 +20,7 @@ import {
 } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
+  Bot,
   CheckCircle2,
   Clock3,
   Eye,
@@ -43,6 +48,7 @@ export default function ExamsScreen() {
     classes,
     attemptQuestions,
     attempt,
+    activeExam,
     answerDrafts,
     setAnswerDrafts,
     results,
@@ -67,6 +73,60 @@ export default function ExamsScreen() {
     submit,
     requestRegrade,
   } = model;
+
+  const [tutorState, setTutorState] = useState<ExamAttemptTutorState | null>(null);
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [openTutorQuestions, setOpenTutorQuestions] = useState<Record<string, boolean>>({});
+  const activeAttemptId = attempt?.status === "IN_PROGRESS" ? attempt.id : null;
+  const tutorEnabled = Boolean(activeExam?.aiTutorEnabled && activeAttemptId);
+
+  /** Tải lịch sử hỏi đáp và hạn mức gia sư AI cho lượt thi đang mở trên trang đề thi. */
+  const loadAttemptTutor = useCallback(async (targetAttemptId: string) => {
+    setTutorLoading(true);
+    setTutorError(null);
+    try {
+      const data = await apiRequest<ExamAttemptTutorState>(
+        `/learner/exam-attempts/${encodeURIComponent(targetAttemptId)}/ai-tutor`,
+      );
+      setTutorState(data);
+    } catch (error) {
+      setTutorError(
+        error instanceof Error ? error.message : "Không tải được khung hỏi đáp gia sư AI.",
+      );
+    } finally {
+      setTutorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!tutorEnabled || !activeAttemptId) {
+      setTutorState(null);
+      setTutorError(null);
+      setOpenTutorQuestions({});
+      return;
+    }
+    void loadAttemptTutor(activeAttemptId);
+  }, [activeAttemptId, loadAttemptTutor, tutorEnabled]);
+
+  /** Đồng bộ lượt hỏi đáp mới nhất và hạn mức còn lại vào trạng thái gia sư AI của bài làm. */
+  const handleTutorTurnCompleted = useCallback((result: ExamTutorAskResult) => {
+    setTutorState((prev) => {
+      const existingThread = prev?.threads[result.turn.questionId] ?? [];
+      const alreadyPresent = existingThread.some((item) => item.id === result.turn.id);
+      return {
+        enabled: true,
+        presets: prev?.presets ?? [],
+        quota: result.quota,
+        threads: {
+          ...(prev?.threads ?? {}),
+          [result.turn.questionId]: alreadyPresent
+            ? existingThread
+            : [...existingThread, result.turn],
+        },
+      };
+    });
+  }, []);
 
   if (!allowed) return <AccessDenied />;
   return (
@@ -223,6 +283,55 @@ export default function ExamsScreen() {
                       value={answerDrafts[question.id] ?? ""}
                     />
                   )}
+                  {tutorEnabled ? (
+                    <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenTutorQuestions((prev) => ({
+                            ...prev,
+                            [question.id]: !prev[question.id],
+                          }))
+                        }
+                        className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-500/10 px-3 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100/80 dark:hover:bg-indigo-500/20 transition-colors cursor-pointer"
+                      >
+                        <Bot className="size-3.5" />
+                        <span>
+                          {openTutorQuestions[question.id]
+                            ? `Thu gọn gia sư AI câu ${index + 1}`
+                            : `Hỏi gia sư AI dẫn dắt câu ${index + 1}`}
+                        </span>
+                        {(tutorState?.quota.questionUsedById[question.id] ?? 0) > 0 ? (
+                          <span className="rounded-md bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300">
+                            Đã hỏi {tutorState?.quota.questionUsedById[question.id]}/{tutorState?.quota.maxPerQuestion ?? 3}
+                          </span>
+                        ) : null}
+                      </button>
+                      {openTutorQuestions[question.id] ? (
+                        <div className="mt-3">
+                          <QuestionAiTutorPanel
+                            attemptId={activeAttemptId}
+                            questionId={question.id}
+                            questionNumber={index + 1}
+                            enabled
+                            draftAnswer={
+                              (attempt.answers[question.id] ?? []).join(", ") ||
+                              (answerDrafts[question.id] ?? "")
+                            }
+                            tutorState={tutorState}
+                            loadingState={tutorLoading}
+                            loadStateError={tutorError}
+                            onRetryLoadState={
+                              activeAttemptId
+                                ? () => void loadAttemptTutor(activeAttemptId)
+                                : undefined
+                            }
+                            onTurnCompleted={handleTutorTurnCompleted}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </fieldset>
               ))}
             </div>

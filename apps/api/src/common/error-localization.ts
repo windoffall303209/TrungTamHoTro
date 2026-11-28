@@ -14,6 +14,7 @@ const aiOperationEnglish: Readonly<Record<string, string>> = Object.freeze({
   "tải tài liệu OpenAI": "uploading the document to OpenAI",
   "kiểm tra kết nối": "testing the connection",
   "đọc ảnh đề thi": "reading the exam image",
+  "hỏi đáp dẫn dắt bài tập": "running Socratic tutor guidance",
 });
 
 // Chuyển tên thao tác AI tiếng Việt sang cụm động từ tiếng Anh thống nhất.
