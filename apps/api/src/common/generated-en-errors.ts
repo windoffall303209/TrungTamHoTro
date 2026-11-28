@@ -866,5 +866,6 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Phản hồi AI bị chặn để bảo đảm nguyên tắc không tiết lộ đáp án trực tiếp. Hãy đặt câu hỏi về cách làm bài.": "The AI response was blocked to prevent revealing the direct answer. Please ask about how to approach the problem.",
   "Quản trị viên chưa cấu hình nhà cung cấp AI cho tính năng hỏi đáp dẫn dắt.": "No AI provider has been configured by the administrator for Socratic tutor guidance.",
   "Trợ lý AI đang phản hồi câu hỏi trước của bạn. Vui lòng đợi giây lát.": "The AI tutor is still answering your previous question. Please wait a moment.",
-  "Trợ lý AI trả về định dạng gợi ý không hợp lệ.": "The AI tutor returned an invalid guidance format."
+  "Trợ lý AI trả về định dạng gợi ý không hợp lệ.": "The AI tutor returned an invalid guidance format.",
+  "Không tìm thấy khóa học của lớp.": "Course for this class could not be found."
 });

@@ -494,4 +494,14 @@ describe("Gia sư AI dẫn dắt theo câu hỏi (AiExamTutorService & SystemSer
     expect(safeGuidance.reply).toContain("**Câu hỏi gợi mở:**");
     expect(safeGuidance.reply).not.toMatch(/Đáp án đúng là/i);
   });
+
+  it("vẫn lấy được ngữ cảnh tạo đề AI cho lớp thiếu bản ghi courseVersion bằng cách kế thừa trực tiếp từ môn học", async () => {
+    const { exams, runtime } = createMemoryTutorHarness();
+    runtime.context.courseVersions.length = 0;
+    const context = await exams.getExamGenerationContext("class-web-01", "usr-instructor", [], true);
+    expect(context).toMatchObject({
+      courseId: "course-web",
+      courseName: "Phát triển Web Full-stack",
+    });
+  });
 });

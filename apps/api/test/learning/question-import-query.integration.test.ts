@@ -55,20 +55,19 @@ describe.skipIf(!(process.env.DB_NAME ?? "").endsWith("_test"))("question import
     expect(await prisma.question.count({ where: { content: { startsWith: prefix } } })).toBe(50);
   });
 
-  it("keeps row-level validation, duplicate detection, missing course and permission errors", async () => {
+  it("allows duplicate question content with distinct IDs while keeping validation, missing course and permission errors", async () => {
     const result = await service.importQuestions([
       question("0"),
       { ...question("invalid"), type: "SINGLE_CHOICE", options: ["one"], correctAnswers: ["one"] },
       { ...question("missing"), courseId: `${prefix}-missing` },
       question("fresh"), question("fresh"), question("last"),
     ], authorId);
-    expect(result.map((row) => row.status)).toEqual(["FAILED", "FAILED", "FAILED", "IMPORTED", "FAILED", "IMPORTED"]);
-    expect(result[0]?.message).toContain("đã tồn tại");
+    expect(result.map((row) => row.status)).toEqual(["IMPORTED", "FAILED", "FAILED", "IMPORTED", "IMPORTED", "IMPORTED"]);
     expect(result[1]?.message).toContain("hai lựa chọn");
     expect(result[2]?.message).toBe("Không tìm thấy khóa học.");
-    expect(result[4]?.message).toContain("đã tồn tại");
+    expect(result[3]?.questionId).not.toBe(result[4]?.questionId);
     const denied = await service.importQuestions([question("0"), question("denied")], `${prefix}-outsider`);
     expect(denied.map((row) => row.message)).toEqual(["Không tìm thấy khóa học.", "Không tìm thấy khóa học."]);
-    expect(await prisma.question.count({ where: { content: { startsWith: prefix } } })).toBe(52);
+    expect(await prisma.question.count({ where: { content: { startsWith: prefix } } })).toBe(54);
   });
 });

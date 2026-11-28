@@ -1487,17 +1487,17 @@ describe("LearningService", () => {
         attemptLimit: 1,
       }, "usr-instructor"),
     ).resolves.toMatchObject({ status: "PUBLISHED" });
-    await expect(
-      service.createQuestion({
-        courseId: "course-web",
-        type: "SINGLE_CHOICE",
-        content: "  Giao thức nào mã hóa   lưu lượng WEB? ",
-        options: ["HTTP", "HTTPS"],
-        correctAnswers: ["HTTPS"],
-        difficulty: 1,
-        tags: [],
-      }, "usr-instructor"),
-    ).rejects.toThrow(ConflictException);
+    const duplicateAllowed = await service.createQuestion({
+      courseId: "course-web",
+      type: "SINGLE_CHOICE",
+      content: "  Giao thức nào mã hóa   lưu lượng WEB? ",
+      options: ["HTTP", "HTTPS"],
+      correctAnswers: ["HTTPS"],
+      difficulty: 1,
+      tags: [],
+    }, "usr-instructor");
+    expect(duplicateAllowed.id).not.toBe(draft.id);
+    expect(duplicateAllowed.status).toBe("PUBLISHED");
     const published = draft;
     const versionTwo = await service.updateQuestion(published.id, {
       ...published,

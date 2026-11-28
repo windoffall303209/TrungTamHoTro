@@ -469,6 +469,26 @@ export async function createClass(
         );
       }
       try {
+        await prisma.courseVersion.upsert({
+          where: {
+            courseId_version: {
+              courseId: course.id,
+              version: course.version,
+            },
+          },
+          update: {},
+          create: {
+            id: id("course-version"),
+            courseId: course.id,
+            version: course.version,
+            name: course.name,
+            description: course.description,
+            grade: course.grade,
+            subject: course.subject,
+            outcomes: serviceContext.toStringArray(course.outcomes),
+            publishedBy: actorId,
+          },
+        });
         const row = await prisma.learningClass.create({
           data: {
             id: id("class"),

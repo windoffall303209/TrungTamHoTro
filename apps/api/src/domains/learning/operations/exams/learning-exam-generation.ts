@@ -58,15 +58,14 @@ export async function getExamGenerationContext(
         },
       },
     });
-    if (!courseSnapshot)
-      throw new ConflictException(
-        "Không tìm thấy phiên bản khóa học đã ghim cho lớp.",
-      );
+    const resolvedCourseName = courseSnapshot?.name ?? classItem.course.name;
+    const resolvedCourseDescription =
+      courseSnapshot?.description ?? classItem.course.description;
     if (skipMaterials)
       return {
         courseId: classItem.courseId,
-        courseName: courseSnapshot.name,
-        courseDescription: courseSnapshot.description,
+        courseName: resolvedCourseName,
+        courseDescription: resolvedCourseDescription,
         sourceFiles: [],
       };
     const materials = await prisma.material.findMany({
@@ -123,8 +122,8 @@ export async function getExamGenerationContext(
     }
     return {
       courseId: classItem.courseId,
-      courseName: courseSnapshot.name,
-      courseDescription: courseSnapshot.description,
+      courseName: resolvedCourseName,
+      courseDescription: resolvedCourseDescription,
       sourceFiles,
     };
   }
@@ -133,15 +132,15 @@ export async function getExamGenerationContext(
     throw new NotFoundException("Không tìm thấy lớp học được phép tạo đề.");
   if (classItem.status === "CLOSED")
     throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
-  const course = serviceContext.courseVersions.find(
-    (item) =>
-      item.courseId === classItem.courseId &&
-      item.version === classItem.courseVersion,
-  );
+  const course =
+    serviceContext.courseVersions.find(
+      (item) =>
+        item.courseId === classItem.courseId &&
+        item.version === classItem.courseVersion,
+    ) ??
+    serviceContext.courses.find((item) => item.id === classItem.courseId);
   if (!course)
-    throw new ConflictException(
-      "Không tìm thấy phiên bản khóa học đã ghim cho lớp.",
-    );
+    throw new NotFoundException("Không tìm thấy khóa học của lớp.");
   if (skipMaterials)
     return {
       courseId: classItem.courseId,

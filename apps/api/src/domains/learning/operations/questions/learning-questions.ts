@@ -402,11 +402,9 @@ export async function createQuestion(
   const contentHash = serviceContext.questionContentHash(normalized.content);
   const prisma = serviceContext.database();
   if (prisma) {
-    // Gộp quyền khóa học, sự tồn tại và kiểm tra trùng; mỗi dòng import vẫn ghi độc lập.
-    const [course] = await prisma.$queryRaw<Array<{ duplicate: boolean }>>`
-      SELECT EXISTS (
-        SELECT 1 FROM questions q WHERE q.course_id = c.id AND q.content_hash = ${contentHash}
-      ) AS duplicate
+    // Kiểm tra sự tồn tại khóa học và quyền giảng dạy của giảng viên; cho phép tạo câu hỏi trùng nội dung với ID riêng.
+    const [course] = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT c.id
       FROM courses c
       WHERE c.id = ${normalized.courseId} AND EXISTS (
         SELECT 1 FROM learning_classes lc
@@ -414,10 +412,6 @@ export async function createQuestion(
         WHERE lc.course_id = c.id AND ci.instructor_id = ${authorId}
       )`;
     if (!course) throw new NotFoundException("Không tìm thấy khóa học.");
-    if (course.duplicate)
-      throw new ConflictException(
-        "Nội dung câu hỏi đã tồn tại trong khóa học.",
-      );
     const questionId = id("question");
     return serviceContext.mapQuestion(
       await prisma.question.create({
@@ -439,14 +433,6 @@ export async function createQuestion(
     );
   }
   await assertQuestionCourseAccess(serviceContext, normalized.courseId, authorId);
-  if (
-    serviceContext.questions.some(
-      (item) =>
-        item.courseId === normalized.courseId &&
-        serviceContext.questionContentHash(item.content) === contentHash,
-    )
-  )
-    throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
   const questionId = id("question");
   const item: LearningQuestion = {
     ...normalized,
@@ -478,17 +464,6 @@ export async function updateQuestion(
     // Giữ nguyên khóa học của cả family để chuỗi phiên bản không bị chuyển sang khóa học khác.
     if (normalized.courseId !== current.courseId) throw new BadRequestException("Không thể chuyển câu hỏi sang khóa học khác.");
     const familyId = current.familyId || current.id;
-    const duplicate = await prisma.question.findFirst({
-      where: {
-        courseId: normalized.courseId,
-        contentHash,
-        familyId: { not: familyId },
-      },
-    });
-    if (duplicate)
-      throw new ConflictException(
-        "Nội dung câu hỏi đã tồn tại trong khóa học.",
-      );
     const latest = await prisma.question.findFirst({
       where: { familyId },
       orderBy: { version: "desc" },
@@ -537,15 +512,6 @@ export async function updateQuestion(
     throw new ConflictException(
       "Chỉ có thể sửa phiên bản mới nhất của câu hỏi.",
     );
-  if (
-    serviceContext.questions.some(
-      (item) =>
-        item.courseId === normalized.courseId &&
-        (item.familyId ?? item.id) !== familyId &&
-        serviceContext.questionContentHash(item.content) === contentHash,
-    )
-  )
-    throw new ConflictException("Nội dung câu hỏi đã tồn tại trong khóa học.");
   const next: LearningQuestion = {
     ...normalized,
     id: id("question"),
