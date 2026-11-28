@@ -2,9 +2,9 @@
 
 import { Save, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { AccessDenied } from "@/components/access-denied";
-import { Button } from "@/components/ui";
+import { PageHeader } from "@/shared/ui/page-header";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { Button } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { IdentityRole, PermissionCode, RoleCode } from "@/lib/app-types";
@@ -14,10 +14,9 @@ const permissionGroups: Array<{ name: string; permissions: Array<{ code: Permiss
   { name: "Người dùng & quyền", permissions: [{ code: "user:view", label: "Xem người dùng" }, { code: "user:create", label: "Tạo người dùng" }, { code: "user:update", label: "Cập nhật người dùng" }, { code: "user:suspend", label: "Khóa tài khoản" }, { code: "role:view", label: "Xem vai trò" }, { code: "role:update", label: "Sửa ma trận quyền" }] },
   { name: "Khóa học & lớp", permissions: [{ code: "course:view", label: "Xem khóa học" }, { code: "course:manage", label: "Quản lý khóa học" }, { code: "class:view", label: "Xem lớp" }, { code: "class:manage", label: "Quản lý lớp" }] },
   { name: "Nội dung giảng dạy", permissions: [{ code: "material:view", label: "Xem học liệu" }, { code: "material:manage", label: "Quản lý học liệu" }, { code: "question:view", label: "Xem câu hỏi" }, { code: "question:manage", label: "Quản lý câu hỏi" }, { code: "exam:view", label: "Xem đề" }, { code: "exam:manage", label: "Quản lý đề" }] },
-  { name: "Tương tác & vận hành", permissions: [{ code: "forum:view", label: "Xem diễn đàn" }, { code: "forum:post", label: "Đăng bài" }, { code: "forum:moderate", label: "Kiểm duyệt" }, { code: "session:view", label: "Xem buổi học" }, { code: "session:manage", label: "Quản lý buổi học" }, { code: "report:view", label: "Xem báo cáo" }, { code: "support:create", label: "Tạo ticket" }, { code: "support:manage", label: "Xử lý ticket" }, { code: "system:configure", label: "Cấu hình hệ thống" }] },
+  { name: "Tương tác & vận hành", permissions: [{ code: "forum:view", label: "Xem diễn đàn" }, { code: "forum:post", label: "Đăng bài" }, { code: "forum:moderate", label: "Quản lý chủ đề lớp" }, { code: "session:view", label: "Xem buổi học" }, { code: "session:manage", label: "Quản lý buổi học" }, { code: "report:view", label: "Theo dõi tiến độ" }, { code: "support:create", label: "Tạo ticket" }, { code: "support:manage", label: "Xử lý ticket" }, { code: "system:configure", label: "Cấu hình hệ thống" }] },
 ];
 
-/** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
 /** Chỉnh ma trận quyền của từng vai trò với nhóm quyền dễ rà soát. */
 export default function RolesPage() {
   const { session, notify } = useApp();
@@ -29,21 +28,29 @@ export default function RolesPage() {
   const [saving, setSaving] = useState(false);
 
   /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
-  /** Nạp vai trò và quyền hiện tại từ máy chủ trước khi cho phép chỉnh sửa. */
-  const load = useCallback(async () => {
-    try { const data = await apiRequest<IdentityRole[]>("/admin/roles", { roleCode: session.roleCode }); setRoles(data); const initial = data.find((role) => role.code === "CENTER_MANAGER") ?? data[0]; if (initial) { setSelectedCode(initial.code); setDraft([...initial.permissions]); } }
-    catch (error) { notify(error instanceof Error ? error.message : "Không tải được ma trận quyền.", "error"); }
+  const load = useCallback(async (signal: AbortSignal) => {
+    try {
+      const data = await apiRequest<IdentityRole[]>("/admin/roles", { roleCode: session.roleCode, signal });
+      if (signal.aborted) return;
+      setRoles(data);
+      const initial = data.find((role) => role.code === "CENTER_MANAGER") ?? data[0];
+      if (initial) { setSelectedCode(initial.code); setDraft([...initial.permissions]); }
+    } catch (error) {
+      if (!signal.aborted) notify(error instanceof Error ? error.message : "Không tải được ma trận quyền.", "error");
+    }
   }, [notify, session.roleCode]);
-  useEffect(() => { window.queueMicrotask(() => void load()); }, [load]);
+  useEffect(() => {
+    const controller = new AbortController();
+    window.queueMicrotask(() => { if (!controller.signal.aborted) void load(controller.signal); });
+    return () => controller.abort();
+  }, [load]);
   const selected = useMemo(() => roles.find((role) => role.code === selectedCode), [roles, selectedCode]);
 
-  /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
   /** Bật/tắt một quyền trong bản nháp cục bộ mà chưa tác động tới máy chủ. */
   const toggle = (code: PermissionCode) => {
     if (!canUpdate) return;
     setDraft((current) => current.includes(code) ? current.filter((item) => item !== code) : [...current, code]);
   };
-  /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
   /** Ghi toàn bộ tập quyền của vai trò đang chọn để tránh trạng thái cập nhật một phần. */
   const save = async () => {
     setSaving(true);
@@ -56,10 +63,65 @@ export default function RolesPage() {
 
   if (!canView) return <AccessDenied />;
 
-  return <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10"><PageHeader actions={canUpdate ? <Button loading={saving} onClick={() => void save()}><Save size={17} />Lưu ma trận</Button> : undefined} description="Bật hoặc tắt quyền theo vai trò. Các thay đổi được tăng phiên bản và ghi audit để phiên đang hoạt động có thể làm mới." eyebrow="Identity & Access · FUNC-ADM-002" title="Vai trò và quyền" />
-    <div className="mt-8 grid gap-7 lg:grid-cols-[280px_1fr]"><aside aria-label="Danh sách vai trò" className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">{roles.map((role) => <button aria-pressed={selectedCode === role.code} className={`min-h-20 w-full border-b border-[var(--rule)] p-4 text-left transition last:border-b-0 ${selectedCode === role.code ? "bg-[var(--accent-soft)] text-[var(--ink)]" : "hover:bg-[var(--surface-muted)]/65"}`} key={role.code} onClick={() => { setSelectedCode(role.code); setDraft([...role.permissions]); }} type="button"><div className="flex items-center justify-between gap-3"><p className="font-bold">{role.name}</p><span className={`text-xs font-extrabold ${selectedCode === role.code ? "text-[var(--accent-ink)]" : "text-[var(--ink-muted)]"}`}>v{role.version}</span></div><p className={`mt-2 text-xs leading-5 ${selectedCode === role.code ? "text-[var(--accent-ink)]" : "text-[var(--ink-soft)]"}`}>{role.description}</p></button>)}</aside>
-      <section className="overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65"><div className="flex items-center gap-3 border-b border-slate-200 px-5 py-5 md:px-7"><div className="grid size-10 place-items-center rounded-xl bg-[var(--accent-soft)] text-[var(--accent-ink)]"><ShieldCheck size={20} /></div><div><h2 className="font-heading text-xl font-extrabold">{selected?.name ?? "Đang tải…"}</h2><p className="text-xs text-[var(--ink-soft)]">{draft.length} quyền đang được cấp</p></div></div>
-        <div className="divide-y divide-slate-100">{permissionGroups.map((group) => <div className="grid gap-4 px-5 py-5 md:grid-cols-[180px_1fr] md:px-7" key={group.name}><h3 className="text-sm font-extrabold text-slate-700">{group.name}</h3><div className="grid gap-1 sm:grid-cols-2">{group.permissions.map((permission) => <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50" key={permission.code}><input checked={draft.includes(permission.code)} className="size-5 accent-sky-600" disabled={!canUpdate} onChange={() => toggle(permission.code)} type="checkbox" /><span>{permission.label}</span><code className="ml-auto hidden text-[10px] text-slate-400 xl:block">{permission.code}</code></label>)}</div></div>)}</div>
-      </section></div>
+  return <div className="w-full space-y-4"><PageHeader actions={canUpdate ? <Button loading={saving} onClick={() => void save()}><Save size={17} />Lưu ma trận</Button> : undefined} description="Bật hoặc tắt quyền theo vai trò. Các thay đổi được tăng phiên bản và ghi audit để phiên đang hoạt động có thể làm mới." title="Vai trò và quyền" />
+    <div className="mt-4 grid gap-4 lg:grid-cols-[280px_1fr]">
+      <aside aria-label="Danh sách vai trò" className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {roles.map((role) => {
+            const active = selectedCode === role.code;
+            return (
+              <button
+                aria-pressed={active}
+                className={`min-h-20 w-full p-4 text-left transition-all ${
+                  active
+                    ? "bg-sky-50/80 dark:bg-sky-950/40 border-l-4 border-l-sky-500 font-semibold"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+                key={role.code}
+                onClick={() => { setSelectedCode(role.code); setDraft([...role.permissions]); }}
+                type="button"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className={`font-bold ${active ? "text-sky-950 dark:text-sky-100" : "text-slate-900 dark:text-slate-100"}`}>{role.name}</p>
+                  <span className={`text-xs font-bold rounded-full px-2 py-0.5 ${active ? "bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}>
+                    v{role.version}
+                  </span>
+                </div>
+                <p className={`mt-2 text-xs leading-5 ${active ? "text-sky-800 dark:text-sky-300" : "text-slate-500 dark:text-slate-400"}`}>
+                  {role.description}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+        <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 px-5 py-5 md:px-7">
+          <div className="grid size-10 place-items-center rounded-2xl bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400 border border-sky-100 dark:border-sky-800">
+            <ShieldCheck size={20} />
+          </div>
+          <div>
+            <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">{selected?.name ?? "Đang tải…"}</h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{draft.length} quyền đang được kích hoạt</p>
+          </div>
+        </div>
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {permissionGroups.map((group) => (
+            <div className="grid gap-4 px-5 py-5 md:grid-cols-[180px_1fr] md:px-7" key={group.name}>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">{group.name}</h3>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {group.permissions.map((permission) => (
+                  <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors" key={permission.code}>
+                    <input checked={draft.includes(permission.code)} className="size-4 rounded-sm accent-sky-600" disabled={!canUpdate} onChange={() => toggle(permission.code)} type="checkbox" />
+                    <span>{permission.label}</span>
+                    <code className="ml-auto hidden text-[10px] text-slate-400 xl:block">{permission.code}</code>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   </div>;
 }

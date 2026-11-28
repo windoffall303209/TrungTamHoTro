@@ -1,22 +1,20 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
   Optional,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { createHash, randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "../generated/prisma/client.js";
+import { isPrismaUniqueConstraintError } from "../infrastructure/prisma-errors.js";
 import {
   DEFAULT_ROLE_PERMISSIONS,
   type PermissionCode,
   type RoleCode,
 } from "../auth/permissions.js";
 import { PrismaService } from "../database/prisma.service.js";
-import type { Environment } from "../config/environment.js";
-import { EmailDeliveryService } from "../infrastructure/email-delivery.service.js";
 import type {
   CreateUserDto,
   UserListQueryDto,
@@ -25,7 +23,6 @@ import type {
 } from "./identity.dto.js";
 import { hashPassword } from "../auth/password.js";
 import type {
-  IdentityAuditEvent,
   IdentityChangeImpact,
   IdentityRole,
   IdentityUser,
@@ -33,13 +30,6 @@ import type {
 
 /** Lấy thời điểm hiện tại theo định dạng ISO để lưu và trả về nhất quán. */
 const now = (): string => new Date().toISOString();
-/** Nhận diện lỗi ràng buộc duy nhất của Prisma để chuyển thành thông báo nghiệp vụ. */
-const isUniqueConstraintError = (error: unknown): boolean =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "P2002";
-
 type UserWithRoles = Prisma.UserGetPayload<{
   include: { roles: { include: { role: true } } };
 }>;
@@ -50,7 +40,6 @@ type RoleWithPermissions = Prisma.RoleGetPayload<{
 @Injectable()
 /** Quản lý danh tính bằng Prisma khi có DB và dùng dữ liệu nhớ tương đương cho chế độ demo cục bộ. */
 export class IdentityService {
-  private readonly logger = new Logger(IdentityService.name);
   private readonly users: IdentityUser[] = [
     {
       id: "usr-admin",
@@ -129,29 +118,97 @@ export class IdentityService {
     },
   ];
 
-  private readonly auditEvents: IdentityAuditEvent[] = [];
 
-  constructor(
-    @Optional() private readonly prisma?: PrismaService,
-    @Optional() private readonly emailDelivery?: EmailDeliveryService,
-    @Optional() private readonly config?: ConfigService<Environment, true>,
-  ) {}
+  constructor(@Optional() private readonly prisma?: PrismaService) {}
+
+  /** Quyền cốt lõi SYSTEM_ADMIN luôn phải giữ để không tự khóa vĩnh viễn trang phân quyền/quản trị. */
+  private static readonly ADMIN_CORE_PERMISSIONS = ["role:view", "role:update", "user:view", "user:update", "user:suspend", "system:configure"] as const;
+  /** Quyền tối cao không được cấp cho vai trò ngoài SYSTEM_ADMIN. */
+  private static readonly ADMIN_ONLY_PERMISSIONS = ["role:update", "system:configure"] as const;
+
+  /**
+   * Kiểm tra chung trước khi đổi trạng thái/vai trò: đổi trạng thái khóa/mở cần user:suspend, không được tự khóa hay
+   * tự đổi vai trò, và tài khoản chưa xác minh email không được chuyển thẳng sang ACTIVE (bỏ qua OTP/đổi mật khẩu đầu).
+   */
+  private assertStatusAndSelfChange(
+    target: { userId: string; status: string; emailVerifiedAt: Date | string | null | undefined; roleCodes: RoleCode[] },
+    input: Pick<UpdateUserDto, "status">,
+    nextRoleCodes: RoleCode[] | undefined,
+    actor: { actorId: string; permissions: readonly string[] },
+  ): void {
+    const changesStatus = Boolean(input.status && input.status !== target.status);
+    if (changesStatus && !actor.permissions.includes("user:suspend"))
+      throw new ForbiddenException("Cần quyền user:suspend để khóa hoặc mở khóa tài khoản.");
+    if (target.userId === actor.actorId && (changesStatus || (nextRoleCodes && !this.sameRoleSet(nextRoleCodes, target.roleCodes))))
+      throw new ForbiddenException("Không thể tự khóa hoặc tự đổi vai trò của chính mình.");
+    if (input.status === "ACTIVE" && target.status !== "ACTIVE" && !target.emailVerifiedAt)
+      throw new BadRequestException("Tài khoản chưa xác minh email nên chưa thể kích hoạt.");
+  }
+
+  /** Thao tác có gỡ quyền của một quản trị viên đang hoạt động hay không (xét đủ tập vai trò, không chỉ roles[0]). */
+  private removesActiveAdmin(currentRoleCodes: RoleCode[], currentStatus: string, input: Pick<UpdateUserDto, "status">, nextRoleCodes: RoleCode[] | undefined): boolean {
+    if (!currentRoleCodes.includes("SYSTEM_ADMIN") || currentStatus !== "ACTIVE") return false;
+    return Boolean((input.status && input.status !== "ACTIVE") || (nextRoleCodes && !nextRoleCodes.includes("SYSTEM_ADMIN")));
+  }
+
+  /** Giới hạn quản lý trung tâm thao tác và cấp vai trò cho giáo viên, học sinh. */
+  private assertUserChangeScope(currentRoleCodes: RoleCode[], nextRoleCodes: RoleCode[], actorRoleCode: RoleCode): void {
+    if (!["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(actorRoleCode))
+      throw new ForbiddenException("Vai trò hiện tại không được chỉnh sửa tài khoản.");
+    if (actorRoleCode === "CENTER_MANAGER" &&
+      [...currentRoleCodes, ...nextRoleCodes].some((code) => code !== "INSTRUCTOR" && code !== "LEARNER"))
+      throw new ForbiddenException("Quản lý trung tâm chỉ được chỉnh sửa và cấp vai trò Giáo viên hoặc Học sinh.");
+  }
 
   /** Tìm kiếm người dùng ở DB hoặc fallback in-memory, rồi trả bản sao/view model an toàn. */
-  async listUsersPage(input: UserListQueryDto): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
+  async listUsersPage(input: UserListQueryDto, actorRoleCode: RoleCode): Promise<{ items: IdentityUser[]; total: number; active: number; locked: number; page: number; pageSize: number }> {
     const { page, pageSize } = input;
     if (!Number.isInteger(page) || page < 1 || page > 10000 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 50 || (input.query?.length ?? 0) > 200) throw new BadRequestException("Tham số phân trang không hợp lệ.");
     const prisma = this.database();
     if (!prisma) {
-      const all = await this.listUsers(input.query);
+      let all = await this.listUsers(input.query);
+      if (input.roleCode) {
+        all = all.filter((u) => u.roleCodes?.includes(input.roleCode!) || u.roleCode === input.roleCode);
+      }
+      if (input.status) {
+        all = all.filter((u) => u.status === input.status);
+      }
+      if (actorRoleCode !== "SYSTEM_ADMIN") all = all.filter((u) => !(u.roleCodes ?? [u.roleCode]).includes("SYSTEM_ADMIN"));
       return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, active: all.filter((user) => user.status === "ACTIVE").length, locked: all.filter((user) => user.status === "LOCKED").length, page, pageSize };
     }
     const query = input.query?.trim();
-    const where: Prisma.UserWhereInput = query ? { OR: [{ username: { contains: query, mode: "insensitive" } }, { displayName: { contains: query, mode: "insensitive" } }, { email: { contains: query, mode: "insensitive" } }] } : {};
-    const [rows, total, active, locked] = await prisma.$transaction([
+    const where: Prisma.UserWhereInput = {};
+    if (query) {
+      where.OR = [
+        { username: { contains: query, mode: "insensitive" } },
+        { displayName: { contains: query, mode: "insensitive" } },
+        { email: { contains: query, mode: "insensitive" } },
+      ];
+    }
+    if (input.roleCode) {
+      where.roles = {
+        some: {
+          role: {
+            code: input.roleCode,
+          },
+        },
+      };
+    }
+    if (input.status) {
+      where.status = input.status;
+    }
+    // Quản lý trung tâm không cần và không được thấy danh sách/email tài khoản quản trị hệ thống.
+    if (actorRoleCode !== "SYSTEM_ADMIN") where.NOT = { roles: { some: { role: { code: "SYSTEM_ADMIN" } } } };
+    // Thống kê ACTIVE/LOCKED vẫn độc lập với tab trạng thái, nhưng giữ phạm vi tìm kiếm và quyền.
+    const statisticsWhere = { ...where };
+    delete statisticsWhere.status;
+    const [rows, groups] = await Promise.all([
       prisma.user.findMany({ where, skip: (page - 1) * pageSize, take: pageSize, include: { roles: { include: { role: true } } }, orderBy: [{ createdAt: "desc" }, { id: "asc" }] }),
-      prisma.user.count({ where }), prisma.user.count({ where: { ...where, status: "ACTIVE" } }), prisma.user.count({ where: { ...where, status: "LOCKED" } }),
-    ], { isolationLevel: "RepeatableRead" });
+      prisma.user.groupBy({ by: ["status"], where: statisticsWhere, _count: { _all: true } }),
+    ]);
+    const total = groups.reduce((sum, group) => sum + (!input.status || group.status === input.status ? group._count._all : 0), 0);
+    const active = groups.find((group) => group.status === "ACTIVE")?._count._all ?? 0;
+    const locked = groups.find((group) => group.status === "LOCKED")?._count._all ?? 0;
     return { items: rows.map((row) => this.mapUser(row)), total, active, locked, page, pageSize };
   }
 
@@ -188,20 +245,21 @@ export class IdentityService {
       .map((user) => ({ ...user }));
   }
 
-  /** Tạo user, gán vai trò và ghi audit trong cùng transaction; xử lý cả xung đột unique. */
+  /** Tạo tài khoản chưa xác thực bằng mật khẩu tạm; chỉ vai trò Quản trị hệ thống được cấp vai trò quản trị. */
   async createUser(
     input: CreateUserDto,
-    actorId = "usr-admin",
+    actorRoleCode: RoleCode,
+    actorId?: string,
   ): Promise<IdentityUser> {
-    const normalizedEmail = input.email.trim().toLowerCase();
     const normalizedUsername = input.username.trim().toLowerCase();
     const roleCodes = [...new Set(input.roleCodes?.length ? input.roleCodes : [input.roleCode])];
-    const invitationToken = input.initialPassword
-      ? undefined
-      : randomBytes(48).toString("base64url");
-    const invitationExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    if (actorRoleCode !== "SYSTEM_ADMIN" && roleCodes.some((code) => code !== "INSTRUCTOR" && code !== "LEARNER"))
+      throw new ForbiddenException(
+        "Quản lý trung tâm chỉ được tạo tài khoản Giáo viên hoặc Học sinh.",
+      );
     const prisma = this.database();
     if (prisma) {
+      const passwordHash = await hashPassword(input.initialPassword);
       try {
         const row = await prisma.$transaction(async (transaction) => {
           const roles = await transaction.role.findMany({
@@ -215,84 +273,59 @@ export class IdentityService {
             data: {
               id: `usr-${randomUUID()}`,
               username: normalizedUsername,
-              displayName: input.displayName.trim(),
-              email: normalizedEmail,
-              status: invitationToken ? "PENDING_VERIFICATION" : "ACTIVE",
-              emailVerifiedAt: invitationToken ? null : new Date(),
-              passwordHash: input.initialPassword
-                ? await hashPassword(input.initialPassword)
-                : null,
+              // Họ tên tạm lấy theo tên tài khoản; email và hồ sơ do người dùng bổ sung sau khi đăng nhập.
+              displayName: normalizedUsername,
+              status: "PENDING",
+              passwordHash,
               roles: {
                 create: roles.map((role) => ({ roleId: role.id })),
               },
-              accountTokens: invitationToken
-                ? {
-                    create: {
-                      tokenHash: createHash("sha256")
-                        .update(invitationToken)
-                        .digest("hex"),
-                      type: "PASSWORD_RESET",
-                      expiresAt: invitationExpiresAt,
-                    },
-                  }
-                : undefined,
             },
             include: { roles: { include: { role: true } } },
           });
-          await this.writeDatabaseAudit(
-            transaction,
-            actorId,
-            "USER_CREATED",
-            user.id,
-            `Tạo tài khoản ${user.email}`,
-          );
+          await transaction.auditLog.create({
+            data: {
+              actorId: actorId ?? null,
+              action: "USER_CREATED",
+              entityType: "user",
+              entityId: user.id,
+              context: {
+                username: user.username,
+                roleCodes,
+                status: user.status,
+              },
+            },
+          });
           return user;
         });
-        const invitationSent = invitationToken
-          ? await this.sendInvitationEmail(
-              row.id,
-              row.email,
-              row.displayName,
-              invitationToken,
-              invitationExpiresAt,
-            )
-          : undefined;
-        return { ...this.mapUser(row), invitationSent };
+        return this.mapUser(row);
       } catch (error) {
-        if (isUniqueConstraintError(error))
+        if (isPrismaUniqueConstraintError(error))
           throw new ConflictException(
-            "Tài khoản hoặc email đã tồn tại trong hệ thống.",
+            "Tên tài khoản đã được sử dụng. Hãy chọn tên khác.",
           );
         throw error;
       }
     }
 
-    if (
-      this.users.some(
-        (user) =>
-          user.email.toLowerCase() === normalizedEmail ||
-          user.username === normalizedUsername,
-      )
-    ) {
+    if (this.users.some((user) => user.username === normalizedUsername)) {
       throw new ConflictException(
-        "Tài khoản hoặc email đã tồn tại trong hệ thống.",
+        "Tên tài khoản đã được sử dụng. Hãy chọn tên khác.",
       );
     }
     const timestamp = now();
     const user: IdentityUser = {
       id: `usr-${randomUUID()}`,
       username: normalizedUsername,
-      displayName: input.displayName.trim(),
-      email: normalizedEmail,
+      displayName: normalizedUsername,
+      email: null,
       roleCode: roleCodes[0]!,
       roleCodes,
-      status: invitationToken ? "PENDING_VERIFICATION" : "ACTIVE",
-      invitationSent: false,
+      status: "PENDING",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     this.users.unshift(user);
-    this.audit(actorId, "USER_CREATED", user.id, `Tạo tài khoản ${user.email}`);
     return { ...user };
   }
 
@@ -300,11 +333,14 @@ export class IdentityService {
   async previewUserChange(
     userId: string,
     target: Pick<UpdateUserDto, "roleCode" | "roleCodes" | "status">,
+    actorRoleCode: RoleCode,
   ): Promise<IdentityChangeImpact> {
     const prisma = this.database();
     if (!prisma) {
       const user = this.users.find((item) => item.id === userId);
       if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+      const nextRoleCodes = target.roleCodes?.length ? target.roleCodes : target.roleCode ? [target.roleCode] : [user.roleCode];
+      this.assertUserChangeScope(user.roleCodes ?? [user.roleCode], nextRoleCodes, actorRoleCode);
       const nextRoleCode = target.roleCodes?.[0] ?? target.roleCode ?? user.roleCode;
       const nextStatus = target.status ?? user.status;
       const token = createHash("sha256")
@@ -324,21 +360,27 @@ export class IdentityService {
           regrades: 0,
           interventions: 0,
           supportTickets: 0,
-          moderationReports: 0,
           upcomingSessions: 0,
         },
       };
     }
-    return prisma.$transaction((transaction) =>
-      this.buildDatabaseImpact(transaction, userId, target),
-    );
+    return prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.findUnique({ where: { id: userId }, include: { roles: { include: { role: true } } } });
+      if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
+      const currentRoleCodes = user.roles.map(({ role }) => role.code as RoleCode);
+      const nextRoleCodes = target.roleCodes?.length ? target.roleCodes : target.roleCode ? [target.roleCode] : currentRoleCodes;
+      this.assertUserChangeScope(currentRoleCodes, nextRoleCodes, actorRoleCode);
+      return this.buildDatabaseImpact(transaction, userId, target);
+    });
   }
 
   /** Cập nhật user/vai trò, bàn giao việc đang mở và thu hồi mọi phiên trong cùng transaction. */
   async updateUser(
     userId: string,
     input: UpdateUserDto,
-    actorId = "usr-admin",
+    actorId: string,
+    actorRoleCode: RoleCode,
+    actorPermissions: readonly string[],
   ): Promise<IdentityUser> {
     const prisma = this.database();
     if (prisma) {
@@ -348,12 +390,19 @@ export class IdentityService {
           include: { roles: { include: { role: true } } },
         });
         if (!current) throw new NotFoundException("Không tìm thấy tài khoản.");
-        const currentRole = this.getRoleCode(current);
+        // Chỉ tài khoản chưa từng xác thực (chưa có email) mới về Chưa xác thực, ví dụ khi được mở khóa.
+        if (input.status === "PENDING" && current.email)
+          throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
         const nextRoleCodes = input.roleCodes?.length
           ? [...new Set(input.roleCodes)]
           : input.roleCode
             ? [input.roleCode]
             : undefined;
+        this.assertUserChangeScope(
+          current.roles.map(({ role }) => role.code as RoleCode),
+          nextRoleCodes ?? current.roles.map(({ role }) => role.code as RoleCode),
+          actorRoleCode,
+        );
         const changesAccess = Boolean(
           (nextRoleCodes &&
             !this.sameRoleSet(
@@ -369,32 +418,30 @@ export class IdentityService {
           throw new ConflictException(
             "Ảnh hưởng công việc đã thay đổi hoặc chưa được xác nhận. Hãy xem trước lại.",
           );
-        if (
-          impact?.requiresHandoff &&
-          (!input.handoffUserId || !input.handoffReason?.trim())
-        )
+        if (impact?.requiresHandoff && !input.handoffUserId)
           throw new BadRequestException(
-            "Cần chọn người nhận bàn giao và ghi lý do trước khi đổi quyền tài khoản.",
+            "Cần chọn người nhận bàn giao trước khi đổi quyền tài khoản.",
           );
-        const removesActiveAdmin =
-          currentRole === "SYSTEM_ADMIN" &&
-          current.status === "ACTIVE" &&
-          Boolean(
-            (input.status && input.status !== "ACTIVE") ||
-              (input.roleCode && input.roleCode !== "SYSTEM_ADMIN"),
-          );
-        if (removesActiveAdmin) {
-          const activeAdmins = await transaction.user.count({
-            where: {
-              status: "ACTIVE",
-              roles: { some: { role: { code: "SYSTEM_ADMIN" } } },
-            },
-          });
-          if (activeAdmins === 1)
+        const currentRoleCodes = current.roles.map(({ role }) => role.code as RoleCode);
+        if (this.removesActiveAdmin(currentRoleCodes, current.status, input, nextRoleCodes)) {
+          // Khóa các dòng admin đang hoạt động để hai thao tác song song không cùng gỡ hai admin cuối.
+          const activeAdmins = await transaction.$queryRaw<Array<{ id: string }>>`
+            SELECT u.id FROM users u
+            JOIN user_roles ur ON ur.user_id = u.id
+            JOIN roles r ON r.id = ur.role_id
+            WHERE r.code = 'SYSTEM_ADMIN' AND u.status = 'ACTIVE'
+            FOR UPDATE OF u`;
+          if (activeAdmins.length <= 1)
             throw new BadRequestException(
               "Không thể khóa hoặc hạ quyền quản trị viên hoạt động cuối cùng.",
             );
         }
+        this.assertStatusAndSelfChange(
+          { userId, status: current.status, emailVerifiedAt: current.emailVerifiedAt, roleCodes: currentRoleCodes },
+          input,
+          nextRoleCodes,
+          { actorId, permissions: actorPermissions },
+        );
 
         const nextRoles = nextRoleCodes
           ? await transaction.role.findMany({
@@ -408,7 +455,6 @@ export class IdentityService {
             transaction,
             userId,
             input.handoffUserId,
-            input.handoffReason!.trim(),
             actorId,
             impact,
           );
@@ -421,7 +467,6 @@ export class IdentityService {
         await transaction.user.update({
           where: { id: userId },
           data: {
-            displayName: input.displayName?.trim(),
             status: input.status,
           },
         });
@@ -439,66 +484,68 @@ export class IdentityService {
             data: { consumedAt: new Date() },
           });
         }
-        await this.writeDatabaseAudit(
-          transaction,
-          actorId,
-          "USER_UPDATED",
-          userId,
-          `${currentRole}/${current.status} → ${this.getRoleCode(updated)}/${updated.status}`,
-        );
+        await transaction.auditLog.create({
+          data: {
+            actorId,
+            action: "USER_UPDATED",
+            entityType: "user",
+            entityId: userId,
+            context: {
+              previousStatus: current.status,
+              status: updated.status,
+              previousRoles: current.roles.map(({ role }) => role.code),
+              roleCodes: updated.roles.map(({ role }) => role.code),
+              handoffUserId: input.handoffUserId ?? null,
+              handoffReason: input.handoffReason?.trim() ?? null,
+            },
+          },
+        });
         return this.mapUser(updated);
       });
     }
 
     const user = this.users.find((item) => item.id === userId);
     if (!user) throw new NotFoundException("Không tìm thấy tài khoản.");
-    const removesActiveAdmin =
-      user.roleCode === "SYSTEM_ADMIN" &&
-      user.status === "ACTIVE" &&
-      Boolean(
-        (input.status && input.status !== "ACTIVE") ||
-          (input.roleCode && input.roleCode !== "SYSTEM_ADMIN"),
-      );
-    if (removesActiveAdmin) {
+    const memoryRoleCodes = input.roleCodes?.length ? [...new Set(input.roleCodes)] : input.roleCode ? [input.roleCode] : user.roleCodes ?? [user.roleCode];
+    this.assertUserChangeScope(user.roleCodes ?? [user.roleCode], memoryRoleCodes, actorRoleCode);
+    if (input.status === "PENDING" && user.email)
+      throw new BadRequestException("Tài khoản đã xác thực email nên không thể chuyển về trạng thái Chưa xác thực.");
+    const userRoleCodes = user.roleCodes ?? [user.roleCode];
+    const memoryNextRoleCodes = input.roleCodes?.length ? memoryRoleCodes : input.roleCode ? memoryRoleCodes : undefined;
+    if (this.removesActiveAdmin(userRoleCodes, user.status, input, memoryNextRoleCodes)) {
       const activeAdmins = this.users.filter(
-        (item) => item.roleCode === "SYSTEM_ADMIN" && item.status === "ACTIVE",
+        (item) => (item.roleCodes ?? [item.roleCode]).includes("SYSTEM_ADMIN") && item.status === "ACTIVE",
       );
-      if (activeAdmins.length === 1)
+      if (activeAdmins.length <= 1)
         throw new BadRequestException(
           "Không thể khóa hoặc hạ quyền quản trị viên hoạt động cuối cùng.",
         );
     }
+    this.assertStatusAndSelfChange(
+      // Kho nhớ demo không lưu emailVerifiedAt: coi tài khoản có email và không chờ xác minh là đã xác minh.
+      { userId, status: user.status, emailVerifiedAt: user.email && user.status !== "PENDING_VERIFICATION" ? user.createdAt : null, roleCodes: userRoleCodes },
+      input,
+      memoryNextRoleCodes,
+      { actorId, permissions: actorPermissions },
+    );
     const fallbackChangesAccess = Boolean(
-      (input.roleCode && input.roleCode !== user.roleCode) ||
+      !this.sameRoleSet(memoryRoleCodes, user.roleCodes ?? [user.roleCode]) ||
         (input.status && input.status !== user.status),
     );
     if (fallbackChangesAccess) {
-      const impact = await this.previewUserChange(userId, input);
+      const impact = await this.previewUserChange(userId, input, actorRoleCode);
       if (input.impactToken !== impact.token)
         throw new ConflictException(
           "Ảnh hưởng công việc đã thay đổi hoặc chưa được xác nhận. Hãy xem trước lại.",
         );
     }
 
-    const before = `${user.roleCode}/${user.status}`;
-    if (input.displayName) user.displayName = input.displayName.trim();
-    const memoryRoleCodes = input.roleCodes?.length
-      ? [...new Set(input.roleCodes)]
-      : input.roleCode
-        ? [input.roleCode]
-        : undefined;
-    if (memoryRoleCodes) {
+    if (memoryRoleCodes.length) {
       user.roleCodes = memoryRoleCodes;
       user.roleCode = memoryRoleCodes[0]!;
     }
     if (input.status) user.status = input.status;
     user.updatedAt = now();
-    this.audit(
-      actorId,
-      "USER_UPDATED",
-      user.id,
-      `${before} → ${user.roleCode}/${user.status}`,
-    );
     return { ...user };
   }
 
@@ -521,8 +568,11 @@ export class IdentityService {
   /** Thay thế tập quyền nguyên tử, giữ quyền tự quản trị bắt buộc và tăng version để theo dõi thay đổi. */
   async updateRolePermissions(
     input: UpdateRolePermissionsDto,
-    actorId = "usr-admin",
+    actorId: string,
+    actorRoleCode: RoleCode,
   ): Promise<IdentityRole> {
+    if (actorRoleCode !== "SYSTEM_ADMIN")
+      throw new ForbiddenException("Chỉ quản trị hệ thống được thay đổi ma trận quyền.");
     if (
       input.roleCode === "SYSTEM_ADMIN" &&
       !input.permissions.includes("role:update")
@@ -531,6 +581,10 @@ export class IdentityService {
         "Vai trò quản trị phải giữ quyền role:update.",
       );
     }
+    if (input.roleCode === "SYSTEM_ADMIN" && IdentityService.ADMIN_CORE_PERMISSIONS.some((code) => !input.permissions.includes(code)))
+      throw new BadRequestException("Vai trò quản trị phải giữ các quyền cốt lõi role:view, role:update, user:view, user:update, user:suspend và system:configure.");
+    if (input.roleCode !== "SYSTEM_ADMIN" && IdentityService.ADMIN_ONLY_PERMISSIONS.some((code) => input.permissions.includes(code)))
+      throw new BadRequestException("Không được cấp quyền role:update hoặc system:configure cho vai trò ngoài quản trị hệ thống.");
     const prisma = this.database();
     if (prisma) {
       return prisma.$transaction(async (transaction) => {
@@ -563,16 +617,22 @@ export class IdentityService {
           where: { id: role.id },
           data: { version: { increment: 1 } },
         });
-        await this.writeDatabaseAudit(
-          transaction,
-          actorId,
-          "ROLE_PERMISSIONS_UPDATED",
-          role.code,
-          `Cập nhật ${permissionRows.length} quyền, phiên bản ${role.version + 1}`,
-        );
         const updated = await transaction.role.findUniqueOrThrow({
           where: { id: role.id },
           include: { permissions: { include: { permission: true } } },
+        });
+        await transaction.auditLog.create({
+          data: {
+            actorId,
+            action: "ROLE_PERMISSIONS_UPDATED",
+            entityType: "role",
+            entityId: role.id,
+            context: {
+              roleCode: role.code,
+              version: updated.version,
+              permissions: uniquePermissions,
+            },
+          },
         });
         return this.mapRole(updated);
       });
@@ -582,39 +642,9 @@ export class IdentityService {
     if (!role) throw new NotFoundException("Không tìm thấy vai trò.");
     role.permissions = [...new Set(input.permissions)];
     role.version += 1;
-    this.audit(
-      actorId,
-      "ROLE_PERMISSIONS_UPDATED",
-      role.code,
-      `Cập nhật ${role.permissions.length} quyền, phiên bản ${role.version}`,
-    );
     return { ...role, permissions: [...role.permissions] };
   }
 
-  /** Đọc 200 sự kiện danh tính gần nhất và chuẩn hóa context JSON thành nội dung hiển thị. */
-  async listAuditEvents(): Promise<IdentityAuditEvent[]> {
-    const prisma = this.database();
-    if (prisma) {
-      const rows = await prisma.auditLog.findMany({
-        where: { entityType: "identity" },
-        orderBy: { createdAt: "desc" },
-        take: 200,
-      });
-      return rows.map((row) => {
-        const context = this.asRecord(row.context);
-        return {
-          id: row.id.toString(),
-          actorId: row.actorId ?? "system",
-          action: row.action,
-          targetId: row.entityId ?? "unknown",
-          summary:
-            typeof context.summary === "string" ? context.summary : row.action,
-          createdAt: row.createdAt.toISOString(),
-        };
-      });
-    }
-    return this.auditEvents.map((event) => ({ ...event }));
-  }
 
   /** Chỉ chọn Prisma khi ứng dụng được cấu hình kết nối DB; nếu không dùng kho nhớ demo. */
   private database(): PrismaService | undefined {
@@ -641,47 +671,52 @@ export class IdentityService {
         : currentRoleCodes;
     const nextRoleCode = nextRoleCodes[0] ?? currentRoleCode;
     const nextStatus = target.status ?? user.status;
-    const [
-      assignments,
-      regrades,
-      interventions,
-      supportTickets,
-      moderationReports,
-      upcomingSessions,
-      activeSessions,
-    ] = await Promise.all([
-      transaction.classInstructor.findMany({
-        where: {
-          instructorId: userId,
-          class: { status: { in: ["DRAFT", "ACTIVE"] } },
-        },
-        include: {
-          class: { select: { id: true, code: true, name: true, status: true } },
-        },
-        orderBy: { class: { code: "asc" } },
-      }),
-      transaction.regradeRequest.count({
-        where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
-      }),
-      transaction.progressIntervention.count({
-        where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-      }),
-      transaction.supportTicket.count({
-        where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
-      }),
-      transaction.contentReport.count({
-        where: {
-          assignedToId: userId,
-          status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-        },
-      }),
-      transaction.liveSession.count({
-        where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
-      }),
-      transaction.authSession.count({
-        where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
-      }),
-    ]);
+    const changesAccess =
+      !this.sameRoleSet(currentRoleCodes, nextRoleCodes) ||
+      nextStatus !== user.status;
+    // Chỉ yêu cầu và thực hiện bàn giao các miền công việc mà tài khoản thực sự mất quyền đảm nhiệm.
+    const losesTeachingAccess =
+      nextStatus !== "ACTIVE" || !nextRoleCodes.includes("INSTRUCTOR");
+    const losesOperationalAccess =
+      nextStatus !== "ACTIVE" ||
+      (!nextRoleCodes.includes("CENTER_MANAGER") &&
+        !nextRoleCodes.includes("SYSTEM_ADMIN"));
+    // Prisma dùng một kết nối cho transaction; đọc lần lượt để tránh truy vấn chồng nhau.
+    const assignments = losesTeachingAccess
+      ? await transaction.classInstructor.findMany({
+          where: {
+            instructorId: userId,
+            class: { status: { in: ["DRAFT", "ACTIVE"] } },
+          },
+          include: {
+            class: { select: { id: true, code: true, name: true, status: true } },
+          },
+          orderBy: { class: { code: "asc" } },
+        })
+      : [];
+    const regrades = losesTeachingAccess
+      ? await transaction.regradeRequest.count({
+          where: { assignedToId: userId, status: { in: ["OPEN", "IN_REVIEW"] } },
+        })
+      : 0;
+    const interventions = losesTeachingAccess
+      ? await transaction.progressIntervention.count({
+          where: { ownerId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        })
+      : 0;
+    const supportTickets = losesOperationalAccess
+      ? await transaction.supportTicket.count({
+          where: { assigneeId: userId, status: { in: ["OPEN", "IN_PROGRESS"] } },
+        })
+      : 0;
+    const upcomingSessions = losesTeachingAccess
+      ? await transaction.liveSession.count({
+          where: { hostId: userId, status: { in: ["SCHEDULED", "LIVE"] } },
+        })
+      : 0;
+    const activeSessions = await transaction.authSession.count({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
     const classes = assignments.map((item) => ({
       id: item.class.id,
       code: item.class.code,
@@ -693,15 +728,10 @@ export class IdentityService {
       regrades,
       interventions,
       supportTickets,
-      moderationReports,
       upcomingSessions,
     };
-    const changesAccess =
-      !this.sameRoleSet(currentRoleCodes, nextRoleCodes) ||
-      nextStatus !== user.status;
     const requiresHandoff =
       changesAccess &&
-      (nextStatus !== "ACTIVE" || !currentRoleCodes.every((code) => nextRoleCodes.includes(code))) &&
       (classes.length > 0 ||
         Object.values(openWork).some((count) => count > 0));
     const tokenPayload = JSON.stringify({
@@ -735,7 +765,6 @@ export class IdentityService {
     transaction: Prisma.TransactionClient,
     fromUserId: string,
     toUserId: string,
-    reason: string,
     actorId: string,
     impact: IdentityChangeImpact,
   ): Promise<void> {
@@ -745,150 +774,82 @@ export class IdentityService {
       );
     const target = await transaction.user.findUnique({
       where: { id: toUserId },
-      include: { roles: { include: { role: true }, take: 1 } },
+      include: { roles: { include: { role: true } } },
     });
     if (!target || target.status !== "ACTIVE")
       throw new BadRequestException(
         "Người nhận bàn giao phải là tài khoản đang hoạt động.",
       );
-    const targetRole = this.getRoleCode(target);
+    // Đọc đầy đủ tập vai trò của người nhận để hỗ trợ bàn giao cho tài khoản đa vai trò.
+    const targetRoleCodes = target.roles.map(({ role }) => role.code as RoleCode);
+    if (!targetRoleCodes.length) this.getRoleCode(target);
+    const hasTeachingRole = targetRoleCodes.includes("INSTRUCTOR");
+    const hasOperationalRole = targetRoleCodes.some(
+      (code) => code === "CENTER_MANAGER" || code === "SYSTEM_ADMIN",
+    );
     const teachingWork =
       impact.classes.length +
       impact.openWork.regrades +
       impact.openWork.interventions +
       impact.openWork.upcomingSessions;
-    const operationalWork =
-      impact.openWork.supportTickets + impact.openWork.moderationReports;
-    if (teachingWork && targetRole !== "INSTRUCTOR")
+    const operationalWork = impact.openWork.supportTickets;
+    if (teachingWork && !hasTeachingRole)
       throw new BadRequestException(
         "Công việc giảng dạy phải bàn giao cho một giảng viên đang hoạt động.",
       );
-    if (
-      operationalWork &&
-      !["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(targetRole)
-    )
+    if (operationalWork && !hasOperationalRole)
       throw new BadRequestException(
         "Phiếu hỗ trợ hoặc kiểm duyệt phải bàn giao cho quản lý hay quản trị viên.",
       );
-    if (teachingWork && operationalWork)
-      throw new BadRequestException(
-        "Tài khoản đang giữ việc ở nhiều miền quyền; cần bàn giao từng miền trước khi đổi vai trò.",
-      );
-    for (const classItem of impact.classes) {
-      const existingTarget = await transaction.classInstructor.findUnique({
-        where: {
-          classId_instructorId: {
-            classId: classItem.id,
-            instructorId: toUserId,
-          },
-        },
+    if (impact.classes.length) {
+      const classIds = impact.classes.map((item) => item.id);
+      const assignmentRoles = impact.classes.map((item) => item.assignmentRole);
+      // Chỉ PRIMARY ghi đè phân công đã có; bàn giao phụ giữ nguyên role và metadata của người nhận.
+      await transaction.$executeRaw`
+        INSERT INTO class_instructors (class_id, instructor_id, role, assigned_by, assigned_at)
+        SELECT incoming.class_id, ${toUserId}, incoming.role::"InstructorAssignmentRole", ${actorId}, CURRENT_TIMESTAMP
+        FROM unnest(${classIds}::text[], ${assignmentRoles}::text[]) AS incoming(class_id, role)
+        ORDER BY incoming.class_id
+        ON CONFLICT (class_id, instructor_id) DO UPDATE
+        SET role = EXCLUDED.role, assigned_by = EXCLUDED.assigned_by, assigned_at = EXCLUDED.assigned_at
+        WHERE EXCLUDED.role = 'PRIMARY'::"InstructorAssignmentRole"`;
+      const removed = await transaction.classInstructor.deleteMany({
+        where: { classId: { in: classIds }, instructorId: fromUserId },
       });
-      if (classItem.assignmentRole === "PRIMARY") {
-        await transaction.classInstructor.upsert({
-          where: {
-            classId_instructorId: {
-              classId: classItem.id,
-              instructorId: toUserId,
-            },
-          },
-          update: {
-            role: "PRIMARY",
-            assignedBy: actorId,
-            assignedAt: new Date(),
-          },
-          create: {
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: "PRIMARY",
-            assignedBy: actorId,
-          },
-        });
-      } else if (!existingTarget) {
-        await transaction.classInstructor.create({
-          data: {
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: "CO_INSTRUCTOR",
-            assignedBy: actorId,
-          },
-        });
-      }
-      await transaction.classInstructor.delete({
-        where: {
-          classId_instructorId: {
-            classId: classItem.id,
-            instructorId: fromUserId,
-          },
-        },
-      });
-      await transaction.classInstructorHistory.createMany({
-        data: [
-          {
-            id: `class-instructor-history-${randomUUID()}`,
-            classId: classItem.id,
-            instructorId: fromUserId,
-            role: classItem.assignmentRole,
-            action: "REMOVED",
-            reason,
-            actorId,
-          },
-          {
-            id: `class-instructor-history-${randomUUID()}`,
-            classId: classItem.id,
-            instructorId: toUserId,
-            role: classItem.assignmentRole,
-            action: "ASSIGNED",
-            reason,
-            actorId,
-          },
-        ],
-      });
+      if (removed.count !== classIds.length)
+        throw new ConflictException("Phân công lớp đã thay đổi. Hãy xem trước bàn giao lại.");
     }
-    await Promise.all([
-      transaction.regradeRequest.updateMany({
+    // Chỉ chuyển từng nhóm công việc thực sự nằm trong phạm vi bàn giao của bản xem trước.
+    if (impact.openWork.regrades > 0) {
+      await transaction.regradeRequest.updateMany({
         where: {
           assignedToId: fromUserId,
           status: { in: ["OPEN", "IN_REVIEW"] },
         },
         data: { assignedToId: toUserId },
-      }),
-      transaction.progressIntervention.updateMany({
+      });
+    }
+    if (impact.openWork.interventions > 0) {
+      await transaction.progressIntervention.updateMany({
         where: { ownerId: fromUserId, status: { in: ["OPEN", "IN_PROGRESS"] } },
         data: { ownerId: toUserId },
-      }),
-      transaction.liveSession.updateMany({
+      });
+    }
+    if (impact.openWork.upcomingSessions > 0) {
+      await transaction.liveSession.updateMany({
         where: { hostId: fromUserId, status: { in: ["SCHEDULED", "LIVE"] } },
         data: { hostId: toUserId },
-      }),
-      transaction.supportTicket.updateMany({
+      });
+    }
+    if (impact.openWork.supportTickets > 0) {
+      await transaction.supportTicket.updateMany({
         where: {
           assigneeId: fromUserId,
           status: { in: ["OPEN", "IN_PROGRESS"] },
         },
         data: { assigneeId: toUserId },
-      }),
-      transaction.contentReport.updateMany({
-        where: {
-          assignedToId: fromUserId,
-          status: { in: ["OPEN", "IN_REVIEW", "ESCALATED"] },
-        },
-        data: { assignedToId: toUserId },
-      }),
-    ]);
-    await transaction.auditLog.create({
-      data: {
-        actorId,
-        action: "IDENTITY_WORK_HANDOFF",
-        entityType: "identity",
-        entityId: fromUserId,
-        context: {
-          toUserId,
-          reason,
-          classes: impact.classes.map((item) => item.id),
-          openWork: impact.openWork,
-        },
-      },
-    });
+      });
+    }
   }
 
   /** Ánh xạ bản ghi Prisma sang hợp đồng IdentityUser không chứa trường bí mật. */
@@ -912,7 +873,7 @@ export class IdentityService {
     const code = row.roles[0]?.role.code;
     if (!code || !Object.hasOwn(DEFAULT_ROLE_PERMISSIONS, code)) {
       throw new BadRequestException(
-        `Tài khoản ${row.email} chưa có vai trò hợp lệ.`,
+        `Tài khoản ${row.username} chưa có vai trò hợp lệ.`,
       );
     }
     return code as RoleCode;
@@ -921,31 +882,6 @@ export class IdentityService {
   /** So sánh hai tập vai trò không phụ thuộc thứ tự để tránh thu hồi phiên không cần thiết. */
   private sameRoleSet(left: RoleCode[], right: RoleCode[]): boolean {
     return left.length === right.length && left.every((code) => right.includes(code));
-  }
-
-  /** Gửi liên kết kích hoạt một lần; lỗi provider giữ tài khoản ở trạng thái chờ để quản trị viên xử lý lại. */
-  private async sendInvitationEmail(
-    userId: string,
-    email: string,
-    displayName: string,
-    token: string,
-    expiresAt: Date,
-  ): Promise<boolean> {
-    if (!this.emailDelivery?.isConfigured()) return false;
-    const origin = this.config?.get("WEB_ORIGIN", { infer: true })?.replace(/\/$/, "") ?? "http://localhost:3000";
-    const link = `${origin}/reset-password?token=${encodeURIComponent(token)}&invitation=1`;
-    try {
-      await this.emailDelivery.send({
-        to: email,
-        subject: "Kích hoạt tài khoản Wind EDU",
-        text: `Xin chào ${displayName},\n\nTài khoản Wind EDU của bạn đã được tạo. Hãy đặt mật khẩu bằng liên kết dùng một lần trước ${expiresAt.toISOString()}:\n${link}`,
-        idempotencyKey: `account-invitation/${userId}/${createHash("sha256").update(token).digest("hex")}`,
-      });
-      return true;
-    } catch (error) {
-      this.logger.error("Không gửi được email kích hoạt tài khoản.", error instanceof Error ? error.stack : String(error));
-      return false;
-    }
   }
 
   /** Ánh xạ vai trò Prisma và kiểm tra mã vai trò trước khi ép kiểu. */
@@ -966,53 +902,4 @@ export class IdentityService {
     };
   }
 
-  /** Tạo hash ngẫu nhiên không thể đăng nhập cho tài khoản quản trị tạo mà chưa đặt mật khẩu. */
-  private createDisabledPasswordHash(): string {
-    const salt = randomBytes(16).toString("hex");
-    const hash = scryptSync(randomBytes(32), salt, 64).toString("hex");
-    return `scrypt:${salt}:${hash}`;
-  }
-
-  /** Ghi audit vào cùng transaction nghiệp vụ để thay đổi và dấu vết luôn nhất quán. */
-  private async writeDatabaseAudit(
-    transaction: Prisma.TransactionClient,
-    actorId: string,
-    action: string,
-    targetId: string,
-    summary: string,
-  ): Promise<void> {
-    await transaction.auditLog.create({
-      data: {
-        actorId,
-        action,
-        entityType: "identity",
-        entityId: targetId,
-        context: { summary },
-      },
-    });
-  }
-
-  /** Thu hẹp Prisma JSON thành object trước khi đọc trường summary. */
-  private asRecord(value: Prisma.JsonValue | null): Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  }
-
-  /** Thêm sự kiện audit vào đầu danh sách fallback in-memory. */
-  private audit(
-    actorId: string,
-    action: string,
-    targetId: string,
-    summary: string,
-  ): void {
-    this.auditEvents.unshift({
-      id: randomUUID(),
-      actorId,
-      action,
-      targetId,
-      summary,
-      createdAt: now(),
-    });
-  }
 }

@@ -1,28 +1,13 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { extname, join, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { extname, relative, resolve } from "node:path";
 import ts from "typescript";
+import { collectCoverageFiles, normalizeCoverageValue as normalize, readCoverageCatalogKeys, vietnamesePattern } from "./i18n-coverage-shared.mjs";
 
 const sourceRoot = resolve("src");
-const catalogPath = resolve("src/i18n/catalog.ts");
+const catalogPath = resolve("src/i18n/en-catalog.ts");
+const catalogFacadePath = resolve("src/i18n/catalog.ts");
 const generatedCatalogPath = resolve("src/i18n/generated-en.json");
-const vietnamesePattern = /[ÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐàáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/;
 const ignoredSegments = new Set([".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"]);
-
-// Thu thập tệp TypeScript giao diện nhưng bỏ test và chính catalog.
-function collectSourceFiles(directory) {
-  const files = [];
-  for (const entry of readdirSync(directory)) {
-    const path = join(directory, entry);
-    if (statSync(path).isDirectory()) files.push(...collectSourceFiles(path));
-    else if ([".ts", ".tsx"].includes(extname(path)) && ![...ignoredSegments].some((suffix) => path.endsWith(suffix)) && path !== catalogPath) files.push(path);
-  }
-  return files;
-}
-
-// Chuẩn hóa khoảng trắng để khớp cách trình duyệt hiển thị JSX text.
-function normalize(value) {
-  return value.replace(/\s+/g, " ").trim();
-}
 
 // Trích chuỗi tiếng Việt từ literal/JSX text có khả năng hiển thị cho người dùng.
 function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
@@ -30,9 +15,22 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
   const source = ts.createSourceFile(path, sourceText, ts.ScriptTarget.Latest, true, path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const values = [];
   /** Duyệt JSX và chuỗi mẫu để thu thập nội dung tiếng Việt cần dịch. */
+  // Giải mã thực thể HTML trong JSX để chuỗi đối chiếu khớp với Text.data trên DOM.
+  const decodeJsxEntities = (text) =>
+    text
+      .replace(/&quot;/g, "\"")
+      .replace(/&apos;|&#39;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&amp;/g, "&")
+      .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)));
+
+  // Duyệt cây cú pháp AST để thu thập toàn bộ chuỗi tiếng Việt hiển thị trên UI.
   const visit = (node) => {
     if (ts.isJsxText(node) || ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-      const value = normalize(node.text);
+      const rawText = ts.isJsxText(node) || (ts.isStringLiteral(node) && ts.isJsxAttribute(node.parent)) ? decodeJsxEntities(node.text) : node.text;
+      const value = normalize(rawText);
       if (value && vietnamesePattern.test(value)) values.push(value);
     }
     if (ts.isTemplateExpression(node)) {
@@ -56,33 +54,17 @@ function extractVietnameseStrings(path, dynamicFragments, dynamicTemplates) {
   return values;
 }
 
-// Đọc khóa tiếng Việt đã có trong catalog từ AST thay vì chạy module TypeScript.
-function catalogKeys() {
-  const source = ts.createSourceFile(catalogPath, readFileSync(catalogPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const keys = new Set();
-  /** Duyệt cây cú pháp để thu thập khóa bản dịch đã khai báo. */
-  const visit = (node) => {
-    if (ts.isPropertyAssignment(node) && (ts.isStringLiteral(node.name) || ts.isNoSubstitutionTemplateLiteral(node.name))) keys.add(normalize(node.name.text));
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  if (existsSync(generatedCatalogPath)) {
-    for (const key of Object.keys(JSON.parse(readFileSync(generatedCatalogPath, "utf8")))) keys.add(normalize(key));
-  }
-  return keys;
-}
-
 const occurrences = new Map();
 const dynamicFragments = new Set();
 const dynamicTemplates = new Set();
-for (const path of collectSourceFiles(sourceRoot)) {
+for (const path of collectCoverageFiles(sourceRoot, (path) => [".ts", ".tsx"].includes(extname(path)) && ![...ignoredSegments].some((suffix) => path.endsWith(suffix)) && path !== catalogPath && path !== catalogFacadePath)) {
   for (const value of extractVietnameseStrings(path, dynamicFragments, dynamicTemplates)) {
     const locations = occurrences.get(value) ?? new Set();
     locations.add(relative(sourceRoot, path).replaceAll("\\", "/"));
     occurrences.set(value, locations);
   }
 }
-const translated = catalogKeys();
+const translated = readCoverageCatalogKeys(catalogPath, generatedCatalogPath, true);
 const missing = [...occurrences]
   .filter(([value]) => !translated.has(value))
   .sort(([left], [right]) => left.localeCompare(right, "vi"))

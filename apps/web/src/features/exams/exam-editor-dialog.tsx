@@ -1,6 +1,7 @@
 "use client";
-import { MaterialSearchControls } from "@/components/material-search";
-import { SearchableSelect } from "@/components/searchable-select";
+import { MaterialSearchControls } from "@/features/materials/material-search";
+import { ScoreStepperInput } from "@/shared/ui/score-stepper-input";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
 import {
   Button,
   Field,
@@ -8,7 +9,7 @@ import {
   Modal,
   RichText,
   Tabs,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import {
   BookOpenCheck,
   Globe2,
@@ -83,7 +84,7 @@ export function ExamEditorDialog({
       size="xl"
       title={
         editingExam
-          ? "Chỉnh sửa đề nháp"
+          ? "Chỉnh sửa đề thi"
           : createMode === "AI"
             ? "Tạo đề bằng AI"
             : "Tạo đề thủ công"
@@ -92,11 +93,12 @@ export function ExamEditorDialog({
         editingExam
           ? `Phiên bản ${editingExam.version}; khi lưu sẽ tăng version để bảo vệ thay đổi đồng thời.`
           : createMode === "AI"
-            ? "AI tạo câu hỏi đúng ma trận và lưu thành đề nháp. Giảng viên vẫn xem lại toàn bộ trước khi gửi duyệt."
+            ? "AI tạo câu hỏi theo ma trận và phát hành đề ngay sau khi tạo."
             : "Chọn các câu hỏi đã xuất bản trong ngân hàng câu hỏi."
       }
     >
       <form
+        noValidate
         className="space-y-5"
         onSubmit={(event) =>
           createMode === "AI" ? void generateAiExam(event) : void create(event)
@@ -189,7 +191,7 @@ export function ExamEditorDialog({
                   />
                 </div>
               ) : null}
-              <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-xl border border-[var(--rule-strong)] bg-[var(--surface)] p-2">
+              <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-2.5">
                 {!form.classId ? (
                   <p className="px-2 py-5 text-center text-sm text-[var(--ink-muted)]">
                     Chọn lớp học trước để xem câu hỏi phù hợp.
@@ -207,12 +209,12 @@ export function ExamEditorDialog({
                 ) : (
                   filteredSelectableQuestions.map((question) => (
                     <label
-                      className="grid min-h-12 grid-cols-[auto_minmax(0,1fr)_5rem] items-start gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--surface-muted)]"
+                      className="grid min-h-10 grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-lg px-2.5 py-2 text-xs sm:text-sm text-slate-800 dark:text-slate-200 hover:bg-sky-50/60 dark:hover:bg-slate-800 transition-colors"
                       key={question.id}
                     >
                       <input
                         checked={form.questionIds.includes(question.id)}
-                        className="mt-0.5 size-5 shrink-0 accent-[var(--accent)]"
+                        className="mt-0.5 size-4 shrink-0 accent-sky-600"
                         onChange={(event) =>
                           setForm((current) => {
                             const questionIds = event.target.checked
@@ -239,23 +241,21 @@ export function ExamEditorDialog({
                         </span>
                       </span>
                       {form.questionIds.includes(question.id) ? (
-                        <input
-                          aria-label={`Điểm câu ${question.content}`}
-                          className={`${inputClass} text-center font-extrabold tabular-nums`}
-                          min={0.01}
-                          onChange={(event) =>
+                        <ScoreStepperInput
+                          ariaLabel={`Điểm câu ${question.content}`}
+                          stepTargetLabel="câu hỏi"
+                          min={0.25}
+                          max={1000}
+                          value={form.scoreAllocations[question.id] ?? 0}
+                          onChange={(val) =>
                             setForm((current) => ({
                               ...current,
                               scoreAllocations: {
                                 ...current.scoreAllocations,
-                                [question.id]: Number(event.target.value),
+                                [question.id]: val,
                               },
                             }))
                           }
-                          onClick={(event) => event.stopPropagation()}
-                          step="0.01"
-                          type="number"
-                          value={form.scoreAllocations[question.id] ?? 0}
                         />
                       ) : (
                         <span />
@@ -265,12 +265,29 @@ export function ExamEditorDialog({
                 )}
               </div>
               {form.questionIds.length ? (
-                <p
-                  className={`mt-2 text-xs font-bold ${Math.abs(allocatedScore - form.totalScore) < 0.001 ? "text-[var(--success-deep)]" : "text-[var(--danger)]"}`}
-                >
-                  Đã phân bổ {Math.round(allocatedScore * 100) / 100}/
-                  {form.totalScore} điểm.
-                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p
+                    className={`text-xs font-bold ${Math.abs(allocatedScore - form.totalScore) <= 0.05 ? "text-[var(--success-deep)]" : "text-[var(--danger)]"}`}
+                  >
+                    Đã phân bổ {Math.round(allocatedScore * 100) / 100}/
+                    {form.totalScore} điểm.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm((current) => ({
+                        ...current,
+                        scoreAllocations: distributeScores(
+                          current.questionIds,
+                          current.totalScore,
+                        ),
+                      }))
+                    }
+                    className="text-xs font-bold text-[var(--accent)] hover:underline"
+                  >
+                    ⚡ Cân bằng điểm tự động
+                  </button>
+                </div>
               ) : null}
             </fieldset>
           ) : (
@@ -295,10 +312,10 @@ export function ExamEditorDialog({
                   </span>
                 </Field>
                 <fieldset>
-                  <legend className="text-sm font-bold text-[var(--ink)]">
+                  <legend className="text-sm font-bold text-slate-900 dark:text-slate-100">
                     Phạm vi ngữ cảnh
                   </legend>
-                  <div className="mt-2 divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
+                  <div className="mt-2 space-y-2">
                     {[
                       {
                         value: "AUTO" as const,
@@ -320,14 +337,19 @@ export function ExamEditorDialog({
                       },
                     ].map((option) => {
                       const Icon = option.icon;
+                      const selected = aiConfig.contextMode === option.value;
                       return (
                         <label
-                          className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-[var(--surface-muted)]"
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-all ${
+                            selected
+                              ? "border-sky-500 bg-sky-50/70 dark:bg-sky-950/30 ring-1 ring-sky-500"
+                              : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 hover:border-slate-300"
+                          }`}
                           key={option.value}
                         >
                           <input
-                            checked={aiConfig.contextMode === option.value}
-                            className="mt-1 size-4 accent-[var(--accent)]"
+                            checked={selected}
+                            className="mt-1 size-4 accent-sky-600"
                             name="contextMode"
                             onChange={() =>
                               setAiConfig({
@@ -338,14 +360,14 @@ export function ExamEditorDialog({
                             type="radio"
                           />
                           <Icon
-                            className="mt-0.5 shrink-0 text-[var(--accent-ink)]"
+                            className={`mt-0.5 shrink-0 ${selected ? "text-sky-600 dark:text-sky-400" : "text-slate-500"}`}
                             size={18}
                           />
                           <span>
-                            <span className="block text-sm font-extrabold text-[var(--ink)]">
+                            <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">
                               {option.title}
                             </span>
-                            <span className="mt-0.5 block text-xs leading-5 text-[var(--ink-muted)]">
+                            <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                               {option.text}
                             </span>
                           </span>
@@ -358,31 +380,31 @@ export function ExamEditorDialog({
                   <fieldset>
                     <div className="flex items-end justify-between gap-3">
                       <div>
-                        <legend className="text-sm font-bold text-[var(--ink)]">
+                        <legend className="text-sm font-bold text-slate-900 dark:text-slate-100">
                           Tài liệu ưu tiên
                         </legend>
-                        <p className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
+                        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
                           Chọn tối đa 6 tệp đã phát hành. Để trống để hệ thống
                           tự chọn trong môn học.
                         </p>
                       </div>
-                      <span className="text-xs font-bold tabular-nums text-[var(--ink-muted)]">
+                      <span className="text-xs font-bold tabular-nums text-slate-500">
                         {aiConfig.materialIds.length}/6
                       </span>
                     </div>
-                    <div className="mt-2 max-h-44 divide-y divide-[var(--rule)] overflow-y-auto border-y border-[var(--rule-strong)]">
+                    <div className="mt-2 max-h-44 space-y-1.5 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-2">
                       <MaterialSearchControls search={materialSearch} />
                       {eligibleMaterials.length ? (
                         eligibleMaterials.map((material) => (
                           <label
-                            className="flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-[var(--surface-muted)]"
+                            className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-white dark:hover:bg-slate-800 transition-all text-xs"
                             key={material.id}
                           >
                             <input
                               checked={aiConfig.materialIds.includes(
                                 material.id,
                               )}
-                              className="mt-1 size-4 accent-[var(--accent)]"
+                              className="mt-0.5 size-4 accent-sky-600"
                               disabled={
                                 !aiConfig.materialIds.includes(material.id) &&
                                 aiConfig.materialIds.length >= 6
@@ -461,9 +483,8 @@ export function ExamEditorDialog({
                   </p>
                 </div>
                 {!examAiProviders.length ? (
-                  <p className="rounded-lg bg-[var(--warning-soft)] px-3 py-2 text-xs font-bold leading-5 text-[var(--warning-deep)]">
-                    Chưa có cấu hình AI sinh đề đang hoạt động. Liên hệ quản trị
-                    viên để thiết lập.
+                  <p className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/60 p-3 text-xs font-semibold leading-relaxed text-amber-800 dark:text-amber-200">
+                    💡 Chưa có cấu hình AI sinh đề chuyên biệt. Hệ thống sẽ tự động điều phối nhà cung cấp AI mặc định của hệ thống.
                   </p>
                 ) : null}
               </div>
@@ -478,31 +499,31 @@ export function ExamEditorDialog({
                     </p>
                   </div>
                   <div className="text-right">
-                    <strong className="text-3xl font-extrabold tabular-nums text-[var(--accent-ink)]">
+                    <strong className="text-3xl font-extrabold tabular-nums text-sky-600 dark:text-sky-400">
                       {aiQuestionTotal}
                     </strong>
-                    <span className="ml-1 text-xs font-bold text-[var(--ink-muted)]">
+                    <span className="ml-1 text-xs font-bold text-slate-500">
                       câu
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
+                <div className="mt-3 space-y-2">
                   {questionTypeOptions.map((option) => (
                     <label
-                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4 py-3"
+                      className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3 shadow-xs"
                       key={option.type}
                     >
                       <span>
-                        <span className="block text-sm font-extrabold text-[var(--ink)]">
+                        <span className="block text-sm font-bold text-slate-900 dark:text-slate-100">
                           {option.label}
                         </span>
-                        <span className="mt-0.5 block text-xs leading-5 text-[var(--ink-muted)]">
+                        <span className="mt-0.5 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                           {option.description}
                         </span>
                       </span>
                       <input
                         aria-label={`Số câu ${option.label}`}
-                        className={`${inputClass} text-center font-extrabold tabular-nums`}
+                        className={`${inputClass} text-center font-bold tabular-nums`}
                         max={50}
                         min={0}
                         onChange={(event) =>
@@ -544,20 +565,22 @@ export function ExamEditorDialog({
               />
             </Field>
             <Field label="Tổng điểm">
-              <input
-                className={inputClass}
-                min={1}
-                type="number"
+              <ScoreStepperInput
+                ariaLabel="Tổng điểm"
+                size="md"
+                stepTargetLabel="tổng điểm"
+                min={0.25}
+                max={1000}
                 value={form.totalScore}
-                onChange={(e) =>
+                onChange={(val) =>
                   setForm((current) => ({
                     ...current,
-                    totalScore: Number(e.target.value),
+                    totalScore: val,
                     scoreAllocations:
                       createMode === "MANUAL"
                         ? distributeScores(
                             current.questionIds,
-                            Number(e.target.value),
+                            val,
                           )
                         : current.scoreAllocations,
                   }))
@@ -597,7 +620,7 @@ export function ExamEditorDialog({
               />
             </Field>
           </div>
-          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700">
+          <label className="flex min-h-11 items-center gap-3 text-sm font-bold text-slate-700 dark:text-slate-200">
             <input
               checked={form.shuffleQuestions}
               className="size-5 accent-sky-600"
@@ -621,7 +644,43 @@ export function ExamEditorDialog({
               />
             </Field>
           ) : null}
-          <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-[var(--rule)] bg-[var(--surface)] py-4 md:-bottom-7">
+          <label className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3.5 text-sm text-slate-800 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-slate-200 cursor-pointer">
+            <input
+              checked={Boolean(form.aiTutorEnabled)}
+              className="mt-0.5 size-5 accent-indigo-600"
+              onChange={(event) =>
+                setForm({ ...form, aiTutorEnabled: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block font-bold">
+                Cho phép hỏi đáp AI dẫn dắt theo từng câu
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-600 dark:text-slate-400">
+                Học viên có thể hỏi cách tiếp cận từng câu theo hạn mức do quản trị viên quy định; AI chỉ gợi ý hướng tư duy, không giải hộ đáp án.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100 cursor-pointer">
+            <input
+              checked={Boolean(form.showAnswersAfterSubmit)}
+              className="mt-0.5 size-5 accent-emerald-600"
+              onChange={(event) =>
+                setForm({ ...form, showAnswersAfterSubmit: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block font-bold">
+                Cho phép học sinh xem đáp án sau khi làm xong bài
+              </span>
+              <span className="mt-0.5 block text-xs text-emerald-800/80 dark:text-emerald-200/80">
+                Mặc định tắt để tránh người làm xong trước chia sẻ đáp án cho các học sinh chưa làm bài.
+              </span>
+            </span>
+          </label>
+          <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-4 md:-bottom-7">
             <Button
               className="mr-auto"
               disabled={saving}
@@ -644,9 +703,8 @@ export function ExamEditorDialog({
                 !form.classId ||
                 (createMode === "MANUAL"
                   ? form.questionIds.length === 0 ||
-                    Math.abs(allocatedScore - form.totalScore) >= 0.001
+                    Math.abs(allocatedScore - form.totalScore) > 0.05
                   : !aiConfig.focus.trim() ||
-                    !aiConfig.providerId ||
                     aiQuestionTotal < 1 ||
                     aiQuestionTotal > 50)
               }
@@ -661,7 +719,7 @@ export function ExamEditorDialog({
               ) : createMode === "AI" ? (
                 <>
                   <Sparkles size={17} />
-                  Tạo đề nháp {aiQuestionTotal} câu
+                  Tạo và phát hành {aiQuestionTotal} câu
                 </>
               ) : (
                 "Tạo đề thi"

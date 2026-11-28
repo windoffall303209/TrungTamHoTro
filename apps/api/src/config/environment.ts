@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseTrustProxy } from "./trust-proxy.js";
 
 const booleanFromString = z.preprocess(
   (value) => value === true || value === "true",
@@ -17,6 +18,9 @@ const environmentSchema = z.object({
   DB_NAME: z.string().regex(/^[a-zA-Z0-9_]+$/),
   DB_PORT: z.coerce.number().int().min(1).max(65_535).default(5432),
   DATABASE_CONNECT_ON_START: booleanFromString.default(false),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).default(30),
+  DB_POOL_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).max(600_000).default(15_000),
   DB_BACKUP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(30_000),
   PG_DUMP_PATH: z.string().trim().min(1).default("pg_dump"),
   PG_RESTORE_PATH: z.string().trim().min(1).default("pg_restore"),
@@ -33,13 +37,16 @@ const environmentSchema = z.object({
   CLAMAV_TIMEOUT_MS: z.coerce.number().int().min(500).max(120_000).default(15_000),
   RESEND_API_KEY: z.string().trim().default(""),
   RESEND_FROM: z.string().trim().default(""),
-  GOOGLE_CLIENT_ID: z.string().trim().default(""),
-  GOOGLE_CLIENT_SECRET: z.string().trim().default(""),
-  GOOGLE_CALLBACK_URL: z.union([z.literal(""), z.url()]).default(""),
   AUTH_ENCRYPTION_SECRET: z.string().min(32).default("development-auth-encryption-key-change-me"),
   MFA_ISSUER: z.string().trim().min(2).max(80).default("Wind EDU"),
   RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  RATE_LIMIT_IP_MAX: z.coerce.number().int().positive().default(1_000),
+  TRUST_PROXY: z.string().trim().default("false"),
+  AUTH_RATE_LIMIT_TTL_MS: z.coerce.number().int().positive().default(900_000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(5),
+  SCRYPT_MAX_CONCURRENCY: z.coerce.number().int().min(1).max(64).optional(),
+  SCRYPT_MAX_WAITING: z.coerce.number().int().min(1).max(2_000).default(256),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   LIVE_PROVIDER_RETRY_LIMIT: z.coerce.number().int().min(1).max(3).default(2),
   LIVE_PROVIDER_FALLBACK_ORDER: z.string().trim().default("GOOGLE_MEET,ZOOM,JITSI"),
@@ -64,18 +71,8 @@ export function validateEnvironment(config: Record<string, unknown>): Environmen
   }
 
   const environment = result.data;
-  const googleOAuthValues = [
-    environment.GOOGLE_CLIENT_ID,
-    environment.GOOGLE_CLIENT_SECRET,
-    environment.GOOGLE_CALLBACK_URL,
-  ];
-  const configuredGoogleOAuthValues = googleOAuthValues.filter(Boolean).length;
-  if (configuredGoogleOAuthValues > 0 && configuredGoogleOAuthValues < googleOAuthValues.length) {
-    throw new Error(
-      "Cấu hình Google OAuth phải có đủ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET và GOOGLE_CALLBACK_URL.",
-    );
-  }
-
+  // Kiểm tra sớm để cấu hình proxy sai làm API dừng khởi động thay vì âm thầm tin X-Forwarded-For giả.
+  parseTrustProxy(environment.TRUST_PROXY);
   if (environment.NODE_ENV === "production") {
     const missing: string[] = [];
     if (environment.STORAGE_PROVIDER === "cloudinary") {

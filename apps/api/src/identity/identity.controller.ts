@@ -22,7 +22,6 @@ import {
 } from "./identity.dto.js";
 import { IdentityService } from "./identity.service.js";
 import type {
-  IdentityAuditEvent,
   IdentityChangeImpact,
   IdentityRole,
   IdentityUser,
@@ -30,27 +29,27 @@ import type {
 
 @ApiTags("Identity")
 @Controller("admin")
-/** API quản trị danh tính; từng handler khai báo quyền và chuyển actorId sang service để ghi audit. */
+/** API quản trị danh tính; từng handler khai báo quyền và phạm vi vai trò của người thao tác. */
 export class IdentityController {
   constructor(private readonly identityService: IdentityService) {}
 
   @Get("users")
   @RequirePermissions("user:view")
   @ApiOperation({ summary: "Danh sách và tìm kiếm tài khoản" })
-  /** Tìm tài khoản theo tên đăng nhập, họ tên hoặc email. */
-  listUsers(@Query() query: UserListQueryDto): ReturnType<IdentityService["listUsersPage"]> {
-    return this.identityService.listUsersPage(query);
+  /** Tìm tài khoản theo tên đăng nhập, họ tên hoặc email; quản lý trung tâm không thấy tài khoản quản trị hệ thống. */
+  listUsers(@Query() query: UserListQueryDto, @CurrentSession() session: AuthenticatedSession): ReturnType<IdentityService["listUsersPage"]> {
+    return this.identityService.listUsersPage(query, session.roleCode);
   }
 
   @Post("users")
   @RequirePermissions("user:create")
   @ApiOperation({ summary: "Tạo tài khoản người dùng" })
-  /** Tạo tài khoản quản trị chỉ định và ghi người thực hiện vào nhật ký. */
+  /** Tạo tài khoản theo vai trò đang dùng của người thực hiện. */
   createUser(
     @Body() input: CreateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.createUser(input, session.user.id);
+    return this.identityService.createUser(input, session.roleCode, session.user.id);
   }
 
   @Get("users/:userId/change-impact")
@@ -59,8 +58,9 @@ export class IdentityController {
   previewUserChange(
     @Param("userId") userId: string,
     @Query() query: UserChangeImpactQueryDto,
+    @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityChangeImpact> {
-    return this.identityService.previewUserChange(userId, query);
+    return this.identityService.previewUserChange(userId, query, session.roleCode);
   }
 
   @Patch("users/:userId")
@@ -72,7 +72,7 @@ export class IdentityController {
     @Body() input: UpdateUserDto,
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityUser> {
-    return this.identityService.updateUser(userId, input, session.user.id);
+    return this.identityService.updateUser(userId, input, session.user.id, session.roleCode, session.permissions);
   }
 
   @Get("roles")
@@ -91,15 +91,13 @@ export class IdentityController {
     @CurrentSession() session: AuthenticatedSession,
   ): Promise<IdentityRole> {
     return this.identityService.updateRolePermissions(
-      { roleCode, permissions: input.permissions },
+      {
+        roleCode,
+        permissions: input.permissions,
+      },
       session.user.id,
+      session.roleCode,
     );
   }
 
-  @Get("identity-audit")
-  @RequirePermissions("user:view")
-  /** Trả tối đa các sự kiện danh tính gần nhất để quản trị truy vết thay đổi. */
-  listAuditEvents(): Promise<IdentityAuditEvent[]> {
-    return this.identityService.listAuditEvents();
-  }
 }

@@ -31,11 +31,11 @@ export async function readFileHead(path: string, length = 8192): Promise<Buffer>
 }
 
 /** Sao chép theo tốc độ bên nhận, giới hạn số byte và chỉ tạo tệp mới; khi lỗi chỉ xóa tệp dở do thao tác này tạo. */
-export async function streamToFile(source: Readable, target: string, maxBytes = Number.MAX_SAFE_INTEGER): Promise<{ checksum: string; size: number }> {
+export async function streamToFile(source: Readable, target: string, maxBytes = Number.MAX_SAFE_INTEGER, createMode = 0o600): Promise<{ checksum: string; size: number }> {
   const hash = createHash("sha256");
   let size = 0;
   let created = false;
-  const output = createWriteStream(target, { flags: "wx", mode: 0o600 });
+  const output = createWriteStream(target, { flags: "wx", mode: createMode });
   output.on("open", () => { created = true; });
   const meter = new Transform({ /** Giới hạn số byte và cập nhật mã băm trong khi chuyển tiếp từng khối dữ liệu. */
   transform(chunk: Buffer, _encoding, callback): void {

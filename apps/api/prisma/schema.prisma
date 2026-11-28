@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserStatus {
+  PENDING
   PENDING_VERIFICATION
   ACTIVE
   INACTIVE
@@ -36,6 +37,11 @@ enum EnrollmentStatus {
 enum InstructorAssignmentRole {
   PRIMARY
   CO_INSTRUCTOR
+}
+
+enum MaterialScope {
+  SHARED
+  CLASS
 }
 
 enum MaterialVisibility {
@@ -80,28 +86,6 @@ enum SessionStatus {
   CANCELLED
 }
 
-enum AttendanceStatus {
-  PRESENT
-  LATE
-  ABSENT
-  EXCUSED
-}
-
-enum ReportStatus {
-  OPEN
-  IN_REVIEW
-  ESCALATED
-  RESOLVED
-  REJECTED
-}
-
-enum ReportExportStatus {
-  QUEUED
-  COMPLETED
-  FAILED
-  EXPIRED
-}
-
 enum InterventionStatus {
   OPEN
   IN_PROGRESS
@@ -137,13 +121,6 @@ enum RegradeStatus {
   REJECTED
 }
 
-enum AttendanceAppealStatus {
-  OPEN
-  IN_REVIEW
-  RESOLVED
-  REJECTED
-}
-
 enum AccountTokenType {
   EMAIL_VERIFICATION
   PASSWORD_RESET
@@ -152,6 +129,10 @@ enum AccountTokenType {
   PASSWORD_CHANGE_OTP
   MFA_SETUP_OTP
   MFA_DISABLE_OTP
+  ACCOUNT_SETUP
+  ACCOUNT_SETUP_OTP
+  EMAIL_CHANGE_OTP
+  MFA_LOGIN_OTP
 }
 
 enum AssignmentStatus {
@@ -178,7 +159,7 @@ enum ChatMemberStatus {
 model User {
   id                       String              @id @default(cuid())
   username                 String              @unique @db.VarChar(191)
-  email                    String              @unique @db.VarChar(191)
+  email                    String?             @unique @db.VarChar(191)
   passwordHash             String?             @map("password_hash") @db.VarChar(255)
   googleSubject            String?             @unique @map("google_subject") @db.VarChar(255)
   displayName              String              @map("display_name") @db.VarChar(150)
@@ -194,43 +175,67 @@ model User {
   emailVerifiedAt          DateTime?           @map("email_verified_at")
   mfaSecretEncrypted       String?             @map("mfa_secret_encrypted") @db.Text
   mfaEnabledAt             DateTime?           @map("mfa_enabled_at")
+  mfaLastUsedStep          Int?                @map("mfa_last_used_step")
+  mfaFailedAttempts        Int                 @default(0) @map("mfa_failed_attempts")
+  mfaLockedUntil           DateTime?           @map("mfa_locked_until")
   roles                    UserRole[]
   ownedCourses             Course[]            @relation("CourseOwner")
-  instructedClasses        ClassInstructor[]
+  instructedClasses        ClassInstructor[]   @relation("InstructorAssignment")
   enrollments              ClassEnrollment[]
   materials                Material[]          @relation("MaterialOwner")
-  materialAccessLogs       MaterialAccessLog[]
-  regradeRequests          RegradeRequest[]
+  regradeRequests          RegradeRequest[]    @relation("RegradeLearner")
+  assignedRegrades         RegradeRequest[]    @relation("RegradeAssignee")
+  resolvedRegrades         RegradeRequest[]    @relation("RegradeResolver")
+  closedAssignments        Assignment[]        @relation("AssignmentCloser")
+  assignedInstructorSlots  ClassInstructor[]   @relation("InstructorAssigner")
+  chatMentions             ChatMessageMention[] @relation("ChatMentionedUser")
+  learnerInterventions     ProgressIntervention[] @relation("InterventionLearner")
+  ownedInterventions       ProgressIntervention[] @relation("InterventionOwner")
+  createdInterventions     ProgressIntervention[] @relation("InterventionCreator")
   questions                Question[]          @relation("QuestionAuthor")
   examAttempts             ExamAttempt[]       @relation("AttemptLearner")
   forumTopics              ForumTopic[]        @relation("TopicAuthor")
   forumPosts               ForumPost[]         @relation("PostAuthor")
   forumMentions            ForumMention[]      @relation("MentionedUser")
   notifications            Notification[]      @relation("NotificationRecipient")
-  contentReports           ContentReport[]     @relation("ReportAuthor")
   hostedSessions           LiveSession[]       @relation("SessionHost")
-  lockedAttendanceSessions LiveSession[]       @relation("AttendanceLocker")
-  attendance               AttendanceRecord[]
-  attendanceAppeals        AttendanceAppeal[]
   reportedTickets          SupportTicket[]     @relation("TicketReporter")
   assignedTickets          SupportTicket[]     @relation("TicketAssignee")
   ticketComments           TicketComment[]     @relation("TicketCommentAuthor")
   ticketAttachments        SupportAttachment[] @relation("TicketAttachmentUploader")
-  materialReviews          FileReview[]        @relation("MaterialReviewer")
-  examApprovals            ExamApproval[]      @relation("ExamReviewer")
   auditLogs                AuditLog[]
   authSessions             AuthSession[]
   accountTokens            AccountToken[]
-  mfaRecoveryCodes         MfaRecoveryCode[]
   createdAssignments       Assignment[]        @relation("AssignmentCreator")
   assignmentSubmissions    AssignmentSubmission[] @relation("AssignmentLearner")
   classAnnouncements       ClassAnnouncement[] @relation("AnnouncementAuthor")
+  classFeedPosts           ClassFeedPost[] @relation("ClassFeedPostAuthor")
+  classFeedComments        ClassFeedComment[] @relation("ClassFeedCommentAuthor")
+  classFeedRepliesTo       ClassFeedComment[] @relation("ClassFeedCommentReplyTo")
+  classFeedPostLikes       ClassFeedPostLike[]
+  classFeedCommentLikes    ClassFeedCommentLike[]
+  classFeedEditHistories   ClassFeedPostEditHistory[] @relation("ClassFeedPostEditor")
+  classFeedPreferences     ClassFeedPostPreference[]
   chatMemberships          ChatConversationMember[]
   chatMessages             ChatMessage[]        @relation("ChatMessageSender")
   aiStudyDrafts            AiStudyDraft[]
   aiGradingSuggestions     AiGradingSuggestion[]
+  mfaRecoveryCodes         MfaRecoveryCode[]
 
+  @@index([username(ops: raw("gin_trgm_ops")), displayName(ops: raw("gin_trgm_ops")), email(ops: raw("gin_trgm_ops"))], type: Gin, map: "users_search_trgm_idx")
   @@map("users")
+}
+
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  codeHash  String    @unique @map("code_hash") @db.Char(64)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@map("mfa_recovery_codes")
 }
 
 model AuthSession {
@@ -269,18 +274,6 @@ model AccountToken {
   @@map("account_tokens")
 }
 
-model MfaRecoveryCode {
-  id        String    @id @default(cuid())
-  codeHash  String    @unique @map("code_hash") @db.Char(64)
-  userId    String    @map("user_id")
-  usedAt    DateTime? @map("used_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, usedAt])
-  @@map("mfa_recovery_codes")
-}
-
 model Role {
   id          String           @id @default(cuid())
   code        String           @unique @db.VarChar(50)
@@ -309,6 +302,7 @@ model UserRole {
   role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@id([userId, roleId])
+  @@index([roleId])
   @@map("user_roles")
 }
 
@@ -319,6 +313,7 @@ model RolePermission {
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@id([roleId, permissionId])
+  @@index([permissionId])
   @@map("role_permissions")
 }
 
@@ -327,19 +322,23 @@ model Course {
   code        String          @unique @db.VarChar(50)
   name        String          @db.VarChar(200)
   description String          @db.Text
+  grade       String?         @db.VarChar(100)
+  subject     String?         @db.VarChar(100)
   outcomes    Json
   status      CourseStatus    @default(DRAFT)
   version     Int             @default(1)
   ownerId     String          @map("owner_id")
   owner       User            @relation("CourseOwner", fields: [ownerId], references: [id])
-    classes     LearningClass[]
-    versions    CourseVersion[]
+  classes     LearningClass[]
+  versions    CourseVersion[]
   questions   Question[]
   materials   Material[]
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
   @@index([ownerId, status])
+  @@index([grade, subject])
+  @@index([code(ops: raw("gin_trgm_ops")), name(ops: raw("gin_trgm_ops")), description(ops: raw("gin_trgm_ops"))], type: Gin, map: "courses_search_trgm_idx")
   @@map("courses")
 }
 
@@ -349,6 +348,8 @@ model CourseVersion {
   version     Int
   name        String   @db.VarChar(200)
   description String   @db.Text
+  grade       String?  @db.VarChar(100)
+  subject     String?  @db.VarChar(100)
   outcomes    Json
   publishedBy String   @map("published_by") @db.VarChar(191)
   course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -356,21 +357,39 @@ model CourseVersion {
 
   @@unique([courseId, version])
   @@index([courseId, publishedAt])
+  @@index([grade, subject])
   @@map("course_versions")
 }
 
+model ClassFolder {
+  classId String @map("class_id")
+  kind    String @db.VarChar(16)
+  name    String @db.VarChar(255)
+  class   LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  @@id([classId, kind, name])
+  @@map("class_folders")
+}
+
 model LearningClass {
-    id            String            @id @default(cuid())
-    courseId      String            @map("course_id")
-    courseVersion Int               @map("course_version")
-    code          String            @db.VarChar(50)
+  folders ClassFolder[]
+  id            String            @id @default(cuid())
+  courseId      String            @map("course_id")
+  courseVersion Int               @map("course_version")
+  code          String            @db.VarChar(50)
   name          String            @db.VarChar(200)
   term          String            @db.VarChar(50)
+  grade         String?           @db.VarChar(100)
+  subject       String?           @db.VarChar(100)
   startAt       DateTime          @map("start_at")
   endAt         DateTime          @map("end_at")
-    capacity      Int
-    timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
-    allowLateEnrollment Boolean     @default(false) @map("allow_late_enrollment")
+  capacity      Int
+  timezone      String            @default("Asia/Bangkok") @db.VarChar(80)
+  allowPeerGradeViewing Boolean   @default(false) @map("allow_peer_grade_viewing")
+  allowLearnerFeedPosting Boolean @default(true) @map("allow_learner_feed_posting")
+  avatarObjectKey String?         @unique @map("avatar_object_key") @db.VarChar(500)
+  avatarMimeType  String?         @map("avatar_mime_type") @db.VarChar(50)
+  avatarUpdatedAt DateTime?       @map("avatar_updated_at")
   status        ClassStatus       @default(DRAFT)
   closeReason   String?           @map("close_reason") @db.VarChar(500)
   archivePolicy String?           @map("archive_policy") @db.VarChar(50)
@@ -378,22 +397,24 @@ model LearningClass {
   archivedAt    DateTime?         @map("archived_at")
   course        Course            @relation(fields: [courseId], references: [id], onDelete: Restrict)
   instructors   ClassInstructor[]
-  instructorHistory ClassInstructorHistory[]
   enrollments   ClassEnrollment[]
-  enrollmentHistory ClassEnrollmentHistory[]
   materials     Material[]
   exams         Exam[]
   forumTopics   ForumTopic[]
   sessions      LiveSession[]
   assignments   Assignment[]
   announcements ClassAnnouncement[]
+  feedPosts     ClassFeedPost[]
   chatConversation ChatConversation?
+  progressInterventions ProgressIntervention[]
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
-    @@index([courseId, status])
-    @@index([term])
-    @@unique([code, term])
+  @@index([courseId, status])
+  @@index([term])
+  @@index([grade, subject])
+  @@unique([code, term])
+  @@index([code(ops: raw("gin_trgm_ops")), name(ops: raw("gin_trgm_ops")), term(ops: raw("gin_trgm_ops"))], type: Gin, map: "learning_classes_search_trgm_idx")
   @@map("learning_classes")
 }
 
@@ -401,43 +422,31 @@ model Assignment {
   id          String           @id @default(cuid())
   classId     String           @map("class_id")
   createdById String           @map("created_by_id")
+  sourceMaterialId String?      @map("source_material_id")
   title       String           @db.VarChar(255)
   description String           @db.Text
   instructions String          @db.Text
   dueAt       DateTime         @map("due_at")
   maxScore    Decimal          @map("max_score") @db.Decimal(8, 2)
   rubric      Json
-  status      AssignmentStatus @default(DRAFT)
+  hidden      Boolean          @default(false)
+  status      AssignmentStatus @default(PUBLISHED)
   version     Int              @default(1)
   closedAt    DateTime?        @map("closed_at")
   closedById  String?          @map("closed_by_id") @db.VarChar(191)
   closeReason String?          @map("close_reason") @db.Text
   class       LearningClass    @relation(fields: [classId], references: [id], onDelete: Cascade)
   createdBy   User             @relation("AssignmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  closedBy    User?            @relation("AssignmentCloser", fields: [closedById], references: [id], onDelete: SetNull)
+  sourceMaterial Material?      @relation("AssignmentSourceMaterial", fields: [sourceMaterialId], references: [id], onDelete: SetNull)
   submissions AssignmentSubmission[]
-  changes     AssignmentChange[]
   createdAt   DateTime         @default(now()) @map("created_at")
   updatedAt   DateTime         @updatedAt @map("updated_at")
 
   @@index([classId, status, dueAt])
   @@index([createdById])
+  @@index([sourceMaterialId])
   @@map("assignments")
-}
-
-model AssignmentChange {
-  id           String     @id @default(cuid())
-  assignmentId String     @map("assignment_id")
-  actorId      String     @map("actor_id") @db.VarChar(191)
-  action       String     @db.VarChar(50)
-  reason       String?    @db.Text
-  fromVersion  Int        @map("from_version")
-  toVersion    Int        @map("to_version")
-  snapshot     Json
-  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  createdAt    DateTime   @default(now()) @map("created_at")
-
-  @@index([assignmentId, createdAt])
-  @@map("assignment_changes")
 }
 
 model AssignmentSubmission {
@@ -456,13 +465,12 @@ model AssignmentSubmission {
   assignment   Assignment                 @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
   learner      User                       @relation("AssignmentLearner", fields: [learnerId], references: [id], onDelete: Restrict)
   attachments  AssignmentSubmissionAttachment[]
-  revisions    AssignmentSubmissionRevision[]
-  gradeChanges AssignmentGradeChange[]
   aiSuggestions AiGradingSuggestion[]
   updatedAt    DateTime                   @updatedAt @map("updated_at")
 
   @@unique([assignmentId, learnerId])
   @@index([learnerId, status])
+  @@index([assignmentId, status, submittedAt])
   @@map("assignment_submissions")
 }
 
@@ -481,6 +489,8 @@ model AiGradingSuggestion {
   contextHash String @map("context_hash") @db.Char(64)
   language String @db.VarChar(16)
   state AiGradingSuggestionState @default(GENERATING)
+  leaseToken String? @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
   result Json?
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -489,41 +499,8 @@ model AiGradingSuggestion {
 
   @@index([ownerId, submissionId, createdAt])
   @@index([state, createdAt, id], map: "ai_grading_operations_state_created_id")
+  @@index([submissionId])
   @@map("ai_grading_suggestions")
-}
-
-model AssignmentSubmissionRevision {
-  id           String               @id @default(cuid())
-  submissionId String               @map("submission_id")
-  revision     Int
-  content      String               @db.Text
-  attachments  Json
-  submittedAt  DateTime             @map("submitted_at")
-  submission   AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  createdAt    DateTime             @default(now()) @map("created_at")
-
-  @@unique([submissionId, revision])
-  @@map("assignment_submission_revisions")
-}
-
-model AssignmentGradeChange {
-  id               String               @id @default(cuid())
-  submissionId     String               @map("submission_id")
-  submissionRevision Int                @map("submission_revision")
-  actorId          String               @map("actor_id") @db.VarChar(191)
-  action           String               @db.VarChar(30)
-  previousScore    Decimal?             @map("previous_score") @db.Decimal(8, 2)
-  nextScore        Decimal              @map("next_score") @db.Decimal(8, 2)
-  previousRubric   Json?                @map("previous_rubric")
-  nextRubric       Json                 @map("next_rubric")
-  previousFeedback String?              @map("previous_feedback") @db.Text
-  nextFeedback     String               @map("next_feedback") @db.Text
-  reason           String?              @db.Text
-  submission       AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  createdAt        DateTime             @default(now()) @map("created_at")
-
-  @@index([submissionId, createdAt])
-  @@map("assignment_grade_changes")
 }
 
 model AssignmentSubmissionAttachment {
@@ -563,29 +540,15 @@ model ClassInstructor {
   classId      String        @map("class_id")
   instructorId String        @map("instructor_id")
   role         InstructorAssignmentRole @default(CO_INSTRUCTOR)
-  assignedBy   String        @default("usr-manager") @map("assigned_by") @db.VarChar(191)
+  assignedBy   String?       @map("assigned_by") @db.VarChar(191)
   assignedAt   DateTime      @default(now()) @map("assigned_at")
   class        LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
-  instructor   User          @relation(fields: [instructorId], references: [id], onDelete: Restrict)
+  instructor   User          @relation("InstructorAssignment", fields: [instructorId], references: [id], onDelete: Restrict)
+  assigner     User?         @relation("InstructorAssigner", fields: [assignedBy], references: [id], onDelete: SetNull)
 
   @@id([classId, instructorId])
   @@index([instructorId])
   @@map("class_instructors")
-}
-
-model ClassInstructorHistory {
-  id           String                   @id @default(cuid())
-  classId      String                   @map("class_id")
-  instructorId String                   @map("instructor_id")
-  role         InstructorAssignmentRole
-  action       String                   @db.VarChar(30)
-  reason       String?                  @db.VarChar(500)
-  actorId      String                   @map("actor_id") @db.VarChar(191)
-  createdAt    DateTime                 @default(now()) @map("created_at")
-  class        LearningClass            @relation(fields: [classId], references: [id], onDelete: Cascade)
-
-  @@index([classId, createdAt])
-  @@map("class_instructor_history")
 }
 
 model ClassEnrollment {
@@ -605,22 +568,8 @@ model ClassEnrollment {
   @@map("class_enrollments")
 }
 
-model ClassEnrollmentHistory {
-  id        String        @id @default(cuid())
-  classId   String        @map("class_id")
-  learnerId String        @map("learner_id")
-  action    String        @db.VarChar(30)
-  source    String        @db.VarChar(30)
-  reason    String?       @db.VarChar(500)
-  actorId   String        @map("actor_id") @db.VarChar(191)
-  createdAt DateTime      @default(now()) @map("created_at")
-  class     LearningClass @relation(fields: [classId], references: [id], onDelete: Cascade)
-
-  @@index([classId, createdAt])
-  @@map("class_enrollment_history")
-}
-
 model Material {
+  // GIN expression index tìm kiếm name/folder/tags được quản lý trong migration 20261124020000.
   id               String                @id @default(cuid())
   classId          String                @map("class_id")
   courseId         String                @map("course_id")
@@ -635,14 +584,14 @@ model Material {
   folder           String                @db.VarChar(255)
   tags             Json
   version          Int                   @default(1)
-  visibility       MaterialVisibility    @default(DRAFT)
+  visibility       MaterialVisibility    @default(PUBLISHED)
+  scope            MaterialScope         @default(CLASS)
   class            LearningClass         @relation(fields: [classId], references: [id], onDelete: Cascade)
   course           Course                @relation(fields: [courseId], references: [id], onDelete: Restrict)
   owner            User                  @relation("MaterialOwner", fields: [ownerId], references: [id])
-  accessLogs       MaterialAccessLog[]
   forumAttachments ForumPostAttachment[]
-  reviews          FileReview[]
-  versions         MaterialVersion[]
+  sourceAssignments Assignment[] @relation("AssignmentSourceMaterial")
+  aiStudyDrafts    AiStudyDraft[]
   createdAt        DateTime              @default(now()) @map("created_at")
   updatedAt        DateTime              @updatedAt @map("updated_at")
 
@@ -653,28 +602,6 @@ model Material {
   @@index([classId, createdAt(sort: Desc), id])
   @@index([courseId, createdAt(sort: Desc), id])
   @@map("materials")
-}
-
-model MaterialVersion {
-  id         String             @id @default(cuid())
-  materialId String             @map("material_id")
-  version    Int
-  name       String             @db.VarChar(255)
-  objectKey  String             @map("object_key") @db.VarChar(500)
-  mimeType   String             @map("mime_type") @db.VarChar(150)
-  sizeBytes  BigInt             @map("size_bytes")
-  checksum   String?            @db.VarChar(128)
-  folder     String             @db.VarChar(255)
-  tags       Json
-  visibility MaterialVisibility
-  createdBy  String             @map("created_by") @db.VarChar(191)
-  material   Material           @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  aiStudyDrafts AiStudyDraft[]
-  createdAt  DateTime           @default(now()) @map("created_at")
-
-  @@unique([materialId, version])
-  @@index([createdAt])
-  @@map("material_versions")
 }
 
 enum AiStudyDraftState {
@@ -691,6 +618,8 @@ model AiStudyDraft {
   materialId    String            @map("material_id")
   sourceVersion Int               @map("source_version")
   state         AiStudyDraftState  @default(GENERATING)
+  leaseToken    String?           @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime?        @map("lease_expires_at")
   options       Json
   result        Json?
   editedResult  Json?             @map("edited_result")
@@ -702,42 +631,12 @@ model AiStudyDraft {
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
   owner         User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  source        MaterialVersion   @relation(fields: [materialId, sourceVersion], references: [materialId, version], onDelete: Cascade)
+  material      Material          @relation(fields: [materialId], references: [id], onDelete: Cascade)
 
+  @@index([materialId, sourceVersion])
   @@index([ownerId, materialId, createdAt, id])
   @@index([state, createdAt, id], map: "ai_study_operations_state_created_id")
   @@map("ai_study_drafts")
-}
-
-model FileReview {
-  id         String   @id @default(cuid())
-  materialId String   @map("material_id")
-  reviewerId String   @map("reviewer_id")
-  action     String   @db.VarChar(30)
-  reason     String?  @db.VarChar(500)
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  reviewer   User     @relation("MaterialReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@index([materialId, createdAt])
-  @@index([reviewerId])
-  @@map("file_reviews")
-}
-
-model MaterialAccessLog {
-  id         String   @id @default(cuid())
-  materialId String   @map("material_id")
-  userId     String   @map("user_id")
-  action     String   @db.VarChar(20)
-  ipAddress  String?  @map("ip_address") @db.VarChar(45)
-  userAgent  String?  @map("user_agent") @db.VarChar(500)
-  material   Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@index([materialId, createdAt])
-  @@index([userId, createdAt])
-  @@map("material_access_logs")
 }
 
 model Question {
@@ -750,7 +649,7 @@ model Question {
   correctAnswers Json            @map("correct_answers")
   difficulty     Int             @default(1) @db.SmallInt
   tags           Json
-  status         ContentStatus   @default(DRAFT)
+  status         ContentStatus   @default(PUBLISHED)
   version        Int             @default(1)
   familyId       String          @map("family_id") @db.VarChar(191)
   supersedesId   String?         @map("supersedes_id") @db.VarChar(191)
@@ -764,6 +663,8 @@ model Question {
   author         User            @relation("QuestionAuthor", fields: [authorId], references: [id])
   exams          ExamQuestion[]
   answers        AttemptAnswer[]
+  tutorPresetCaches AiTutorPresetCache[]
+  tutorTurns     ExamAttemptTutorTurn[]
   createdAt      DateTime        @default(now()) @map("created_at")
   updatedAt      DateTime        @updatedAt @map("updated_at")
 
@@ -775,7 +676,10 @@ model Question {
 }
 
 model Exam {
-  id              String         @id @default(cuid())
+  hidden                 Boolean        @default(false)
+  aiTutorEnabled         Boolean        @default(false) @map("ai_tutor_enabled")
+  showAnswersAfterSubmit Boolean        @default(false) @map("show_answers_after_submit")
+  id                     String         @id @default(cuid())
   classId         String         @map("class_id")
   title           String         @db.VarChar(255)
   durationMinutes Int            @map("duration_minutes")
@@ -792,28 +696,11 @@ model Exam {
   class           LearningClass  @relation(fields: [classId], references: [id], onDelete: Cascade)
   questions       ExamQuestion[]
   attempts        ExamAttempt[]
-  approvals       ExamApproval[]
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
   @@index([classId, status, openAt])
   @@map("exams")
-}
-
-model ExamApproval {
-  id          String   @id @default(cuid())
-  examId      String   @map("exam_id")
-  reviewerId  String   @map("reviewer_id")
-  examVersion Int      @map("exam_version")
-  decision    String   @db.VarChar(30)
-  reviewNote  String?  @map("review_note") @db.VarChar(1000)
-  exam        Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  reviewer    User     @relation("ExamReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@index([examId, createdAt])
-  @@index([reviewerId])
-  @@map("exam_approvals")
 }
 
 model ExamQuestion {
@@ -826,6 +713,7 @@ model ExamQuestion {
 
   @@id([examId, questionId])
   @@unique([examId, position])
+  @@index([questionId])
   @@map("exam_questions")
 }
 
@@ -844,26 +732,53 @@ model ExamAttempt {
   learner          User             @relation("AttemptLearner", fields: [learnerId], references: [id], onDelete: Restrict)
   answers          AttemptAnswer[]
   regradeRequests  RegradeRequest[]
-  gradeHistory     GradeHistory[]
+  tutorTurns       ExamAttemptTutorTurn[]
 
   @@unique([examId, learnerId, attemptNo])
   @@index([learnerId, status])
+  @@index([examId, status, submittedAt])
   @@map("exam_attempts")
 }
 
-model GradeHistory {
-  id            String      @id @default(cuid())
-  attemptId     String      @map("attempt_id")
-  graderId      String      @map("grader_id") @db.VarChar(191)
-  previousScore Decimal?    @map("previous_score") @db.Decimal(8, 2)
-  nextScore     Decimal     @map("next_score") @db.Decimal(8, 2)
-  reason        String      @db.Text
-  attempt       ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  createdAt     DateTime    @default(now()) @map("created_at")
+model AiTutorPresetCache {
+  id             String    @id @db.VarChar(191)
+  questionId     String    @map("question_id") @db.VarChar(191)
+  contentHash    String    @map("content_hash") @db.VarChar(64)
+  presetKey      String    @map("preset_key") @db.VarChar(64)
+  language       String    @db.VarChar(16)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  reply          String?   @db.Text
+  model          String?   @db.VarChar(200)
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  question       Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
 
-  @@index([attemptId, createdAt])
-  @@map("grade_history")
+  @@index([questionId, presetKey, language])
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_tutor_preset_caches_state_created_id_idx")
+  @@map("ai_tutor_preset_caches")
 }
+
+model ExamAttemptTutorTurn {
+  id         String      @id @default(cuid())
+  attemptId  String      @map("attempt_id")
+  questionId String      @map("question_id")
+  presetKey  String?     @map("preset_key") @db.VarChar(64)
+  userPrompt String      @map("user_prompt") @db.Text
+  aiReply    String      @map("ai_reply") @db.Text
+  fromCache  Boolean     @default(false) @map("from_cache")
+  model      String?     @db.VarChar(200)
+  createdAt  DateTime    @default(now()) @map("created_at")
+  attempt    ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId, questionId, createdAt])
+  @@index([attemptId, createdAt])
+  @@map("exam_attempt_tutor_turns")
+}
+
 
 model RegradeRequest {
   id         String        @id @default(cuid())
@@ -876,7 +791,9 @@ model RegradeRequest {
   resolvedById String?     @map("resolved_by_id") @db.VarChar(191)
   resolvedAt DateTime?     @map("resolved_at")
   attempt    ExamAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
-  learner    User          @relation(fields: [learnerId], references: [id], onDelete: Restrict)
+  learner    User          @relation("RegradeLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  assignedTo User?         @relation("RegradeAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  resolvedBy User?         @relation("RegradeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
   createdAt  DateTime      @default(now()) @map("created_at")
   updatedAt  DateTime      @updatedAt @map("updated_at")
 
@@ -896,6 +813,7 @@ model AttemptAnswer {
   question   Question    @relation(fields: [questionId], references: [id], onDelete: Restrict)
 
   @@id([attemptId, questionId])
+  @@index([questionId])
   @@map("attempt_answers")
 }
 
@@ -916,6 +834,8 @@ model ForumTopic {
   updatedAt DateTime      @updatedAt @map("updated_at")
 
   @@index([classId, createdAt])
+  @@index([authorId])
+  // Expression GIN index forum_topics_search_text_trgm_idx is managed by SQL migration.
   @@map("forum_topics")
 }
 
@@ -940,6 +860,7 @@ model ForumPost {
 
   @@index([topicId, status, createdAt])
   @@index([parentId])
+  @@index([authorId])
   @@map("forum_posts")
 }
 
@@ -978,47 +899,8 @@ model Notification {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, createdAt(sort: Desc)])
   @@map("notifications")
-}
-
-model ContentReport {
-  id         String       @id @default(cuid())
-  targetType String       @map("target_type") @db.VarChar(30)
-  targetId   String       @map("target_id") @db.VarChar(191)
-  reporterId String       @map("reporter_id")
-  reason     String       @db.VarChar(150)
-  details    String       @db.Text
-    status     ReportStatus @default(OPEN)
-    resolution String?      @db.Text
-    assignedToId String?    @map("assigned_to_id") @db.VarChar(191)
-    escalationLevel Int     @default(0) @map("escalation_level")
-    resolvedAt DateTime?    @map("resolved_at")
-    appealReason String?    @map("appeal_reason") @db.Text
-    appealedAt DateTime?    @map("appealed_at")
-    reporter   User         @relation("ReportAuthor", fields: [reporterId], references: [id])
-    actions    ModerationAction[]
-  createdAt  DateTime     @default(now()) @map("created_at")
-  updatedAt  DateTime     @updatedAt @map("updated_at")
-
-  @@unique([targetType, targetId, reporterId, status])
-  @@index([status, createdAt])
-  @@map("content_reports")
-}
-
-model ModerationAction {
-  id             String       @id @default(cuid())
-  reportId       String       @map("report_id")
-  actorId        String       @map("actor_id") @db.VarChar(191)
-  action         String       @db.VarChar(50)
-  reason         String       @db.Text
-  previousStatus ReportStatus @map("previous_status")
-  nextStatus     ReportStatus @map("next_status")
-  report         ContentReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now()) @map("created_at")
-
-  @@index([reportId, createdAt])
-  @@index([actorId, createdAt])
-  @@map("moderation_actions")
 }
 
 model LiveSession {
@@ -1044,73 +926,14 @@ model LiveSession {
   status               SessionStatus      @default(SCHEDULED)
   changeReason         String?            @map("change_reason") @db.VarChar(500)
   cancellationReason   String?            @map("cancellation_reason") @db.VarChar(500)
-  attendanceLockedAt   DateTime?          @map("attendance_locked_at")
-  attendanceLockedById String?            @map("attendance_locked_by_id")
   class                LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
   host                 User               @relation("SessionHost", fields: [hostId], references: [id])
-  attendanceLockedBy   User?              @relation("AttendanceLocker", fields: [attendanceLockedById], references: [id], onDelete: SetNull)
-  attendance           AttendanceRecord[]
-  appeals              AttendanceAppeal[]
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
   @@index([classId, startsAt])
   @@index([hostId])
   @@map("live_sessions")
-}
-
-model AttendanceRecord {
-  sessionId             String           @map("session_id")
-  learnerId             String           @map("learner_id")
-  joinedAt              DateTime?        @map("joined_at")
-  leftAt                DateTime?        @map("left_at")
-  attendedMinutes       Int              @default(0) @map("attended_minutes")
-  status                AttendanceStatus @default(ABSENT)
-  adjustmentReason      String?          @map("adjustment_reason") @db.VarChar(500)
-  providerParticipantId String?          @map("provider_participant_id") @db.VarChar(191)
-  providerSnapshot      Json?            @map("provider_snapshot")
-  session               LiveSession      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  learner               User             @relation(fields: [learnerId], references: [id], onDelete: Restrict)
-  intervals             AttendanceInterval[]
-  updatedAt             DateTime         @updatedAt @map("updated_at")
-
-  @@id([sessionId, learnerId])
-  @@unique([sessionId, providerParticipantId])
-  @@index([learnerId, status])
-  @@map("attendance_records")
-}
-
-model AttendanceInterval {
-  id                    String           @id @default(cuid())
-  sessionId             String           @map("session_id")
-  learnerId             String           @map("learner_id")
-  joinedAt              DateTime         @map("joined_at")
-  leftAt                DateTime?        @map("left_at")
-  source                String           @db.VarChar(30)
-  providerParticipantId String?          @map("provider_participant_id") @db.VarChar(191)
-  record                AttendanceRecord @relation(fields: [sessionId, learnerId], references: [sessionId, learnerId], onDelete: Cascade)
-  createdAt             DateTime         @default(now()) @map("created_at")
-
-  @@index([sessionId, learnerId, joinedAt])
-  @@index([providerParticipantId])
-  @@map("attendance_intervals")
-}
-
-model AttendanceAppeal {
-  id         String                 @id @default(cuid())
-  sessionId  String                 @map("session_id")
-  learnerId  String                 @map("learner_id")
-  reason     String                 @db.Text
-  status     AttendanceAppealStatus @default(OPEN)
-  resolution String?                @db.Text
-  session    LiveSession            @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  learner    User                   @relation(fields: [learnerId], references: [id], onDelete: Restrict)
-  createdAt  DateTime               @default(now()) @map("created_at")
-  updatedAt  DateTime               @updatedAt @map("updated_at")
-
-  @@index([sessionId, status])
-  @@index([learnerId, createdAt])
-  @@map("attendance_appeals")
 }
 
 model SupportTicket {
@@ -1139,6 +962,7 @@ model SupportTicket {
   @@index([reporterId])
   @@index([duplicateOfId])
   @@unique([reporterId, clientRequestId])
+  @@index([assigneeId])
   @@map("support_tickets")
 }
 
@@ -1185,90 +1009,71 @@ model SystemSetting {
   @@map("system_settings")
 }
 
-model SystemSettingRevision {
-  id          String   @id @default(cuid())
-  key         String   @db.VarChar(100)
-  value       Json
-  version     Int
-  effectiveAt DateTime @map("effective_at")
-  updatedBy   String   @map("updated_by") @db.VarChar(191)
-  createdAt   DateTime @default(now()) @map("created_at")
+model AiDocumentExtraction {
+  id             String    @id @db.VarChar(191)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  pages          Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  @@unique([key, version])
-  @@index([key, effectiveAt])
-  @@map("system_setting_revisions")
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_extractions_state_created_id_idx")
+  @@map("ai_document_extractions")
 }
 
-model RetentionPolicy {
-  id            String   @id @default(cuid())
-  category      String   @db.VarChar(100)
-  version       Int
-  retentionDays Int      @map("retention_days")
-  action        String   @db.VarChar(20)
-  approvedBy    String   @map("approved_by") @db.VarChar(191)
-  effectiveAt   DateTime @map("effective_at")
-  createdAt     DateTime @default(now()) @map("created_at")
-  jobs          RetentionJob[]
+model AiDocumentAnswer {
+  id             String    @id @db.VarChar(191)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  materialId     String?   @map("material_id") @db.VarChar(191)
+  sourceVersion  Int?      @map("source_version")
+  question       String?   @db.Text
+  language       String?   @db.VarChar(16)
+  state          String    @default("GENERATING") @db.VarChar(24)
+  version        Int       @default(1)
+  result         Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  @@unique([category, version])
-  @@index([category, effectiveAt])
-  @@map("retention_policies")
+  @@index([ownerId, materialId, sourceVersion, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_answers_history_idx")
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_document_answers_state_created_id_idx")
+  @@map("ai_document_answers")
 }
 
-model LegalHold {
-  id        String    @id @default(cuid())
-  category  String    @db.VarChar(100)
-  reason    String    @db.VarChar(500)
-  active    Boolean   @default(true)
-  createdBy String    @map("created_by") @db.VarChar(191)
-  releasedAt DateTime? @map("released_at")
-  releasedBy String?   @map("released_by") @db.VarChar(191)
-  releaseReason String? @map("release_reason") @db.VarChar(500)
-  createdAt DateTime  @default(now()) @map("created_at")
+model AiGenerationRequest {
+  id             String    @id @db.VarChar(177)
+  ownerId        String    @map("owner_id") @db.VarChar(191)
+  payloadHash    String    @map("payload_hash") @db.VarChar(191)
+  state          String    @default("CLAIMED") @db.VarChar(24)
+  version        Int       @default(1)
+  prepared       Json?
+  result         Json?
+  leaseToken     String?   @map("lease_token") @db.VarChar(64)
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  @@index([category, active])
-  @@map("legal_holds")
+  @@index([state, createdAt(sort: Desc), id(sort: Desc)], map: "ai_generation_requests_state_created_id_idx")
+  @@index([ownerId, payloadHash], map: "ai_generation_requests_owner_hash_idx")
+  @@map("ai_generation_requests")
 }
 
-model RetentionJob {
-  id            String          @id @default(cuid())
-  policyId      String          @map("policy_id")
-  status        JobStatus       @default(PENDING)
-  affectedRows  Int             @default(0) @map("affected_rows")
-  skippedRows   Int             @default(0) @map("skipped_rows")
-  evidence      Json?
-  requestedBy   String          @map("requested_by") @db.VarChar(191)
-  approvedBy    String          @map("approved_by") @db.VarChar(191)
-  approvedAt    DateTime?       @map("approved_at")
-  completedAt   DateTime?       @map("completed_at")
-  attempts      Int             @default(0)
-  progress      Int             @default(0)
-  availableAt   DateTime        @default(now()) @map("available_at")
-  createdAt     DateTime        @default(now()) @map("created_at")
-  policy        RetentionPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+model AiGenerationBinding {
+  fingerprint        String   @id @db.VarChar(191)
+  ownerId            String   @map("owner_id") @db.VarChar(191)
+  payloadHash        String   @map("payload_hash") @db.VarChar(191)
+  canonicalRequestId String?  @map("canonical_request_id") @db.VarChar(177)
+  malformed          Boolean  @default(false)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
-  @@index([status, createdAt])
-  @@index([status, availableAt])
-  @@map("retention_jobs")
-}
-
-model SystemAlert {
-  id           String    @id @default(cuid())
-  fingerprint  String    @unique @db.VarChar(191)
-  serviceName  String    @map("service_name") @db.VarChar(100)
-  severity     String    @db.VarChar(20)
-  status       String    @default("OPEN") @db.VarChar(30)
-  summary      String    @db.VarChar(500)
-  metricValue  Float?    @map("metric_value")
-  threshold    Float?
-  detectedAt   DateTime  @default(now()) @map("detected_at")
-  acknowledgedBy String? @map("acknowledged_by") @db.VarChar(191)
-  mutedUntil   DateTime? @map("muted_until")
-  recoveredAt  DateTime? @map("recovered_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  @@index([status, severity, detectedAt])
-  @@map("system_alerts")
+  @@index([canonicalRequestId], map: "ai_generation_bindings_canonical_idx")
+  @@index([ownerId, payloadHash], map: "ai_generation_bindings_owner_hash_idx")
+  @@map("ai_generation_bindings")
 }
 
 model IntegrationProvider {
@@ -1286,9 +1091,10 @@ model IntegrationProvider {
   @@map("integration_providers")
 }
 
-model BackupJob {
+model OperationalJob {
   id          String       @id @default(cuid())
-  type        String       @db.VarChar(30)
+  kind        String       @db.VarChar(10)
+  type        String?       @db.VarChar(30)
   status      JobStatus    @default(PENDING)
   checksum    String?      @db.VarChar(128)
   sizeBytes   BigInt?      @map("size_bytes")
@@ -1300,80 +1106,25 @@ model BackupJob {
   availableAt  DateTime    @default(now()) @map("available_at")
   createdAt   DateTime     @default(now()) @map("created_at")
   completedAt DateTime?    @map("completed_at")
-  restores    RestoreJob[]
-
-  @@index([status, createdAt])
-  @@index([status, availableAt])
-  @@map("backup_jobs")
-}
-
-model RestoreJob {
-  id           String    @id @default(cuid())
-  backupId     String    @map("backup_id")
-  mode         String    @default("DRILL") @db.VarChar(30)
-  requestedBy  String    @default("system") @map("requested_by") @db.VarChar(191)
+  backupId     String?    @map("backup_id")
+  mode         String?    @db.VarChar(30)
   approvedBy   String?   @map("approved_by") @db.VarChar(191)
   reason       String?   @db.VarChar(500)
   targetDatabase String? @map("target_database") @db.VarChar(191)
   approvedAt   DateTime? @map("approved_at")
-  status       JobStatus @default(PENDING)
   verification String?   @db.Text
-  backup       BackupJob @relation(fields: [backupId], references: [id], onDelete: Restrict)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  completedAt  DateTime? @map("completed_at")
-
-  @@index([status, createdAt])
-  @@map("restore_jobs")
-}
-
-model DataExportJob {
-  id        String    @id @default(cuid())
-  category  String    @db.VarChar(100)
-  format    String    @db.VarChar(20)
-  status    JobStatus @default(PENDING)
+  category  String?    @db.VarChar(100)
+  format    String?    @db.VarChar(20)
   rowCount  Int?      @map("row_count")
-  objectKey String?   @map("object_key") @db.VarChar(500)
-  checksum  String?   @db.VarChar(128)
-  sizeBytes BigInt?   @map("size_bytes")
-  errorMessage String? @map("error_message") @db.VarChar(500)
-  requestedBy String    @default("system") @map("requested_by") @db.VarChar(191)
-  attempts   Int       @default(0)
-  progress   Int       @default(0)
-  availableAt DateTime @default(now()) @map("available_at")
   expiresAt DateTime? @map("expires_at")
-  createdAt DateTime  @default(now()) @map("created_at")
+  backup       OperationalJob? @relation("RestoreSource", fields: [backupId], references: [id], onDelete: Restrict)
+  restores     OperationalJob[] @relation("RestoreSource")
 
-  @@index([status, expiresAt])
-  @@index([status, availableAt])
-  @@map("data_export_jobs")
-}
-
-model NotificationTemplate {
-  id        String        @id @default(cuid())
-  eventCode String        @map("event_code") @db.VarChar(100)
-  locale    String        @db.VarChar(20)
-  subject   String        @db.VarChar(255)
-  body      String        @db.Text
-  version   Int           @default(1)
-  status    ContentStatus @default(DRAFT)
-  createdAt DateTime      @default(now()) @map("created_at")
-  updatedAt DateTime      @updatedAt @map("updated_at")
-
-  @@unique([eventCode, locale, version])
-  @@index([eventCode, locale, status])
-  @@map("notification_templates")
-}
-
-model ModerationPolicy {
-  id                String   @id @default(cuid())
-  version           Int      @unique
-  prohibitedTerms   Json     @map("prohibited_terms")
-  maxPostsPerMinute Int      @map("max_posts_per_minute")
-  action            String   @db.VarChar(50)
-  publishedBy       String   @map("published_by") @db.VarChar(191)
-  createdAt         DateTime @default(now()) @map("created_at")
-
-  @@map("moderation_policies")
+  @@index([kind, status, availableAt])
+  @@index([kind, createdAt])
+  @@index([kind, status, expiresAt])
+  @@index([backupId])
+  @@map("operational_jobs")
 }
 
 model AuditLog {
@@ -1390,6 +1141,9 @@ model AuditLog {
   @@index([actorId, createdAt])
   @@index([entityType, entityId])
   @@index([action, createdAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@index([requestId])
+  // Expression GIN index audit_logs_search_text_trgm_idx is managed by SQL migration 20261125050000.
   @@map("audit_logs")
 }
 
@@ -1410,46 +1164,45 @@ model ProgressIntervention {
   handoffHistory Json            @default("[]") @map("handoff_history")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
+  class       LearningClass      @relation(fields: [classId], references: [id], onDelete: Cascade)
+  learner     User               @relation("InterventionLearner", fields: [learnerId], references: [id], onDelete: Restrict)
+  owner       User               @relation("InterventionOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  createdBy   User               @relation("InterventionCreator", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@index([classId, learnerId, status])
+  @@index([learnerId])
+  @@index([createdById])
   @@index([ownerId, dueAt])
   @@map("progress_interventions")
 }
 
-model OutboxEvent {
-  id            String           @id @db.VarChar(191)
-  type          String           @db.VarChar(100)
-  aggregateType String           @map("aggregate_type") @db.VarChar(100)
-  aggregateId   String           @map("aggregate_id") @db.VarChar(191)
-  payload       Json
-  deliveries    OutboxDelivery[]
-  createdAt     DateTime         @default(now()) @map("created_at")
-
-  @@index([type, createdAt])
-  @@map("outbox_events")
-}
-
 model OutboxDelivery {
-  id                String      @id @db.VarChar(191)
-  eventId           String      @map("event_id") @db.VarChar(191)
-  recipientId       String      @map("recipient_id") @db.VarChar(191)
-  channel           String      @db.VarChar(30)
-  dedupKey          String      @unique @map("dedup_key") @db.VarChar(255)
-  status            String      @default("PENDING") @db.VarChar(30)
-  attempts          Int         @default(0)
-  availableAt       DateTime    @default(now()) @map("available_at")
-  providerMessageId String?     @map("provider_message_id") @db.VarChar(191)
-  lastError         String?     @map("last_error") @db.VarChar(500)
-  deliveredAt       DateTime?   @map("delivered_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
-  event             OutboxEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  // Partial index available_at cho PENDING/FAILED/PROCESSING được quản lý bằng migration SQL 20261124010000.
+  id                String    @id @db.VarChar(191)
+  eventType         String    @map("event_type") @db.VarChar(100)
+  aggregateType     String    @map("aggregate_type") @db.VarChar(100)
+  aggregateId       String    @map("aggregate_id") @db.VarChar(191)
+  payload           Json
+  recipientId       String    @map("recipient_id") @db.VarChar(191)
+  channel           String    @db.VarChar(30)
+  dedupKey          String    @unique @map("dedup_key") @db.VarChar(255)
+  status            String    @default("PENDING") @db.VarChar(30)
+  attempts          Int       @default(0)
+  availableAt       DateTime  @default(now()) @map("available_at")
+  providerMessageId String?   @map("provider_message_id") @db.VarChar(191)
+  lastError         String?   @map("last_error") @db.VarChar(500)
+  deliveredAt       DateTime? @map("delivered_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([status, availableAt])
   @@index([recipientId, updatedAt(sort: Desc)])
+  @@index([eventType, createdAt])
   @@map("outbox_deliveries")
 }
 
 model ChatConversation {
+  messageSequence BigInt @default(0) @map("message_sequence")
   id          String               @id @default(cuid())
   type        ChatConversationType
   classId     String?              @unique @map("class_id")
@@ -1466,6 +1219,7 @@ model ChatConversation {
 }
 
 model ChatConversationMember {
+  // CLASS membership is maintained by transactional triggers in 20261124070000_chat_membership_projection.
   conversationId String           @map("conversation_id")
   userId         String           @map("user_id")
   roleSnapshot   String           @map("role_snapshot") @db.VarChar(50)
@@ -1483,6 +1237,7 @@ model ChatConversationMember {
 }
 
 model ChatMessage {
+  streamSequence BigInt @default(0) @map("stream_sequence")
   id              String           @id @default(cuid())
   conversationId  String           @map("conversation_id")
   senderId        String           @map("sender_id")
@@ -1497,11 +1252,13 @@ model ChatMessage {
   replies         ChatMessage[]    @relation("ChatMessageReplies")
   attachments     ChatMessageAttachment[]
   mentions        ChatMessageMention[]
-  reports         ChatMessageReport[]
   createdAt       DateTime         @default(now()) @map("created_at")
 
   @@unique([senderId, clientMessageId])
+  @@unique([conversationId, streamSequence])
   @@index([conversationId, createdAt])
+  @@index([replyToId])
+  @@index([content(ops: raw("gin_trgm_ops"))], type: Gin, map: "chat_messages_content_trgm_idx")
   @@map("chat_messages")
 }
 
@@ -1524,6 +1281,7 @@ model ChatMessageMention {
   messageId       String      @map("message_id")
   mentionedUserId String      @map("mentioned_user_id") @db.VarChar(191)
   message         ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mentionedUser   User        @relation("ChatMentionedUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
   createdAt       DateTime    @default(now()) @map("created_at")
 
   @@id([messageId, mentionedUserId])
@@ -1531,63 +1289,115 @@ model ChatMessageMention {
   @@map("chat_message_mentions")
 }
 
-model ChatMessageReport {
-  id         String      @id @default(cuid())
-  messageId  String      @map("message_id")
-  reporterId String      @map("reporter_id") @db.VarChar(191)
-  reason     String      @db.VarChar(1000)
-  status     String      @default("OPEN") @db.VarChar(30)
-  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  createdAt  DateTime    @default(now()) @map("created_at")
+model ClassFeedPost {
+  id            String                     @id @default(cuid())
+  classId       String                     @map("class_id")
+  authorId      String                     @map("author_id")
+  authorRole    String                     @map("author_role") @db.VarChar(40)
+  content       String                     @db.Text
+  isEdited      Boolean                    @default(false) @map("is_edited")
+  class         LearningClass              @relation(fields: [classId], references: [id], onDelete: Cascade)
+  author        User                       @relation("ClassFeedPostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  attachments   ClassFeedAttachment[]
+  comments      ClassFeedComment[]
+  likes         ClassFeedPostLike[]
+  editHistories ClassFeedPostEditHistory[]
+  preferences   ClassFeedPostPreference[]
+  createdAt     DateTime                   @default(now()) @map("created_at")
+  updatedAt     DateTime                   @updatedAt @map("updated_at")
 
-  @@unique([messageId, reporterId])
-  @@index([status, createdAt])
-  @@map("chat_message_reports")
+  @@index([classId, createdAt])
+  @@index([authorId])
+  @@map("class_feed_posts")
 }
 
-model UserBlock {
-  blockerId String   @map("blocker_id") @db.VarChar(191)
-  blockedId String   @map("blocked_id") @db.VarChar(191)
-  reason    String?  @db.VarChar(500)
-  createdAt DateTime @default(now()) @map("created_at")
+model ClassFeedAttachment {
+  id           String        @id @default(cuid())
+  postId       String        @map("post_id")
+  objectKey    String        @unique @map("object_key") @db.VarChar(500)
+  originalName String        @map("original_name") @db.VarChar(255)
+  mimeType     String        @map("mime_type") @db.VarChar(150)
+  sizeBytes    BigInt        @map("size_bytes")
+  checksum     String        @db.VarChar(128)
+  post         ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt    DateTime      @default(now()) @map("created_at")
 
-  @@id([blockerId, blockedId])
-  @@index([blockedId, createdAt])
-  @@map("user_blocks")
+  @@index([postId, createdAt])
+  @@map("class_feed_attachments")
 }
 
-model ReportRun {
-  id                String   @id @default(cuid())
-  reportType        String   @map("report_type") @db.VarChar(50)
-  definitionVersion String   @map("definition_version") @db.VarChar(30)
-  timezone          String   @db.VarChar(80)
-  filters           Json
-  result            Json
-  requestedById     String   @map("requested_by_id") @db.VarChar(191)
-  createdAt         DateTime @default(now()) @map("created_at")
-  exports            ReportExport[]
+model ClassFeedComment {
+  id            String                 @id @default(cuid())
+  postId        String                 @map("post_id")
+  parentId      String?                @map("parent_id")
+  authorId      String                 @map("author_id")
+  authorRole    String                 @map("author_role") @db.VarChar(40)
+  replyToUserId String?                @map("reply_to_user_id")
+  replyToName   String?                @map("reply_to_name") @db.VarChar(150)
+  content       String                 @db.Text
+  isEdited      Boolean                @default(false) @map("is_edited")
+  post          ClassFeedPost          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent        ClassFeedComment?      @relation("ClassFeedCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       ClassFeedComment[]     @relation("ClassFeedCommentReplies")
+  author        User                   @relation("ClassFeedCommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  replyToUser   User?                  @relation("ClassFeedCommentReplyTo", fields: [replyToUserId], references: [id], onDelete: SetNull)
+  likes         ClassFeedCommentLike[]
+  createdAt     DateTime               @default(now()) @map("created_at")
+  updatedAt     DateTime               @updatedAt @map("updated_at")
 
-  @@index([reportType, createdAt])
-  @@index([requestedById, createdAt])
-  @@map("report_runs")
+  @@index([postId, createdAt])
+  @@index([parentId, createdAt])
+  @@map("class_feed_comments")
 }
 
-model ReportExport {
-  id            String             @id @default(cuid())
-  reportRunId   String             @map("report_run_id")
-  format        String             @db.VarChar(20)
-  status        ReportExportStatus @default(QUEUED)
-  fileName      String             @map("file_name") @db.VarChar(255)
-  filePath      String?            @map("file_path") @db.VarChar(1000)
-  sizeBytes     BigInt?            @map("size_bytes")
-  errorMessage  String?            @map("error_message") @db.Text
-  expiresAt     DateTime           @map("expires_at")
-  requestedById String             @map("requested_by_id") @db.VarChar(191)
-  reportRun     ReportRun          @relation(fields: [reportRunId], references: [id], onDelete: Cascade)
-  createdAt     DateTime           @default(now()) @map("created_at")
-  updatedAt     DateTime           @updatedAt @map("updated_at")
+model ClassFeedPostLike {
+  postId    String        @map("post_id")
+  userId    String        @map("user_id")
+  post      ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now()) @map("created_at")
 
-  @@index([requestedById, createdAt])
-  @@index([status, expiresAt])
-  @@map("report_exports")
+  @@id([postId, userId])
+  @@index([userId, createdAt])
+  @@map("class_feed_post_likes")
 }
+
+model ClassFeedCommentLike {
+  commentId String           @map("comment_id")
+  userId    String           @map("user_id")
+  comment   ClassFeedComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@id([commentId, userId])
+  @@index([userId, createdAt])
+  @@map("class_feed_comment_likes")
+}
+
+model ClassFeedPostEditHistory {
+  id              String        @id @default(cuid())
+  postId          String        @map("post_id")
+  editorId        String        @map("editor_id")
+  previousContent String        @map("previous_content") @db.Text
+  post            ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  editor          User          @relation("ClassFeedPostEditor", fields: [editorId], references: [id], onDelete: Restrict)
+  editedAt        DateTime      @default(now()) @map("edited_at")
+
+  @@index([postId, editedAt])
+  @@map("class_feed_post_edit_histories")
+}
+
+model ClassFeedPostPreference {
+  postId    String        @map("post_id")
+  userId    String        @map("user_id")
+  hidden    Boolean       @default(false)
+  following Boolean       @default(false)
+  post      ClassFeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  @@id([postId, userId])
+  @@index([userId, hidden])
+  @@map("class_feed_post_preferences")
+}
+

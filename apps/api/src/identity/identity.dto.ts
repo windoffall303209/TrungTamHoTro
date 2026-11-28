@@ -2,7 +2,6 @@ import {
   ArrayNotEmpty,
   ArrayUnique,
   IsArray,
-  IsEmail,
   IsIn,
   IsInt,
   Min,
@@ -12,7 +11,6 @@ import {
   Length,
   Matches,
   MaxLength,
-  MinLength,
 } from "class-validator";
 import { Transform, type TransformFnParams } from "class-transformer";
 import {
@@ -27,6 +25,10 @@ import type { AccountStatus } from "./identity.types.js";
 export class UserListQueryDto {
   @IsOptional() @IsString() @MaxLength(200)
   query?: string;
+  @IsOptional() @IsIn(ROLE_CODES)
+  roleCode?: RoleCode;
+  @IsOptional() @IsIn(["ACTIVE", "LOCKED", "PENDING"])
+  status?: AccountStatus;
   @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(10000)
   page = 1;
   @Transform(({ value }: TransformFnParams) => Number(value)) @IsInt() @Min(1) @Max(50)
@@ -39,20 +41,13 @@ function normalizeRoleCodes(value: unknown): string[] {
   return values.map((item) => String(item).trim()).filter(Boolean);
 }
 
-/** Dữ liệu quản trị dùng để tạo người dùng và gán một hoặc nhiều vai trò ban đầu. */
+/** Dữ liệu tạo tài khoản: tên đăng nhập, mật khẩu tạm và vai trò ban đầu; hồ sơ được người dùng bổ sung sau. */
 export class CreateUserDto {
   @IsString()
   @Matches(/^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$/, {
     message: "Tài khoản phải có 4–32 ký tự hợp lệ.",
   })
   username!: string;
-
-  @IsString()
-  @Length(2, 150)
-  displayName!: string;
-
-  @IsEmail()
-  email!: string;
 
   @IsIn(ROLE_CODES)
   roleCode!: RoleCode;
@@ -64,19 +59,13 @@ export class CreateUserDto {
   @IsIn(ROLE_CODES, { each: true })
   roleCodes?: RoleCode[];
 
-  @IsOptional()
   @IsString()
-  @Length(8, 128)
-  initialPassword?: string;
+  @Length(8, 128, { message: "Mật khẩu tạm thời phải có từ 8 đến 128 ký tự." })
+  initialPassword!: string;
 }
 
 /** Các thuộc tính tài khoản quản trị viên được phép thay đổi. */
 export class UpdateUserDto {
-  @IsOptional()
-  @IsString()
-  @Length(2, 150)
-  displayName?: string;
-
   @IsOptional()
   @IsIn(ROLE_CODES)
   roleCode?: RoleCode;
@@ -89,7 +78,7 @@ export class UpdateUserDto {
   roleCodes?: RoleCode[];
 
   @IsOptional()
-  @IsIn(["ACTIVE", "INACTIVE", "LOCKED"])
+  @IsIn(["PENDING", "ACTIVE", "INACTIVE", "LOCKED"])
   status?: AccountStatus;
 
   @IsOptional()
@@ -104,7 +93,6 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(5)
   @MaxLength(1000)
   handoffReason?: string;
 }
@@ -119,7 +107,7 @@ export class UserChangeImpactQueryDto {
   @ArrayUnique()
   @IsIn(ROLE_CODES, { each: true })
   roleCodes?: RoleCode[];
-  @IsOptional() @IsIn(["ACTIVE", "INACTIVE", "LOCKED"]) status?: AccountStatus;
+  @IsOptional() @IsIn(["PENDING", "ACTIVE", "INACTIVE", "LOCKED"]) status?: AccountStatus;
 }
 
 /** Hợp đồng nội bộ gồm vai trò và tập quyền duy nhất đã kiểm tra theo danh mục. */

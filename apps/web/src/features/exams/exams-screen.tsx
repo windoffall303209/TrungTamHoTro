@@ -1,9 +1,13 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { RequestError } from "@/components/request-error";
-import { QuestionImage } from "@/components/question-image";
-import { SectionState } from "@/components/section-state";
+import { useCallback, useEffect, useState } from "react";
+import { apiRequest } from "@/lib/api-client";
+import type { ExamAttemptTutorState, ExamTutorAskResult } from "@/lib/learning-types";
+import { QuestionAiTutorPanel } from "@/roles/learner/class/question-ai-tutor-panel";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { RequestError } from "@/shared/ui/request-error";
+import { QuestionImage } from "@/features/questions/question-image";
+import { SectionState } from "@/shared/ui/section-state";
 import {
   Button,
   Field,
@@ -13,18 +17,19 @@ import {
   RichText,
   StatusBadge,
   Tabs,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
+  Bot,
   CheckCircle2,
   Clock3,
   Eye,
+  EyeOff,
   Pencil,
   Play,
-  Plus,
   RotateCcw,
   Send,
-  Sparkles,
+  Trash2,
 } from "lucide-react";
 import { ExamEditorDialog } from "./exam-editor-dialog";
 import { ExamPreviewDialog } from "./exam-preview-dialog";
@@ -43,6 +48,7 @@ export default function ExamsScreen() {
     classes,
     attemptQuestions,
     attempt,
+    activeExam,
     answerDrafts,
     setAnswerDrafts,
     results,
@@ -57,19 +63,10 @@ export default function ExamsScreen() {
     autosaveStatus,
     loading,
     saving,
-    reviewingId,
-    returnTarget,
-    setReturnTarget,
-    returnNote,
-    setReturnNote,
-    confirmExam,
-    setConfirmExam,
-    publishing,
-    openCreate,
     openEdit,
-    publish,
     preview,
-    review,
+    toggleExamVisibility,
+    deleteExam,
     start,
     answer,
     saveTextAnswer,
@@ -77,31 +74,71 @@ export default function ExamsScreen() {
     requestRegrade,
   } = model;
 
+  const [tutorState, setTutorState] = useState<ExamAttemptTutorState | null>(null);
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorError, setTutorError] = useState<string | null>(null);
+  const [openTutorQuestions, setOpenTutorQuestions] = useState<Record<string, boolean>>({});
+  const activeAttemptId = attempt?.status === "IN_PROGRESS" ? attempt.id : null;
+  const tutorEnabled = Boolean(activeExam?.aiTutorEnabled && activeAttemptId);
+
+  /** Tải lịch sử hỏi đáp và hạn mức gia sư AI cho lượt thi đang mở trên trang đề thi. */
+  const loadAttemptTutor = useCallback(async (targetAttemptId: string) => {
+    setTutorLoading(true);
+    setTutorError(null);
+    try {
+      const data = await apiRequest<ExamAttemptTutorState>(
+        `/learner/exam-attempts/${encodeURIComponent(targetAttemptId)}/ai-tutor`,
+      );
+      setTutorState(data);
+    } catch (error) {
+      setTutorError(
+        error instanceof Error ? error.message : "Không tải được khung hỏi đáp gia sư AI.",
+      );
+    } finally {
+      setTutorLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!tutorEnabled || !activeAttemptId) {
+      setTutorState(null);
+      setTutorError(null);
+      setOpenTutorQuestions({});
+      return;
+    }
+    void loadAttemptTutor(activeAttemptId);
+  }, [activeAttemptId, loadAttemptTutor, tutorEnabled]);
+
+  /** Đồng bộ lượt hỏi đáp mới nhất và hạn mức còn lại vào trạng thái gia sư AI của bài làm. */
+  const handleTutorTurnCompleted = useCallback((result: ExamTutorAskResult) => {
+    setTutorState((prev) => {
+      const existingThread = prev?.threads[result.turn.questionId] ?? [];
+      const alreadyPresent = existingThread.some((item) => item.id === result.turn.id);
+      return {
+        enabled: true,
+        presets: prev?.presets ?? [],
+        quota: result.quota,
+        threads: {
+          ...(prev?.threads ?? {}),
+          [result.turn.questionId]: alreadyPresent
+            ? existingThread
+            : [...existingThread, result.turn],
+        },
+      };
+    });
+  }, []);
+
   if (!allowed) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="w-full space-y-4">
       <PageHeader
-        eyebrow="Assessment Workflow"
         title="Đề thi & kết quả"
         description={
           learner
             ? "Làm các đề đã được công bố và theo dõi kết quả học tập của bạn."
-            : "Thiết kế, công bố và theo dõi kết quả đánh giá của lớp."
+            : "Tạo, xem, chỉnh sửa và theo dõi kết quả đánh giá của lớp."
         }
-        actions={
-          instructor ? (
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => openCreate("AI")}>
-                <Sparkles size={17} />
-                Tạo đề bằng AI
-              </Button>
-              <Button onClick={() => openCreate("MANUAL")} variant="secondary">
-                <Plus size={17} />
-                Tạo thủ công
-              </Button>
-            </div>
-          ) : undefined
-        }
+        actions={undefined}
       />
       <RequestError message={model.loadError} retry={() => void model.reload()} />
       {attempt ? (
@@ -158,7 +195,7 @@ export default function ExamsScreen() {
             <div className="mt-5 space-y-4 border-t border-sky-200 pt-5">
               {attemptQuestions.map((question, index) => (
                 <fieldset
-                  className="rounded-xl bg-[var(--surface)] p-4"
+                  className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs"
                   key={question.id}
                 >
                   <legend className="px-1 text-sm font-extrabold">
@@ -246,6 +283,55 @@ export default function ExamsScreen() {
                       value={answerDrafts[question.id] ?? ""}
                     />
                   )}
+                  {tutorEnabled ? (
+                    <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenTutorQuestions((prev) => ({
+                            ...prev,
+                            [question.id]: !prev[question.id],
+                          }))
+                        }
+                        className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-500/10 px-3 py-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100/80 dark:hover:bg-indigo-500/20 transition-colors cursor-pointer"
+                      >
+                        <Bot className="size-3.5" />
+                        <span>
+                          {openTutorQuestions[question.id]
+                            ? `Thu gọn gia sư AI câu ${index + 1}`
+                            : `Hỏi gia sư AI dẫn dắt câu ${index + 1}`}
+                        </span>
+                        {(tutorState?.quota.questionUsedById[question.id] ?? 0) > 0 ? (
+                          <span className="rounded-md bg-white dark:bg-slate-900 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-600 dark:text-indigo-300">
+                            Đã hỏi {tutorState?.quota.questionUsedById[question.id]}/{tutorState?.quota.maxPerQuestion ?? 3}
+                          </span>
+                        ) : null}
+                      </button>
+                      {openTutorQuestions[question.id] ? (
+                        <div className="mt-3">
+                          <QuestionAiTutorPanel
+                            attemptId={activeAttemptId}
+                            questionId={question.id}
+                            questionNumber={index + 1}
+                            enabled
+                            draftAnswer={
+                              (attempt.answers[question.id] ?? []).join(", ") ||
+                              (answerDrafts[question.id] ?? "")
+                            }
+                            tutorState={tutorState}
+                            loadingState={tutorLoading}
+                            loadStateError={tutorError}
+                            onRetryLoadState={
+                              activeAttemptId
+                                ? () => void loadAttemptTutor(activeAttemptId)
+                                : undefined
+                            }
+                            onTurnCompleted={handleTutorTurnCompleted}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </fieldset>
               ))}
             </div>
@@ -254,7 +340,7 @@ export default function ExamsScreen() {
       ) : null}
       {learner ? (
         <Tabs
-          className="mt-6"
+          className="mt-3.5 mb-3"
           items={[
             { value: "exams", label: "Đề thi", count: visibleItems.length },
             { value: "results", label: "Kết quả", count: results.length },
@@ -278,138 +364,105 @@ export default function ExamsScreen() {
               learner
                 ? "Đề thi sẽ xuất hiện khi giảng viên công bố cho lớp của bạn."
                 : instructor
-                  ? "Tạo đề thủ công hoặc dùng AI, sau đó kiểm tra nội dung trước khi gửi duyệt."
-                  : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi và xét duyệt."
+                  ? "Đề thi sẽ xuất hiện ngay sau khi tạo để xem hoặc chỉnh sửa."
+                  : "Đề thi của các lớp sẽ xuất hiện tại đây để theo dõi."
             }
           >
-            <div className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
-              {pagination.pageItems.map((item) => (
-                <article
-                  className="grid gap-4 border-b border-[var(--rule)] px-5 py-5 last:border-b-0 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
-                  id={`exam-${item.id}`}
-                  key={item.id}
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-extrabold text-sky-700">
-                          {classes.find((c) => c.id === item.classId)?.code ??
-                            item.classId}
-                        </p>
-                        <h2 className="mt-1 font-heading text-xl font-extrabold">
-                          {item.title}
-                        </h2>
-                      </div>
-                      <StatusBadge
-                        status={
-                          learner
-                            ? (item.availabilityStatus ?? item.status)
-                            : item.status
-                        }
-                      />
-                    </div>
-                    <div className="mt-5 grid grid-cols-3 divide-x divide-slate-100 border-y border-slate-100 py-4 text-center">
-                      <div>
-                        <p className="font-extrabold">
-                          {item.questionCount ?? item.questionIds.length}
-                        </p>
-                        <p className="text-[11px] text-slate-500">Câu hỏi</p>
-                      </div>
-                      <div>
-                        <p className="font-extrabold">
-                          {item.durationMinutes}&apos;
-                        </p>
-                        <p className="text-[11px] text-slate-500">Thời gian</p>
-                      </div>
-                      <div>
-                        <p className="font-extrabold">
-                          {learner
-                            ? (item.remainingAttempts ?? 0)
-                            : item.totalScore}
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          {learner ? "Lượt còn lại" : "Tổng điểm"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="mt-4 flex items-center gap-2 text-xs text-slate-500">
-                      <Clock3 size={14} />
-                      {new Date(item.openAt).toLocaleString(
-                        activeLocale(),
-                      )} —{" "}
-                      {new Date(item.closeAt).toLocaleString(activeLocale())}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2 lg:justify-end">
-                    {instructor ? (
-                      <Button
-                        onClick={() => void preview(item)}
-                        variant="ghost"
-                      >
-                        <Eye size={15} />
-                        Xem đề
-                      </Button>
-                    ) : null}
-                    {canReview && item.status === "PENDING_REVIEW" ? (
-                      <Button
-                        onClick={() => void preview(item)}
-                        variant="ghost"
-                      >
-                        <Eye size={15} />
-                        Xem đề
-                      </Button>
-                    ) : null}
-                    {instructor && item.status === "DRAFT" ? (
-                      <Button onClick={() => openEdit(item)} variant="ghost">
-                        <Pencil size={15} />
-                        Sửa đề
-                      </Button>
-                    ) : null}
-                    {instructor && item.status === "DRAFT" ? (
-                      <Button
-                        onClick={() => setConfirmExam(item)}
-                        variant="secondary"
-                      >
-                        <Send size={15} />
-                        Gửi phê duyệt
-                      </Button>
-                    ) : null}
-                    {canReview && item.status === "PENDING_REVIEW" ? (
-                      <>
-                        <Button
-                          loading={reviewingId === item.id}
-                          onClick={() => void review(item, "APPROVE")}
+            <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] text-left text-sm">
+                  <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-2.5">Đề thi</th>
+                      <th className="px-3.5 py-2.5">Lớp học</th>
+                      <th className="px-3 py-2.5 text-center">Số câu</th>
+                      <th className="px-3 py-2.5 text-center">Thời lượng</th>
+                      <th className="px-3 py-2.5 text-center">{learner ? "Lượt còn lại" : "Thang điểm"}</th>
+                      <th className="px-3.5 py-2.5">Thời gian mở</th>
+                      <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
+                      <th className="w-[150px] px-3 py-2.5 text-center">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {pagination.pageItems.map((item) => {
+                      const classItem = classes.find((c) => c.id === item.classId);
+                      return (
+                        <tr
+                          key={item.id}
+                          id={`exam-${item.id}`}
+                          className="hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition-colors"
                         >
-                          <CheckCircle2 size={15} />
-                          Phê duyệt
-                        </Button>
-                        <Button
-                          disabled={reviewingId === item.id}
-                          onClick={() => {
-                            setReturnTarget(item);
-                            setReturnNote("");
-                          }}
-                          variant="secondary"
-                        >
-                          <RotateCcw size={15} />
-                          Trả lại
-                        </Button>
-                      </>
-                    ) : null}
-                    {learner &&
-                    ["AVAILABLE", "IN_PROGRESS"].includes(
-                      item.availabilityStatus ?? "",
-                    ) ? (
-                      <Button onClick={() => void start(item)}>
-                        <Play size={15} />
-                        {item.availabilityStatus === "IN_PROGRESS"
-                          ? "Tiếp tục làm bài"
-                          : "Bắt đầu làm bài"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
+                          <td className="px-4 py-2.5">
+                            <strong className="font-semibold text-slate-900 dark:text-slate-100 truncate block max-w-xs" title={item.title}>
+                              {item.title}
+                            </strong>
+                          </td>
+                          <td className="px-3.5 py-2.5 whitespace-nowrap">
+                            <span className="inline-flex items-center rounded-md bg-sky-50 dark:bg-sky-950/40 border border-sky-200/80 dark:border-sky-800/60 px-2 py-0.5 text-xs font-bold text-sky-700 dark:text-sky-300">
+                              {classItem?.code ?? item.classId}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums font-semibold text-slate-800 dark:text-slate-200">
+                            {item.questionCount ?? item.questionIds.length}
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums text-slate-700 dark:text-slate-300">
+                            {item.durationMinutes} phút
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs whitespace-nowrap tabular-nums font-bold text-sky-600 dark:text-sky-400">
+                            {learner ? (item.remainingAttempts ?? 0) : item.totalScore}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                            <p>{new Date(item.openAt).toLocaleDateString(activeLocale())} {new Date(item.openAt).toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}</p>
+                            <p className="text-[10px] text-slate-400">đến {new Date(item.closeAt).toLocaleDateString(activeLocale())} {new Date(item.closeAt).toLocaleTimeString(activeLocale(), { hour: "2-digit", minute: "2-digit" })}</p>
+                          </td>
+                          <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                            <StatusBadge status={learner ? (item.availabilityStatus ?? item.status) : item.hidden ? "HIDDEN" : item.status} />
+                          </td>
+                          <td className="w-[185px] px-3 py-2.5 align-middle">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
+                              {instructor || canReview ? (
+                                <Button disabled={!instructor && item.hidden} aria-label="Xem đề" title="Xem đề" onClick={() => void preview(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                  <Eye size={14} />
+                                </Button>
+                              ) : null}
+                              {instructor ? (
+                                <>
+                                  <Button aria-label="Sửa đề" title="Sửa đề" onClick={() => openEdit(item)} variant="ghost" className="h-8 px-2 text-xs">
+                                    <Pencil size={14} />
+                                  </Button>
+                                  <Button
+                                    aria-label={item.hidden ? "Hiện đề" : "Ẩn đề"}
+                                    title={item.hidden ? "Hiện đề" : "Ẩn đề"}
+                                    onClick={() => void toggleExamVisibility(item)}
+                                    variant="ghost"
+                                    className="h-8 px-2 text-xs"
+                                  >
+                                    {item.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                                  </Button>
+                                  <Button
+                                    aria-label="Xóa đề"
+                                    title="Xóa đề"
+                                    onClick={() => void deleteExam(item)}
+                                    variant="ghost"
+                                    className="h-8 px-2 text-xs text-rose-600 hover:text-rose-700"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </>
+                              ) : null}
+                              {learner && ["AVAILABLE", "IN_PROGRESS"].includes(item.availabilityStatus ?? "") ? (
+                                <Button aria-label={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} title={item.availabilityStatus === "IN_PROGRESS" ? "Tiếp tục làm bài" : "Bắt đầu làm bài"} onClick={() => void start(item)} className="h-8 px-2 text-xs font-semibold">
+                                  <Play size={13} />
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </SectionState>
           <Pagination
@@ -423,80 +476,96 @@ export default function ExamsScreen() {
         </>
       ) : null}
       {learner && learnerView === "results" ? (
-        <section className="mt-6">
-          <div className="mb-5 flex items-end justify-between gap-4">
-            <div>
-              <h2 className="font-heading text-2xl font-extrabold tracking-tight">
-                Kết quả đã công bố
-              </h2>
-              <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                Xem điểm từng câu, phản hồi của giảng viên và gửi yêu cầu phúc
-                khảo.
-              </p>
-            </div>
+        <section className="mt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Kết quả đã công bố ({results.length})
+            </h2>
           </div>
           {results.length ? (
-            <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule-strong)]">
-              {results.map((result) => (
-                <article
-                  className="grid scroll-mt-24 gap-5 py-5 lg:grid-cols-[1fr_auto] lg:items-center"
-                  id={`exam-${result.attempt.id}`}
-                  key={result.attempt.id}
-                >
-                  <div>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <h3 className="font-heading text-lg font-extrabold">
-                        {result.exam.title}
-                      </h3>
-                      <StatusBadge
-                        status={result.regradeRequest?.status ?? "PUBLISHED"}
-                      />
-                    </div>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-500">
-                      {result.answerBreakdown.map((answer, index) => (
-                        <span key={answer.questionId}>
-                          Câu {index + 1}: {answer.awardedScore}/
-                          {answer.maxScore}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 lg:text-right">
-                    <div>
-                      <p className="text-3xl font-extrabold text-sky-800">
-                        {result.attempt.score ?? 0}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        trên {result.exam.totalScore}
-                      </p>
-                    </div>
-                    {!result.regradeRequest ? (
-                      <Button
-                        onClick={() => {
-                          setSelectedResult(result);
-                          setRegradeOpen(true);
-                        }}
-                        variant="secondary"
+            <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-2.5">Đề thi</th>
+                      <th className="px-3.5 py-2.5 text-center">Điểm số</th>
+                      <th className="px-4 py-2.5">Điểm từng câu</th>
+                      <th className="px-3.5 py-2.5 text-center">Trạng thái</th>
+                      <th className="px-4 py-2.5 text-center">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                    {results.map((result) => (
+                      <tr
+                        key={result.attempt.id}
+                        id={`exam-${result.attempt.id}`}
+                        className="hover:bg-sky-50/40 dark:hover:bg-slate-800/40 transition-colors"
                       >
-                        <RotateCcw size={15} />
-                        Phúc khảo
-                      </Button>
-                    ) : null}
-                  </div>
-                </article>
-              ))}
+                        <td className="px-4 py-2.5">
+                          <strong className="font-semibold text-slate-900 dark:text-slate-100 block truncate max-w-xs" title={result.exam.title}>
+                            {result.exam.title}
+                          </strong>
+                          <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500 line-clamp-1">
+                            {result.attempt.feedback ?? "Chưa có nhận xét bổ sung."}
+                          </p>
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <span className="text-sm font-extrabold text-sky-600 dark:text-sky-400 tabular-nums">
+                            {result.attempt.score ?? 0}
+                          </span>
+                          <span className="text-xs text-slate-400">/{result.exam.totalScore}</span>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {result.breakdownVisibleAt ? (
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400">Điểm từng câu hiển thị sau khi đề đóng</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1 text-[11px]">
+                              {result.answerBreakdown.map((answer, index) => (
+                                <span
+                                  key={answer.questionId}
+                                  className="inline-flex items-center rounded bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 font-medium text-slate-600 dark:text-slate-300"
+                                >
+                                  C{index + 1}: <strong className="ml-0.5 text-sky-600 dark:text-sky-400">{answer.awardedScore ?? "—"}</strong>/{answer.maxScore}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                          <StatusBadge status={result.regradeRequest?.status ?? "PUBLISHED"} />
+                        </td>
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                          {!result.regradeRequest ? (
+                            <Button
+                              onClick={() => {
+                                setSelectedResult(result);
+                                setRegradeOpen(true);
+                              }}
+                              variant="secondary"
+                              className="h-8 px-2.5 text-xs font-semibold"
+                              aria-label="Yêu cầu phúc khảo"
+                              title="Yêu cầu phúc khảo"
+                            >
+                              <RotateCcw size={13} />
+                            </Button>
+                          ) : (
+                            <span className="inline-flex items-center justify-center text-emerald-600" role="status" title="Đã gửi phúc khảo" aria-label="Đã gửi phúc khảo"><CheckCircle2 size={16} /></span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
-            <div className="border-y border-[var(--rule-strong)] py-12 text-center">
-              <p className="font-bold text-[var(--ink)]">
+            <div className="rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 py-14 text-center">
+              <p className="font-bold text-slate-800 dark:text-slate-200">
                 Chưa có kết quả được công bố
               </p>
-              <p className="mt-2 text-sm text-[var(--ink-soft)]">
-                Bài tự luận sẽ xuất hiện tại đây sau khi giảng viên chấm và công
-                bố điểm.
+              <p className="mt-1 text-xs text-slate-400">
+                Bài tự luận sẽ xuất hiện tại đây sau khi giảng viên chấm và công bố điểm.
               </p>
               <Button
                 className="mt-4"
@@ -534,89 +603,6 @@ export default function ExamsScreen() {
             Gửi yêu cầu
           </Button>
         </form>
-      </Modal>
-      <Modal
-        open={Boolean(returnTarget)}
-        onClose={() => {
-          setReturnTarget(null);
-          setReturnNote("");
-        }}
-        title="Trả lại đề thi"
-        description={
-          returnTarget
-            ? `Đề “${returnTarget.title}” sẽ quay về bản nháp để giảng viên chỉnh sửa.`
-            : undefined
-        }
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (returnTarget) void review(returnTarget, "RETURN", returnNote);
-          }}
-        >
-          <Field label="Lý do trả lại">
-            <textarea
-              autoFocus
-              className={inputClass}
-              minLength={5}
-              onChange={(event) => setReturnNote(event.target.value)}
-              placeholder="Nêu rõ nội dung giảng viên cần điều chỉnh…"
-              required
-              rows={5}
-              value={returnNote}
-            />
-          </Field>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              loading={Boolean(returnTarget && reviewingId === returnTarget.id)}
-              type="submit"
-            >
-              <RotateCcw size={15} />
-              Xác nhận trả lại
-            </Button>
-            <Button
-              onClick={() => {
-                setReturnTarget(null);
-                setReturnNote("");
-              }}
-              type="button"
-              variant="ghost"
-            >
-              Hủy
-            </Button>
-          </div>
-        </form>
-      </Modal>
-      <Modal
-        open={Boolean(confirmExam)}
-        onClose={() => {
-          if (!publishing) setConfirmExam(null);
-        }}
-        title="Xác nhận gửi duyệt đề"
-        description="Bạn xác nhận là phê duyệt toàn bộ câu hỏi chứ?"
-      >
-        <p className="text-sm text-[var(--ink-soft)]">
-          Xác nhận sẽ phê duyệt các câu hỏi của bạn trong đề và gửi yêu cầu phê
-          duyệt đề. Cấu hình tự động duyệt đề của hệ thống vẫn được áp dụng.
-        </p>
-        <div className="mt-5 flex justify-end gap-3">
-          <Button
-            disabled={publishing}
-            variant="ghost"
-            onClick={() => setConfirmExam(null)}
-          >
-            Hủy
-          </Button>
-          <Button
-            loading={publishing}
-            onClick={() => {
-              if (confirmExam) void publish(confirmExam);
-            }}
-          >
-            Xác nhận
-          </Button>
-        </div>
       </Modal>
       <ExamPreviewDialog model={model} />
     </div>

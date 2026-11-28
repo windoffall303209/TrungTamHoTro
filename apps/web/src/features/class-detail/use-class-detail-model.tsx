@@ -1,5 +1,5 @@
 "use client";
-import { usePagination } from "@/components/ui";
+import { usePagination } from "@/shared/ui/ui";
 import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import type {
@@ -13,8 +13,8 @@ import type {
 } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { DetailTab, RemoveTarget, roleLabel } from "./class-detail.shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RemoveTarget, roleLabel } from "./class-detail.shared";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình chi tiết lớp; giữ nguyên thứ tự hook. */
 export function useClassDetailModel() {
@@ -37,26 +37,17 @@ export function useClassDetailModel() {
     ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode) &&
     hasPermission(session, "class:manage");
 
-  const [capabilities, setCapabilities] = useState<ClassCapabilities | null>(
-    null,
-  );
-
-  const canManage =
-    baseCanManage && (capabilities?.actions.manageRoster.allowed ?? true);
-
   const [item, setItem] = useState<LearningClass | null>(null);
 
-  const [course, setCourse] = useState<Course | null>(null);
+  const course: Course | null = null;
 
   const [roster, setRoster] = useState<ClassRoster | null>(null);
 
-  const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(
-    null,
-  );
-
-  const [activeTab, setActiveTab] = useState<DetailTab>("overview");
+  const readiness: ClassClosureReadiness | null = null;
 
   const [loading, setLoading] = useState(true);
+  const loadRequestId = useRef(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
 
   const [saving, setSaving] = useState(false);
 
@@ -75,14 +66,10 @@ export function useClassDetailModel() {
 
   const [removeTarget, setRemoveTarget] = useState<RemoveTarget | null>(null);
 
-  const [removeReason, setRemoveReason] = useState("");
-
   const [transferTarget, setTransferTarget] = useState<{
     id: string;
     name: string;
   } | null>(null);
-
-  const [transferReason, setTransferReason] = useState("");
 
   const activeEnrollments = useMemo(
     () =>
@@ -112,58 +99,66 @@ export function useClassDetailModel() {
 
   const learnerPagination = usePagination(activeEnrollments);
 
-  const historyPagination = usePagination(roster?.history ?? []);
 
-  /** Nạp song song chi tiết lớp, roster và danh sách người dùng có thể được thêm. */
+  /** Nạp song song hồ sơ đúng một lớp, capability và roster quản trị (<= 3 request, không tải danh sách toàn cục). */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
     if (!allowed || !classId) return;
     setLoading(true);
     try {
-      const [classData, capabilityData] = await Promise.all([
-        apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode }),
-        apiRequest<ClassCapabilities>(`/classes/${classId}/capabilities`, {
+      const encodedClassId = encodeURIComponent(classId);
+      const classPromise = apiRequest<LearningClass>(`/classes/${encodedClassId}`, {
+        roleCode: session.roleCode,
+        signal: controller.signal,
+      });
+      const capabilityPromise = apiRequest<ClassCapabilities>(
+        `/classes/${encodedClassId}/capabilities`,
+        {
           roleCode: session.roleCode,
-        }),
-      ]);
-      setCapabilities(capabilityData);
-      const selected =
-        classData.find((candidate) => candidate.id === classId) ?? null;
-      setItem(selected);
-      if (!selected) return;
+          signal: controller.signal,
+        },
+      );
+      const rosterPromise = baseCanManage
+        ? apiRequest<ClassRoster>(`/manager/classes/${encodedClassId}/roster`, {
+            roleCode: session.roleCode,
+            signal: controller.signal,
+          }).catch(() => null)
+        : Promise.resolve<ClassRoster | null>(null);
 
-      if (canManage) {
-        const [rosterData, readinessData, courses] = await Promise.all([
-          apiRequest<ClassRoster>(`/manager/classes/${classId}/roster`, {
-            roleCode: session.roleCode,
-          }),
-          apiRequest<ClassClosureReadiness>(
-            `/manager/classes/${classId}/closure-readiness`,
-            { roleCode: session.roleCode },
-          ),
-          apiRequest<Course[]>("/manager/courses", {
-            roleCode: session.roleCode,
-          }),
-        ]);
+      const [selected, capabilityData, rosterData] = await Promise.all([
+        classPromise,
+        capabilityPromise,
+        rosterPromise,
+      ]);
+      if (requestId !== loadRequestId.current || controller.signal.aborted) return;
+      setItem(selected ?? null);
+      if (baseCanManage && (capabilityData?.actions.manageRoster.allowed ?? true)) {
         setRoster(rosterData);
-        setReadiness(readinessData);
-        setCourse(
-          courses.find((candidate) => candidate.id === selected.courseId) ??
-            null,
-        );
+      } else {
+        setRoster(null);
       }
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được hồ sơ lớp.",
-        "error",
-      );
+      if (requestId === loadRequestId.current && !controller.signal.aborted) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được hồ sơ lớp.",
+          "error",
+        );
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [allowed, canManage, classId, notify, session.roleCode]);
+  }, [allowed, baseCanManage, classId, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+      loadControllerRef.current?.abort();
+    };
   }, [load]);
 
   /** Phân công giảng viên với vai trò PRIMARY hoặc CO_INSTRUCTOR đúng hợp đồng API. */
@@ -208,13 +203,11 @@ export function useClassDetailModel() {
           body: JSON.stringify({
             expectedPrimaryId: primaryInstructor.instructorId,
             newPrimaryId: transferTarget.id,
-            reason: transferReason.trim(),
           }),
         },
       );
       notify("Đã bàn giao giảng viên chính và lưu lịch sử hai bên.");
       setTransferTarget(null);
-      setTransferReason("");
       await load();
     } catch (error) {
       notify(
@@ -301,12 +294,11 @@ export function useClassDetailModel() {
         {
           method: "PATCH",
           roleCode: session.roleCode,
-          body: JSON.stringify({ reason: removeReason.trim() }),
+          body: JSON.stringify({}),
         },
       );
       notify("Đã cập nhật thành viên và lưu lịch sử thay đổi.");
       setRemoveTarget(null);
-      setRemoveReason("");
       await load();
     } catch (error) {
       notify(
@@ -341,15 +333,12 @@ export function useClassDetailModel() {
   return {
     router,
     session,
-    classId,
     allowed,
-    canManage,
     item,
+    setItem,
     course,
     roster,
     readiness,
-    activeTab,
-    setActiveTab,
     loading,
     saving,
     instructorForm,
@@ -361,17 +350,12 @@ export function useClassDetailModel() {
     importResults,
     removeTarget,
     setRemoveTarget,
-    removeReason,
-    setRemoveReason,
     transferTarget,
     setTransferTarget,
-    transferReason,
-    setTransferReason,
     activeEnrollments,
     instructors,
     primaryInstructor,
     learnerPagination,
-    historyPagination,
     assignInstructor,
     transferPrimary,
     enrollLearner,

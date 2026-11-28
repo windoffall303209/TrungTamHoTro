@@ -1,0 +1,35 @@
+import { Module } from "@nestjs/common";
+import { ContentController } from "../content/content.controller.js";
+import { CourseController } from "../courses/course.controller.js";
+import { EngagementController } from "../engagement/engagement.controller.js";
+import { RealtimeController } from "../engagement/realtime.controller.js";
+import { LearningRuntimeService } from "./learning-runtime.service.js";
+import { LearningService } from "./learning.service.js";
+import { CourseClassService } from "../courses/course-class.service.js";
+import { ContentMaterialService } from "../content/content-material.service.js";
+import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
+import { EngagementSupportService } from "../engagement/engagement-support.service.js";
+import { AcademicController } from "../academic/academic.controller.js";
+import { AcademicService } from "../academic/academic.service.js";
+import { ExamAttemptReconciliationService } from "../exams/exam-attempt-reconciliation.service.js";
+import { SystemModule } from "../../system/core/system.module.js";
+import { ChatController } from "../chat/chat.controller.js";
+import { ChatService } from "../chat/chat.service.js";
+import { ClassFeedController } from "../class-feed/class-feed.controller.js";
+import { ClassFeedService } from "../class-feed/class-feed.service.js";
+import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
+import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
+import { AiStudyDraftService } from "../ai/ai-study-draft.service.js";
+import { AiGradingAssistService } from "../ai/ai-grading-assist.service.js";
+import { AiGradingStoreService } from "../ai/ai-grading-store.service.js";
+import { AiGradingOperationsController, AiGradingOperationsService } from "../ai/ai-grading-operations.js";
+import { AiExamTutorService } from "../ai/ai-exam-tutor.service.js";
+
+@Module({
+  imports: [SystemModule],
+  controllers: [CourseController, ContentController, EngagementController, RealtimeController, AcademicController, ChatController, ClassFeedController, AiGradingOperationsController],
+  providers: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AcademicService, ExamAttemptReconciliationService, ChatService, ClassFeedService, AiGenerationRequestService, AiMaterialContextService, AiStudyDraftService, AiGradingAssistService, AiGradingStoreService, AiGradingOperationsService, AiExamTutorService],
+  exports: [LearningRuntimeService, CourseClassService, ContentMaterialService, ExamAssessmentService, EngagementSupportService, LearningService, AiExamTutorService],
+})
+/** Tập hợp API khóa học, nội dung, tương tác, học vụ và tác vụ nền của miền đào tạo. */
+export class LearningModule {}

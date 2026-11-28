@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { config as loadEnvironment } from "dotenv";
+import { resolve } from "node:path";
 
 loadEnvironment({ path: "../../.env" });
 
@@ -9,11 +10,12 @@ if (!/^[a-zA-Z0-9_]+_test$/.test(testDatabase) || testDatabase.length > 63) {
 }
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./test/e2e",
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  reporter: [["list"], ["html", { outputFolder: "test/results/playwright-report", open: "never" }]],
+  outputDir: "test/results/test-results",
   use: { baseURL: "http://localhost:3300", trace: "retain-on-failure", screenshot: "only-on-failure" },
   projects: [
     {
@@ -33,7 +35,7 @@ export default defineConfig({
     {
       command: "pnpm --dir ../.. dev:api",
       url: "http://127.0.0.1:4400/api/v1/health",
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1",
       timeout: 120_000,
       env: {
         API_PORT: "4400",
@@ -41,17 +43,19 @@ export default defineConfig({
         API_PREFIX: "api",
         API_VERSION: "1",
         STORAGE_PROVIDER: "local",
-        STORAGE_ROOT: "../../output/playwright/storage",
+        STORAGE_ROOT: resolve(process.cwd(), "test/results/playwright-artifacts/storage"),
         DATABASE_CONNECT_ON_START: "true",
         DB_NAME: testDatabase,
         NODE_ENV: "test",
         // Nhiều tài khoản E2E dùng chung IP; chỉ tăng ngân sách trên server test riêng.
-        // Hành vi HTTP 429 được kiểm tra độc lập trong network-recovery.spec.ts.
+        // Giới hạn đăng nhập thật được kiểm riêng trong auth-rate-limit.test.ts;
+        // network-recovery.spec.ts kiểm tra UI phục hồi khi session API trả HTTP 429.
         RATE_LIMIT_MAX: "1000",
+        AUTH_RATE_LIMIT_MAX: "1000",
         RESEND_API_KEY: "",
         RESEND_FROM: "",
       },
     },
-    { command: "pnpm exec next dev --port 3300", url: "http://127.0.0.1:3300/login", reuseExistingServer: false, timeout: 120_000, env: { NEXT_PUBLIC_API_URL: "http://localhost:4400/api/v1" } },
+    { command: "pnpm exec next dev --port 3300", url: "http://127.0.0.1:3300/login", reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "1", timeout: 120_000, env: { NEXT_PUBLIC_API_URL: "http://localhost:4400/api/v1" } },
   ],
 });

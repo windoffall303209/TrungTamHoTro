@@ -1,21 +1,17 @@
+import type { ApiEnvelope } from "@wind-of-fall/contracts";
 import type { RoleCode } from "./app-types";
-import { isSupportedLocale, LOCALE_STORAGE_KEY, translateText, type SupportedLocale } from "@/i18n/catalog";
-
-interface ApiEnvelope<T> {
-  data: T;
-  meta: { requestId: string; timestamp: string };
-}
+import { loadEnglishCatalog, translateText, translateTextAsync, type SupportedLocale } from "@/i18n/catalog";
+import { activeLocale } from "@/i18n/runtime";
+import { detachOpener, safePreviewBlob } from "@/lib/safe-content";
 
 type ApiPayload<T> = ApiEnvelope<T> | { error?: { message?: string; details?: unknown } };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
 let csrfToken = "";
 
-/** Đọc locale hiện hành cho request, lỗi cục bộ và cửa sổ xem trước độc lập. */
-function requestLocale(): SupportedLocale {
-  if (typeof window === "undefined") return "vi-VN";
-  const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-  return isSupportedLocale(stored) ? stored : document.documentElement.lang === "en-US" ? "en-US" : "vi-VN";
+/** Quên CSRF token của phiên cũ khi đăng xuất/hết phiên để request sau không mang token lạc phiên. */
+export function resetCsrfToken(): void {
+  csrfToken = "";
 }
 
 /** Ghép đường dẫn tương đối với API origin dùng cho ảnh/tài nguyên công khai. */
@@ -38,7 +34,7 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("accept", "application/json");
-  headers.set("accept-language", requestLocale());
+  headers.set("accept-language", activeLocale());
   if (options.roleCode) headers.set("x-role-code", options.roleCode);
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (options.method && !["GET", "HEAD", "OPTIONS"].includes(options.method.toUpperCase()) && csrfToken) headers.set("x-csrf-token", csrfToken);
@@ -50,15 +46,16 @@ export async function apiRequest<T>(
     try {
       payload = JSON.parse(rawBody) as ApiPayload<T>;
     } catch {
-      throw new ApiError(translateText("Phản hồi từ hệ thống không đúng định dạng.", requestLocale()), response.status);
+      throw new ApiError(await translateTextAsync("Phản hồi từ hệ thống không đúng định dạng.", activeLocale()), response.status);
     }
   }
   if (!response.ok) {
     const error = payload && "error" in payload ? payload.error : undefined;
+    if (response.status === 401) csrfToken = "";
     if (response.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth/")) {
       window.dispatchEvent(new Event("wind-edu:unauthorized"));
     }
-    throw new ApiError(translateText(error?.message ?? "Không thể xử lý yêu cầu.", requestLocale()), response.status, error?.details);
+    throw new ApiError(await translateTextAsync(error?.message ?? "Không thể xử lý yêu cầu.", activeLocale()), response.status, error?.details);
   }
   if (!payload) return undefined as T;
   const data = (payload as ApiEnvelope<T>).data;
@@ -66,45 +63,52 @@ export async function apiRequest<T>(
   return data;
 }
 
-/** Đọc tên tệp Unicode theo RFC 5987 hoặc filename thường từ Content-Disposition. */
+/** Đọc tên tệp Unicode theo RFC 5987 hoặc filename thường từ Content-Disposition và chuẩn hóa NFC. */
 export function apiFileName(disposition: string, fallback = "hoc-lieu"): string {
   const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
   if (encodedName) {
-    try { return decodeURIComponent(encodedName); } catch { return fallback; }
+    try { return decodeURIComponent(encodedName).normalize("NFC"); } catch { return fallback.normalize("NFC"); }
   }
-  return disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback;
+  return (disposition.match(/filename="([^"]+)"/i)?.[1] ?? fallback).normalize("NFC");
 }
 
 /** Tải blob có xác thực, tạo anchor tạm và thu hồi object URL sau khi bắt đầu download. */
 export async function downloadApiFile(path: string, roleCode: RoleCode): Promise<void> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { accept: "application/octet-stream", "accept-language": requestLocale(), "x-role-code": roleCode },
+    headers: { accept: "application/octet-stream", "accept-language": activeLocale(), "x-role-code": roleCode },
     cache: "no-store",
     credentials: "include",
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-    throw new ApiError(translateText(payload.error?.message ?? "Không thể tải học liệu.", requestLocale()), response.status, payload.error?.details);
+    throw new ApiError(await translateTextAsync(payload.error?.message ?? "Không thể tải học liệu.", activeLocale()), response.status, payload.error?.details);
   }
   const blobUrl = URL.createObjectURL(await response.blob());
   const anchor = document.createElement("a");
-  anchor.href = blobUrl;
-  anchor.download = apiFileName(response.headers.get("content-disposition") ?? "");
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(blobUrl);
+  try {
+    anchor.href = blobUrl;
+    anchor.download = apiFileName(response.headers.get("content-disposition") ?? "");
+    document.body.appendChild(anchor);
+    anchor.click();
+  } finally {
+    // Giải phóng cả khi thao tác DOM hoặc click download thất bại; lùi 60 giây vì Firefox/Safari bắt đầu tải
+    // bất đồng bộ sau click, thu hồi ngay làm hỏng tệp tải về.
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  }
 }
 
 /** Mở cửa sổ trước thao tác async để tránh popup blocker, sau đó tải và render bản xem trước có nút đóng. */
-export async function previewApiFile(path: string, roleCode: RoleCode, fallbackFileName = "Học liệu"): Promise<void> {
-  const previewWindow = window.open("", "_blank");
+export async function previewApiFile(path: string, roleCode: RoleCode, fallbackFileName = "Học liệu", existingWindow?: Window): Promise<void> {
+  const previewWindow = existingWindow ?? detachOpener(window.open("", "_blank"));
   if (!previewWindow) throw new ApiError("Trình duyệt đang chặn cửa sổ xem trước. Hãy cho phép pop-up cho trang này rồi thử lại.", 0);
   const palette = previewPalette();
-  const locale = requestLocale();
+  const locale = activeLocale();
+  if (locale === "en-US") await loadEnglishCatalog().catch(() => undefined);
   previewWindow.document.title = translateText("Đang tải bản xem trước…", locale);
   previewWindow.document.body.textContent = translateText("Đang tải bản xem trước…", locale);
   previewWindow.document.body.style.cssText = `margin:0;display:grid;min-height:100vh;place-items:center;background:${palette.canvas};color:${palette.ink};font-weight:600;font-size:15px;font-family:${palette.fontFamily}`;
+  let blobUrl = "";
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
       headers: { accept: "application/pdf,image/*,video/mp4,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document", "accept-language": locale, "x-role-code": roleCode },
@@ -113,16 +117,22 @@ export async function previewApiFile(path: string, roleCode: RoleCode, fallbackF
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { error?: { message?: string; details?: unknown } };
-      throw new ApiError(translateText(payload.error?.message ?? "Không thể mở bản xem trước.", locale), response.status, payload.error?.details);
+      throw new ApiError(await translateTextAsync(payload.error?.message ?? "Không thể mở bản xem trước.", locale), response.status, payload.error?.details);
     }
     const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
+    // Người dùng có thể đóng cửa sổ trong khi tệp đang tải; không tạo URL khi đã hủy xem trước.
+    if (previewWindow.closed) return;
     const mimeType = (response.headers.get("content-type") ?? blob.type).split(";", 1)[0]?.toLowerCase() ?? "application/octet-stream";
+    // Blob cùng origin: chỉ giữ kiểu PDF/ảnh raster/media, mọi kiểu khác (HTML, SVG…) bị ép thành octet-stream.
+    blobUrl = URL.createObjectURL(safePreviewBlob(blob, mimeType));
     const fileName = apiFileName(response.headers.get("content-disposition") ?? "", fallbackFileName);
     renderPreviewWindow(previewWindow, { blobUrl, fileName, mimeType }, palette, locale);
     previewWindow.addEventListener("pagehide", () => URL.revokeObjectURL(blobUrl), { once: true });
     previewWindow.focus();
   } catch (error) {
+    // Nếu dựng cửa sổ xem trước lỗi, pagehide có thể chưa được đăng ký.
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    if (previewWindow.closed) return;
     previewWindow.close();
     throw error;
   }

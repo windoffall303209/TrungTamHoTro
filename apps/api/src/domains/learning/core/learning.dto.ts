@@ -1,0 +1,624 @@
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  Max,
+  MaxLength,
+  Matches,
+  Min,
+  MinLength,
+  ValidateIf,
+  ValidateNested,
+} from "class-validator";
+import { Transform, Type } from "class-transformer";
+import { OmitType } from "@nestjs/swagger";
+import type { AiTutorPresetKey, LearningQuestion } from "./learning.types.js";
+
+/** Từ khóa tùy chọn để tìm đoạn trong tài liệu đã được kiểm tra quyền. */
+export class ClassFolderDto {
+  @IsIn(["lectures", "materials", "assignments"]) kind!: string;
+  @IsString() @MinLength(1) @MaxLength(255) name!: string;
+}
+
+export class MaterialAiContextDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(1000) query?: string;
+}
+
+/** Câu hỏi và ngôn ngữ trả lời; nguồn chỉ được server lấy từ materialId đã kiểm tra quyền. */
+export class MaterialAiQuestionDto {
+  @IsString() @MinLength(2) @MaxLength(2000) question!: string;
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+}
+
+/** Chỉ yêu cầu đọc trạng thái mới được chọn phiên bản nguồn trong lịch sử. */
+export class MaterialAiQuestionStatusDto extends MaterialAiQuestionDto {
+  @IsOptional() @IsInt() @Min(1) @Max(2147483647) version?: number;
+}
+
+/** Lịch sử chọn phiên bản nguồn cụ thể; định danh chủ sở hữu luôn lấy từ phiên đăng nhập. */
+export class MaterialAiHistoryQueryDto {
+  @Transform(({ value }: { value: unknown }) => typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : value)
+  @IsInt() @Min(1) @Max(2147483647) version!: number;
+  @IsOptional() @IsString() @Matches(/^[a-f0-9]{64}$/) cursor?: string;
+}
+
+/** Bộ ôn tập chỉ nhận phạm vi trang, số thẻ và ngôn ngữ; nguồn và model do máy chủ quản lý. */
+export class MaterialStudyGuideDto {
+  @IsInt() @Min(1) @Max(20) cardCount = 5;
+  @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsOptional() @IsInt() @Min(1) @Max(200) fromPage?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(200) toPage?: number;
+}
+
+/** Cursor chỉ định vị một bản nháp trong lịch sử của chính người gọi. */
+export class StudyDraftListQueryDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191) cursor?: string;
+}
+
+/** Xác nhận duyệt toàn bộ nội dung và khóa hai revision khi phát hành. */
+export class PublishStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedRevision!: number;
+  @IsInt() @Min(0) @Max(2147483646) expectedPublicationRevision!: number;
+  @IsBoolean() confirmReview!: boolean;
+}
+
+/** Revision trạng thái để thu hồi mà không đè lên lần phát hành mới. */
+export class UnpublishStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedPublicationRevision!: number;
+}
+
+/** Kiểm tra cấu trúc ngoài; nội dung, nguồn và quy tắc liên trường được service xác thực thống nhất. */
+export class EditStudyDraftDto {
+  @IsInt() @Min(0) @Max(2147483646) expectedRevision!: number;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(8) summary!: Array<{ text: string; citationIds: string[] }>;
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) flashcards!: Array<{ front: string; back: string; citationIds: string[] }>;
+}
+
+/** Nội dung và đáp án sửa trong một đề nháp cụ thể. */
+export class EditExamQuestionDto {
+  @IsString() @MinLength(5) @MaxLength(20000) content!: string;
+  @IsArray() @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(5000, { each: true }) options!: string[];
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @IsString({ each: true }) @MaxLength(10000, { each: true }) correctAnswers!: string[];
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** Ghi nhận xác nhận duyệt câu hỏi khi gửi đề. */
+export class SubmitExamDto {
+  @IsOptional() @IsBoolean() confirmQuestions?: boolean;
+  @IsOptional() @IsBoolean() forcePublish?: boolean;
+  @IsOptional() @IsInt() @Min(1) expectedVersion?: number;
+}
+
+/** Xác định việc công bố câu hỏi có thuộc luồng tạo nội dung đã xác nhận hay không. */
+
+/** Chuẩn hóa nhãn khối, môn hoặc mã tùy chọn từ số hay chuỗi sang chuỗi đã cắt khoảng trắng. */
+function normalizeOptionalLabel(value: unknown): unknown {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  return value;
+}
+
+/** Dữ liệu tạo khóa học và phiên bản nội dung đầu tiên. */
+export class CreateCourseDto {
+  @IsString() @MinLength(2) @MaxLength(50) code!: string;
+  @IsString() @MinLength(3) @MaxLength(200) name!: string;
+  @IsString() @MinLength(10) description!: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
+}
+
+export class UpdateCourseDto {
+  @IsString() @MinLength(3) @MaxLength(200) name!: string;
+  @IsString() @MinLength(10) description!: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true }) outcomes!: string[];
+}
+
+export class ArchiveCourseDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+/** Dữ liệu mở lớp học theo Khối và Môn (hoặc từ phiên bản khóa học có sẵn) cùng quy mô và lịch vận hành. */
+export class CreateClassDto {
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(191) courseId?: string;
+  @IsString() @MinLength(2) code!: string;
+  @IsString() @MinLength(2) name!: string;
+  @IsString() term!: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) grade?: string;
+  @Transform(({ value }: { value: unknown }) => normalizeOptionalLabel(value))
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(100) subject?: string;
+  @IsDateString() startAt!: string;
+  @IsDateString() endAt!: string;
+  @IsInt() @Min(1) @Max(1000) capacity!: number;
+  @IsOptional() @IsString() timezone = "Asia/Bangkok";
+  @IsOptional() @IsBoolean() allowPeerGradeViewing = false;
+  @IsOptional() @IsBoolean() allowLearnerFeedPosting = true;
+}
+
+/** Dữ liệu cập nhật thông tin và cài đặt lớp học. */
+export class UpdateClassDto {
+  @IsOptional() @IsString() @MinLength(2) @MaxLength(200) name?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(1000) capacity?: number;
+  @IsOptional() @IsBoolean() allowPeerGradeViewing?: boolean;
+  @IsOptional() @IsBoolean() allowLearnerFeedPosting?: boolean;
+}
+
+export class AssignUserDto {
+  @IsString() @IsNotEmpty() userId!: string;
+}
+
+export class DirectoryQueryDto {
+  @IsIn(["INSTRUCTOR", "LEARNER"]) role!: "INSTRUCTOR" | "LEARNER";
+  @IsOptional() @IsString() @MaxLength(100) q = "";
+  @IsOptional() @IsString() @MaxLength(191) classId?: string;
+}
+
+export class AssignInstructorDto extends AssignUserDto {
+  @IsOptional() @IsIn(["PRIMARY", "CO_INSTRUCTOR"]) role?:
+    | "PRIMARY"
+    | "CO_INSTRUCTOR";
+}
+
+/** Bàn giao giảng viên chính với người nguồn kỳ vọng. */
+export class TransferPrimaryInstructorDto {
+  @IsString() @IsNotEmpty() newPrimaryId!: string;
+  @IsString() @IsNotEmpty() expectedPrimaryId!: string;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export class RemoveMemberDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export class BulkEnrollmentDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  userIds!: string[];
+}
+
+export class CloseClassDto {
+  @IsOptional() @IsString() @MaxLength(500) closeReason?: string;
+  @IsIn(["STANDARD_RETENTION", "LONG_TERM_RETENTION"]) archivePolicy!:
+    | "STANDARD_RETENTION"
+    | "LONG_TERM_RETENTION";
+}
+
+export class ReopenClassDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export class CreateMaterialDto {
+  @IsString() @MinLength(2) name!: string;
+  // Route JSON chỉ tạo bài giảng dạng liên kết; mọi tệp phải đi qua material-uploads để máy chủ đo dung lượng thật.
+  @IsIn(["text/uri-list"], { message: "Học liệu dạng tệp phải được tải lên kèm nội dung." }) mimeType!: string;
+  @IsInt() @Min(1) sizeBytes!: number;
+  @IsString() folder!: string;
+  @IsArray() @IsString({ each: true }) tags!: string[];
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
+}
+
+/** Metadata đi kèm file upload học liệu; nội dung binary do interceptor cung cấp. */
+export class UploadMaterialDto {
+  @IsString() folder!: string;
+  @IsOptional() @IsString() tags = "";
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN"]) visibility?: "PUBLISHED" | "HIDDEN";
+}
+
+export class UpdateMaterialDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() classId?: string;
+  @IsOptional() @IsString() folder?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsIn(["CLASS"]) scope?: "CLASS";
+  // Cài đặt hiển thị hoặc ẩn học liệu.
+  @IsOptional() @IsIn(["PUBLISHED", "HIDDEN", "DRAFT"]) visibility?: "PUBLISHED" | "HIDDEN" | "DRAFT";
+}
+
+/** Nội dung câu hỏi đa môn, hỗ trợ rich text/LaTeX, đáp án, độ khó và ảnh tùy chọn. */
+export class CreateQuestionDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) courseId!: string;
+  @IsIn([
+    "SINGLE_CHOICE",
+    "MULTIPLE_CHOICE",
+    "TRUE_FALSE",
+    "SHORT_ANSWER",
+    "ESSAY",
+  ])
+  type!: LearningQuestion["type"];
+  @IsString() @MinLength(5) @MaxLength(20_000) content!: string;
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(5_000, { each: true })
+  options!: string[];
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(5_000, { each: true })
+  correctAnswers!: string[];
+  @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  tags!: string[];
+}
+
+export class UpdateQuestionDto extends CreateQuestionDto {}
+
+export class ImportQuestionsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => CreateQuestionDto)
+  questions!: CreateQuestionDto[];
+}
+
+/** Điểm tối đa của một câu trong đề. */
+export class ExamScoreAllocationDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) score!: number;
+}
+
+/** Cấu hình đề thi, danh sách câu theo thứ tự gốc và quy tắc mở/đóng/xáo trộn. */
+export class CreateExamDto {
+  @IsString() classId!: string;
+  @IsString() @MinLength(3) title!: string;
+  @IsArray() @ArrayMinSize(1) @IsString({ each: true }) questionIds!: string[];
+  @IsInt() @Min(1) durationMinutes!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.25) @Max(1000) totalScore!: number;
+  @IsDateString() openAt!: string;
+  @IsDateString() closeAt!: string;
+  @IsInt() @Min(1) @Max(10) attemptLimit!: number;
+  @IsOptional() @IsBoolean() shuffleQuestions = false;
+  @IsOptional() @IsBoolean() aiTutorEnabled = false;
+  @IsOptional() @IsBoolean() showAnswersAfterSubmit = false;
+  @IsOptional() @IsString() @MinLength(3) @MaxLength(100) randomSeed?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExamScoreAllocationDto)
+  scoreAllocations?: ExamScoreAllocationDto[];
+}
+
+/** Yêu cầu hỏi đáp dẫn dắt AI cho một câu hỏi trong lượt làm bài đang mở. */
+export class AskExamTutorDto {
+  @IsOptional()
+  @IsIn(["CONCEPT_HINT", "FIRST_STEP", "KEY_CLUES", "APPROACH_STRATEGY"])
+  presetKey?: AiTutorPresetKey;
+
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === "string" ? value.trim() : value))
+  @IsString()
+  @MaxLength(1_000)
+  message?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1_000)
+  draftAnswer?: string;
+
+  @IsOptional()
+  @IsIn(["VI", "EN", "BILINGUAL"])
+  language: "VI" | "EN" | "BILINGUAL" = "VI";
+}
+
+/** Một lượt hội thoại trước đó của phiên làm thử giảng viên gửi kèm để giữ mạch gợi mở Socratic. */
+export class TutorPriorTurnDto {
+  @IsString() @IsNotEmpty() @MaxLength(1_000) userPrompt!: string;
+  @IsString() @IsNotEmpty() @MaxLength(4_000) aiReply!: string;
+}
+
+/** Yêu cầu hỏi đáp gia sư AI trong chế độ làm thử của giảng viên (không lưu vào lịch sử thi học viên). */
+export class AskInstructorPreviewTutorDto extends AskExamTutorDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @ValidateNested({ each: true })
+  @Type(() => TutorPriorTurnDto)
+  priorTurns?: TutorPriorTurnDto[];
+}
+
+/** Đáp án tạm thời của một câu trong lượt thi đang làm. */
+export class SaveAnswerDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(20_000, { each: true })
+  answers!: string[];
+}
+
+/** Nộp bài kèm (tùy chọn) toàn bộ đáp án mới nhất để client không phải gửi N lệnh PATCH trước khi nộp. */
+export class SubmitAttemptDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(300)
+  @ValidateNested({ each: true })
+  @Type(() => SaveAnswerDto)
+  answers?: SaveAnswerDto[];
+}
+
+export class QuestionGradeDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) score!: number;
+}
+
+/** Toàn bộ dữ liệu chỉnh sửa đề nháp kèm version chống ghi đè đồng thời. */
+export class UpdateExamDto extends CreateExamDto {
+  @IsInt() @Min(1) expectedVersion!: number;
+}
+
+/** Một dòng trong ma trận số lượng câu hỏi mà AI phải tạo đúng tuyệt đối. */
+export class AiQuestionDistributionDto {
+  @IsIn([
+    "SINGLE_CHOICE",
+    "MULTIPLE_CHOICE",
+    "TRUE_FALSE",
+    "SHORT_ANSWER",
+    "ESSAY",
+  ])
+  type!: LearningQuestion["type"];
+  @IsInt() @Min(1) @Max(50) count!: number;
+}
+
+/** Cấu hình tạo đề AI, gồm lịch thi, trọng tâm, ma trận và phạm vi nguồn ngữ cảnh. */
+export class GenerateAiExamDto extends OmitType(CreateExamDto, [
+  "questionIds",
+  "scoreAllocations",
+] as const) {
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language?: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsUUID() clientRequestId!: string;
+  @IsString() @MinLength(5) @MaxLength(5_000) focus!: string;
+  @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => AiQuestionDistributionDto)
+  distribution!: AiQuestionDistributionDto[];
+  @IsOptional()
+  @IsIn(["AUTO", "COURSE_MATERIALS", "WEB_SEARCH"])
+  contextMode: "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH" = "AUTO";
+  @IsOptional() @IsString() @MaxLength(191) providerId?: string;
+  @IsOptional() @IsString() @MaxLength(200) model?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  @MaxLength(191, { each: true })
+  materialIds?: string[];
+}
+
+/** Yêu cầu sinh bản nháp câu hỏi AI theo chủ đề và loại đề để giảng viên xem và chỉnh sửa trước khi tạo bài tập. */
+export class DraftAiExamDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) classId!: string;
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language?: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsString() @MinLength(5) @MaxLength(5_000) focus!: string;
+  @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => AiQuestionDistributionDto)
+  distribution!: AiQuestionDistributionDto[];
+  @IsOptional()
+  @IsIn(["AUTO", "COURSE_MATERIALS", "WEB_SEARCH"])
+  contextMode: "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH" = "AUTO";
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  @MaxLength(191, { each: true })
+  materialIds?: string[];
+}
+
+export class GradeAttemptDto {
+  @IsNumber() @Min(0) score!: number;
+  @IsString() @MinLength(3) feedback!: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  correctionReason?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionGradeDto)
+  questionScores?: QuestionGradeDto[];
+}
+
+export class RequestRegradeDto {
+  @IsString() @MinLength(10) reason!: string;
+}
+
+export class ResolveRegradeDto {
+  @IsIn(["APPROVE", "REJECT"]) decision!: "APPROVE" | "REJECT";
+  @IsString() @MinLength(5) @MaxLength(1_000) resolution!: string;
+  @IsOptional() @IsNumber() @Min(0) score?: number;
+  @IsOptional() @IsString() @MinLength(3) feedback?: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => QuestionGradeDto)
+  questionScores?: QuestionGradeDto[];
+}
+
+export class CreateTopicDto {
+  @IsString() @MinLength(3) title!: string;
+  @IsString() @MinLength(5) body!: string;
+  @IsArray() @IsString({ each: true }) tags!: string[];
+  @IsOptional() @IsBoolean() isPinned = false;
+}
+
+export class CreatePostDto {
+  @IsString() @MinLength(2) body!: string;
+  @IsOptional() @IsString() parentId?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  attachmentIds: string[] = [];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  mentionedUserIds: string[] = [];
+}
+
+export class UpdatePostDto {
+  @IsString() @MinLength(2) body!: string;
+}
+export class ModerateTopicDto {
+  @IsOptional() @IsBoolean() isLocked?: boolean;
+  @IsOptional() @IsBoolean() isPinned?: boolean;
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+/** Dữ liệu lên lịch buổi học trực tuyến và gắn liên kết Google Meet. */
+export class CreateSessionDto {
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(3, { message: "Tên buổi học cần ít nhất 3 ký tự." })
+  @MaxLength(255)
+  title!: string;
+
+  @IsDateString() startsAt!: string;
+
+  @IsDateString() endsAt!: string;
+
+  @IsOptional()
+  @IsIn(["GOOGLE_MEET", "ZOOM", "JITSI"])
+  provider: "GOOGLE_MEET" | "ZOOM" | "JITSI" = "GOOGLE_MEET";
+
+  @ValidateIf(
+    (object: CreateSessionDto) =>
+      object.meetingUrl !== undefined ||
+      !object.provider ||
+      object.provider === "GOOGLE_MEET",
+  )
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString({ message: "Vui lòng nhập link Google Meet." })
+  @IsNotEmpty({ message: "Vui lòng nhập link Google Meet." })
+  @MaxLength(1000)
+  meetingUrl?: string;
+}
+
+export class UpdateSessionDto extends CreateSessionDto {
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === "string" ? value.trim() : value,
+  )
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class CancelSessionDto {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+export class TransitionSessionDto {
+  @IsIn(["LIVE", "COMPLETED", "CANCELLED"]) status!:
+    | "LIVE"
+    | "COMPLETED"
+    | "CANCELLED";
+}
+
+
+export class AttachRecordingDto {
+  @IsUrl({ require_tld: false }) recordingUrl!: string;
+}
+export class CompleteRecordingDto {
+  @IsIn(["READY", "FAILED"]) status!: "READY" | "FAILED";
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(3650) retentionDays =
+    90;
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(500) errorMessage?: string;
+}
+
+/** Bộ ngưỡng lọc dùng khi tổng hợp tiến độ lớp và phát hiện học viên cần hỗ trợ. */
+export class ProgressQueryDto {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) scoreBelow = 50;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) completionBelow =
+    60;
+}
+
+export class CreateProgressInterventionDto {
+  @IsString() @IsNotEmpty() learnerId!: string;
+  @IsString() @IsNotEmpty() assigneeId!: string;
+  @IsString() @MinLength(3) @MaxLength(255) title!: string;
+  @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  @IsDateString() dueAt!: string;
+}
+
+export class UpdateProgressInterventionDto {
+  @IsIn(["IN_PROGRESS", "DONE", "CANCELLED"]) status!:
+    | "IN_PROGRESS"
+    | "DONE"
+    | "CANCELLED";
+  @IsOptional() @IsString() @MinLength(5) @MaxLength(2000) outcome?: string;
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  cancellationReason?: string;
+}
+
+export class TransferProgressInterventionDto {
+  @IsString() @IsNotEmpty() assigneeId!: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
+}
+
+/** Nội dung phiếu hỗ trợ và mức ưu tiên do người dùng gửi. */
+export class CreateTicketDto {
+  @IsUUID() clientRequestId!: string;
+  @IsString() category!: string;
+  @IsIn(["P0", "P1", "P2", "P3"]) severity!: "P0" | "P1" | "P2" | "P3";
+  @IsString() @MinLength(10) description!: string;
+  @IsOptional() @IsString() @MaxLength(191) contextId?: string;
+}
+
+export class UpdateTicketDto {
+  @IsOptional() @IsIn(["OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"]) status?:
+    | "OPEN"
+    | "IN_PROGRESS"
+    | "RESOLVED"
+    | "CLOSED";
+  @IsOptional() @IsString() assigneeId?: string;
+  @IsOptional() @IsString() resolution?: string;
+  @IsDateString() expectedUpdatedAt!: string;
+}
+
+export class CreateTicketCommentDto {
+  @IsString() @MinLength(2) body!: string;
+}

@@ -1,14 +1,10 @@
 import {
   Activity,
   Bell,
-  BookCheck,
   Bot,
   CloudCog,
   DatabaseBackup,
   HardDrive,
-  History,
-  ListChecks,
-  Settings2,
   ShieldCheck,
 } from "lucide-react";
 
@@ -16,18 +12,15 @@ export interface Settings {
   centerName: string;
   timezone: string;
   locale: string;
-  retentionDays: number;
   maxFileSizeMb: number;
   storageQuotaMb: number;
   allowedMimeTypes: string[];
-  moderationEnabled: boolean;
-  examApprovalMode: "AUTO" | "MANUAL";
-  questionApprovalMode: "AUTO" | "MANUAL";
   notificationSender: string;
   maintenanceMode: boolean;
   learnerEmailNotificationsEnabled: boolean;
+  aiTutorMaxPerQuestion: number;
+  aiTutorMaxPerExam: number;
   version: number;
-  effectiveAt: string;
   updatedBy: string;
   updatedAt: string;
 }
@@ -79,6 +72,12 @@ export interface StorageOverview {
 
 export type AiProviderType = "GEMINI" | "NVIDIA_NIM" | "OPENAI" | "CUSTOM";
 
+export interface AiApiKeySlot {
+  id: string;
+  label: string;
+  maskedKey: string;
+}
+
 export interface AiProvider {
   id: string;
   provider: AiProviderType;
@@ -90,6 +89,8 @@ export interface AiProvider {
   healthStatus: "UNKNOWN" | "HEALTHY" | "ERROR";
   hasApiKey: boolean;
   maskedApiKey: string;
+  apiKeyCount?: number;
+  apiKeySlots?: AiApiKeySlot[];
   lastCheckedAt?: string;
   updatedAt: string;
 }
@@ -104,26 +105,23 @@ export type ModelCatalog = Record<
 export type SettingsSection =
   | "general"
   | "notifications"
-  | "exam-approval"
-  | "question-approval"
   | "ai-providers"
   | "integrations"
   | "backups"
   | "storage"
-  | "health"
-  | "history";
+  | "health";
 
 export const settingsSections: Array<{
   id: SettingsSection;
   title: string;
   description: string;
-  icon: typeof Settings2;
+  icon: typeof Activity;
 }> = [
   {
     id: "general",
     title: "Quy định vận hành",
     description:
-      "Tên trung tâm, vùng thời gian, dữ liệu, kiểm duyệt và bảo trì.",
+      "Tên trung tâm, vùng thời gian, giới hạn tải tệp và bảo trì.",
     icon: ShieldCheck,
   },
   {
@@ -132,18 +130,6 @@ export const settingsSections: Array<{
     description:
       "Quản lý gửi thông báo hệ thống và nhắc việc qua email tới học viên.",
     icon: Bell,
-  },
-  {
-    id: "exam-approval",
-    title: "Phê duyệt đề thi",
-    description: "Chọn tự động phát hành hoặc quản trị viên duyệt thủ công.",
-    icon: BookCheck,
-  },
-  {
-    id: "question-approval",
-    title: "Phê duyệt câu hỏi",
-    description: "Chọn tự động xuất bản hoặc đưa câu hỏi vào hàng chờ duyệt.",
-    icon: ListChecks,
   },
   {
     id: "ai-providers",
@@ -176,11 +162,5 @@ export const settingsSections: Array<{
     title: "Tình trạng dịch vụ",
     description: "Kiểm tra cơ sở dữ liệu, độ trễ API, lưu trữ và hàng đợi.",
     icon: Activity,
-  },
-  {
-    id: "history",
-    title: "Lịch sử cấu hình",
-    description: "Tra cứu phiên bản, thời điểm hiệu lực và người cập nhật.",
-    icon: History,
   },
 ];

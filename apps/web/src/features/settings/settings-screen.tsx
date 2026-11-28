@@ -1,15 +1,20 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { AiGradingOperations } from "@/components/ai-grading-operations";
-import { AiTaskSettings } from "@/components/ai-task-settings";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, Modal, StatusBadge } from "@/components/ui";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { AiAdminWorkspace } from "@/roles/admin/ai-admin-workspace";
+import {
+  AiModelGlyph,
+  AiModelIdentityBadge,
+  AiProviderGlyph,
+  resolveAiModelVisual,
+  resolveAiProviderVisual,
+} from "./ai-model-icons";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, Modal, StatusBadge } from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import {
   Activity,
   ArrowLeft,
-  Bot,
   ChevronRight,
   CloudCog,
   DatabaseBackup,
@@ -17,7 +22,6 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
-  Trash2,
 } from "lucide-react";
 import { SettingsSection, settingsSections } from "./settings.shared";
 import { useSettingsModel } from "./use-settings-model";
@@ -31,9 +35,6 @@ export default function SettingsScreen() {
     canConfigure,
     settings,
     setSettings,
-    history,
-    effectiveAt,
-    setEffectiveAt,
     integrations,
     backups,
     health,
@@ -62,15 +63,14 @@ export default function SettingsScreen() {
     setDefault,
     testMeeting,
     backup,
-    saveExamApprovalMode,
-    saveQuestionApprovalMode,
     saveLearnerEmailNotifications,
-    openAiEditor,
+    saveAiTutorQuota,
     loadProviderModels,
     availableModelOptions,
     saveAiProvider,
     testAiProvider,
     removeAiProvider,
+    reload,
   } = model;
 
   if (!canConfigure) return <AccessDenied />;
@@ -83,30 +83,29 @@ export default function SettingsScreen() {
   const activeMeta = settingsSections.find((item) => item.id === activeSection);
   return (
     <div
-      className={`mx-auto px-5 py-8 md:px-8 md:py-10 ${activeSection ? "max-w-5xl" : "max-w-7xl"}`}
+      className="w-full space-y-4"
     >
       {activeSection ? (
-        <button
-          className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-extrabold text-[var(--ink-soft)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
-          onClick={() => router.push("/admin/settings")}
-          type="button"
-        >
-          <ArrowLeft size={18} />
-          Quay lại Cấu hình
-        </button>
-      ) : null}
-      <PageHeader
-        eyebrow="Platform Governance"
-        title={activeMeta?.title ?? "Cấu hình hệ thống"}
-        description={
-          activeMeta?.description ??
-          "Chọn chức năng cần quản trị. Mỗi nhóm cấu hình được tách thành một màn hình để thao tác tập trung hơn."
-        }
-      />
+        <div className="flex items-center gap-2.5 border-b border-slate-200/90 dark:border-slate-800/80 pb-3">
+          <button
+            aria-label="Quay lại Cấu hình"
+            className="inline-grid size-9 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 transition-colors hover:border-sky-300 dark:hover:border-sky-700 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300 cursor-pointer"
+            onClick={() => router.push("/admin/settings")}
+            type="button"
+          >
+            <ArrowLeft aria-hidden="true" size={18} />
+          </button>
+          <h1 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            {activeMeta?.title ?? "Cấu hình hệ thống"}
+          </h1>
+        </div>
+      ) : (
+        <PageHeader title="Cấu hình hệ thống" />
+      )}
       {!activeSection ? (
-        <nav
+        <div
           aria-label="Danh sách chức năng cấu hình"
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 divide-y divide-slate-100 dark:divide-slate-800/70 overflow-hidden shadow-xs"
         >
           {settingsSections.map((item) => {
             const Icon = item.icon;
@@ -115,72 +114,62 @@ export default function SettingsScreen() {
                 ? settings?.learnerEmailNotificationsEnabled
                   ? "Đang bật"
                   : "Đang tắt"
-                : item.id === "exam-approval"
-                  ? settings?.examApprovalMode === "MANUAL"
-                  ? "Duyệt thủ công"
-                  : "Tự động duyệt"
-                : item.id === "question-approval"
-                  ? settings?.questionApprovalMode === "MANUAL"
-                    ? "Duyệt thủ công"
-                    : "Tự động duyệt"
-                  : item.id === "ai-providers"
-                    ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật`
-                    : item.id === "health"
-                      ? health?.status === "healthy"
-                        ? "Ổn định"
-                        : "Cần kiểm tra"
-                      : item.id === "storage"
-                        ? `${storage?.usagePercent ?? 0}% đã dùng`
-                        : item.id === "integrations"
-                          ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật`
-                          : item.id === "backups"
-                            ? `${backups.length} bản sao`
-                            : item.id === "history"
-                              ? `${history.length} phiên bản`
-                              : settings
-                                ? `Phiên bản ${settings.version}`
-                                : "Đang tải";
+                : item.id === "ai-providers"
+                  ? `${aiProviders.filter((entry) => entry.enabled).length} đang bật`
+                  : item.id === "health"
+                    ? health?.status === "healthy"
+                      ? "Ổn định"
+                      : "Cần kiểm tra"
+                    : item.id === "storage"
+                      ? `${storage?.usagePercent ?? 0}% đã dùng`
+                      : item.id === "integrations"
+                        ? `${integrations.filter((entry) => entry.enabled).length}/${integrations.length} đang bật`
+                        : item.id === "backups"
+                          ? `${backups.length} bản sao`
+                          : settings
+                            ? `Phiên bản ${settings.version}`
+                            : "Đang tải";
+
             return (
               <button
-                className="group grid min-h-24 w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--rule)] px-4 py-4 text-left last:border-b-0 transition hover:bg-[var(--surface-muted)] md:px-6"
                 key={item.id}
-                onClick={() =>
-                  router.push(`/admin/settings?section=${item.id}`)
-                }
+                onClick={() => router.push(`/admin/settings?section=${item.id}`)}
                 type="button"
+                className="group w-full flex items-center justify-between p-4 sm:p-5 text-left transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/50 cursor-pointer"
               >
-                <span className="grid size-12 place-items-center rounded-xl border border-[var(--rule)] bg-[var(--surface)] text-[var(--accent-ink)]">
-                  <Icon size={21} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block font-heading text-lg font-extrabold text-[var(--ink)]">
-                    {item.title}
+                <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1 pr-4">
+                  <span className="grid size-11 place-items-center rounded-xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-800/60 shrink-0 group-hover:scale-105 transition-transform">
+                    <Icon size={20} />
                   </span>
-                  <span className="mt-1 block text-sm leading-5 text-[var(--ink-soft)]">
-                    {item.description}
-                  </span>
-                </span>
-                <span className="flex items-center gap-3">
-                  <span className="hidden text-xs font-bold text-[var(--ink-muted)] sm:inline">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-heading text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
+                      {item.title}
+                    </h3>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1 text-xs font-bold text-slate-700 dark:text-slate-300">
                     {summary}
                   </span>
-                  <ChevronRight
-                    className="text-[var(--ink-muted)] transition group-hover:translate-x-1 group-hover:text-[var(--accent-ink)]"
-                    size={20}
-                  />
-                </span>
+                  <div className="hidden sm:flex items-center gap-1 text-xs font-bold text-sky-600 dark:text-sky-400">
+                    <span>Thiết lập</span>
+                    <ChevronRight size={15} className="transition-transform group-hover:translate-x-1" />
+                  </div>
+                  <ChevronRight size={18} className="text-slate-400 group-hover:text-sky-600 transition-colors sm:hidden" />
+                </div>
               </button>
             );
           })}
-        </nav>
+        </div>
       ) : null}
       {activeSection === "notifications" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 md:p-7 shadow-xs">
           <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
               Cấu hình việc chuyển tiếp thông báo hệ thống (nhắc lịch học, bài tập mới, kết quả chấm thi, thông báo lớp...) tới hòm thư cá nhân của học viên thông qua dịch vụ Resend.
             </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
               {[
                 {
                   enabled: false,
@@ -202,7 +191,7 @@ export default function SettingsScreen() {
                 return (
                   <button
                     aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
+                    className={`min-h-40 rounded-2xl border p-5 text-left transition-all ${selected ? "border-sky-500 bg-sky-50/80 dark:bg-sky-950/40 shadow-xs ring-2 ring-sky-500/20" : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 hover:border-sky-300 dark:hover:border-sky-700"}`}
                     disabled={saving}
                     key={String(option.enabled)}
                     onClick={() =>
@@ -211,11 +200,11 @@ export default function SettingsScreen() {
                     type="button"
                   >
                     <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
+                      <span className="font-heading text-base font-extrabold text-slate-900 dark:text-slate-100">
                         {option.title}
                       </span>
                       <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
+                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-sky-600 bg-sky-600 text-white" : "border-slate-300 dark:border-slate-700"}`}
                       >
                         {selected ? (
                           <span className="size-2 rounded-full bg-white" />
@@ -226,17 +215,17 @@ export default function SettingsScreen() {
                       <span
                         className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${
                           option.enabled
-                            ? "bg-[var(--accent-soft)] text-[var(--accent-ink)]"
-                            : "bg-[var(--surface-muted)] text-[var(--ink-soft)]"
+                            ? "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300"
+                            : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                         }`}
                       >
                         {option.badge}
                       </span>
                     </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
+                    <span className="mt-3 block text-xs leading-5 text-slate-500 dark:text-slate-400">
                       {option.description}
                     </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
+                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-sky-600 dark:text-sky-400">
                       {selected ? "Đang áp dụng" : "Chọn cấu hình này"}
                     </span>
                   </button>
@@ -246,243 +235,68 @@ export default function SettingsScreen() {
           </div>
         </section>
       ) : null}
-      {activeSection === "exam-approval" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
-              Thiết lập này áp dụng cho các đề được giảng viên gửi từ thời điểm
-              thay đổi. Đề đã nằm trong hàng chờ vẫn có thể được quản trị viên
-              phê duyệt hoặc trả lại.
-            </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
-              {[
-                {
-                  mode: "AUTO" as const,
-                  title: "Tự động phê duyệt",
-                  description:
-                    "Đề hợp lệ được phát hành ngay khi giảng viên gửi. Phù hợp với quy trình vận hành hiện tại.",
-                },
-                {
-                  mode: "MANUAL" as const,
-                  title: "Phê duyệt thủ công",
-                  description:
-                    "Đề chuyển sang trạng thái chờ; quản trị viên cần phê duyệt hoặc trả lại kèm lý do.",
-                },
-              ].map((option) => {
-                const selected = settings.examApprovalMode === option.mode;
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
-                    disabled={saving}
-                    key={option.mode}
-                    onClick={() => void saveExamApprovalMode(option.mode)}
-                    type="button"
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
-                        {option.title}
-                      </span>
-                      <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
-                      >
-                        {selected ? (
-                          <span className="size-2 rounded-full bg-white" />
-                        ) : null}
-                      </span>
-                    </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
-                      {option.description}
-                    </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
-                      {selected ? "Đang áp dụng" : "Chọn chế độ này"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
-      {activeSection === "question-approval" && settings ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:p-6">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-sm leading-6 text-[var(--ink-soft)]">
-              Giảng viên vẫn chủ động lưu bản nháp. Chế độ này chỉ được áp dụng
-              khi họ chọn Xuất bản; câu hỏi đang chờ duyệt không tự thay đổi khi
-              cấu hình được cập nhật.
-            </p>
-            <div className="mt-6 grid gap-3 md:grid-cols-2">
-              {[
-                {
-                  mode: "AUTO" as const,
-                  title: "Tự động phê duyệt",
-                  description:
-                    "Câu hỏi hợp lệ được xuất bản ngay và có thể chọn khi tạo đề.",
-                },
-                {
-                  mode: "MANUAL" as const,
-                  title: "Phê duyệt thủ công",
-                  description:
-                    "Câu hỏi chuyển sang chờ duyệt; quản trị viên phê duyệt hoặc trả lại kèm lý do.",
-                },
-              ].map((option) => {
-                const selected = settings.questionApprovalMode === option.mode;
-                return (
-                  <button
-                    aria-pressed={selected}
-                    className={`min-h-40 rounded-2xl border p-5 text-left transition ${selected ? "border-[var(--accent)] bg-[var(--accent-soft)] shadow-sm" : "border-[var(--rule-strong)] bg-[var(--surface)] hover:border-[var(--accent)]"}`}
-                    disabled={saving}
-                    key={option.mode}
-                    onClick={() => void saveQuestionApprovalMode(option.mode)}
-                    type="button"
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="font-heading text-lg font-extrabold">
-                        {option.title}
-                      </span>
-                      <span
-                        className={`grid size-6 place-items-center rounded-full border ${selected ? "border-[var(--accent)] bg-[var(--accent)] text-white" : "border-[var(--rule-strong)]"}`}
-                      >
-                        {selected ? (
-                          <span className="size-2 rounded-full bg-white" />
-                        ) : null}
-                      </span>
-                    </span>
-                    <span className="mt-3 block text-sm leading-6 text-[var(--ink-soft)]">
-                      {option.description}
-                    </span>
-                    <span className="mt-4 block text-xs font-extrabold uppercase tracking-wider text-[var(--accent-ink)]">
-                      {selected ? "Đang áp dụng" : "Chọn chế độ này"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </section>
-      ) : null}
       {activeSection === "ai-providers" ? (
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-5 md:px-6">
-            <div>
-              <h2 className="font-heading text-xl font-extrabold">
-                Nhà cung cấp AI
-              </h2>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--ink-soft)]">
-                API key được mã hóa và không hiển thị lại. Lưu nhà cung cấp, sau
-                đó phân công model riêng cho từng chức năng bên dưới.
-              </p>
-            </div>
-            <Button
-              onClick={() => openAiEditor(undefined, "CUSTOM")}
-              variant="secondary"
-            >
-              <Bot size={17} />
-              Thêm custom
-            </Button>
-          </div>
-          <div className="divide-y divide-[var(--rule)] border-t border-[var(--rule)]">
-            <AiTaskSettings providers={aiProviders} catalog={modelCatalog} />
-            <AiGradingOperations />
-            {aiProviders.map((item) => (
-              <article
-                className="grid gap-4 px-5 py-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-6"
-                key={item.id}
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-bold text-[var(--ink)]">{item.name}</h3>
-                    {item.isDefault ? <StatusBadge status="DEFAULT" /> : null}
-                    <StatusBadge status={item.healthStatus} />
-                  </div>
-                  <p className="mt-1 truncate text-sm text-[var(--ink-soft)]">
-                    {item.model} · {item.maskedApiKey}
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                    {item.enabled ? "Đang bật" : "Đang tắt"}
-                    {item.lastCheckedAt
-                      ? ` · kiểm tra ${new Date(item.lastCheckedAt).toLocaleString(activeLocale())}`
-                      : " · chưa kiểm tra kết nối"}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2 md:justify-end">
-                  <Button onClick={() => openAiEditor(item)} variant="ghost">
-                    Cấu hình
-                  </Button>
-                  {item.hasApiKey ? (
-                    <Button
-                      onClick={() => void testAiProvider(item)}
-                      variant="secondary"
-                    >
-                      Kiểm tra
-                    </Button>
-                  ) : null}
-                  {item.provider === "CUSTOM" && item.hasApiKey ? (
-                    <Button
-                      aria-label={`Xóa ${item.name}`}
-                      onClick={() => void removeAiProvider(item)}
-                      variant="ghost"
-                    >
-                      <Trash2 size={16} />
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
+        <AiAdminWorkspace
+          settings={settings}
+          setSettings={setSettings}
+          aiProviders={aiProviders}
+          modelCatalog={modelCatalog}
+          saving={saving}
+          saveAiTutorQuota={saveAiTutorQuota}
+          testAiProvider={testAiProvider}
+          removeAiProvider={removeAiProvider}
+          reload={reload}
+        />
       ) : null}
       {activeSection === "health" && health ? (
-        <section className="metric-ledger mb-7">
+        <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-7">
           <div
-            className={
-              health.status === "healthy" ? "bg-emerald-50" : "bg-amber-50"
-            }
+            className={`rounded-2xl border p-4 shadow-xs text-center ${
+              health.status === "healthy" ? "border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300" : "border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300"
+            }`}
           >
             <Activity
-              className={
+              className={`mx-auto ${
                 health.status === "healthy"
-                  ? "text-emerald-700"
-                  : "text-amber-700"
-              }
-              size={19}
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-amber-600 dark:text-amber-400"
+              }`}
+              size={22}
             />
-            <p className="mt-3 font-extrabold">
+            <p className="mt-2 text-sm font-extrabold">
               {health.status === "healthy"
-                ? "Hoạt động ổn định"
+                ? "Ổn định"
                 : "Cần kiểm tra"}
             </p>
-            <p className="text-xs text-slate-600">
-              Cơ sở dữ liệu:{" "}
-              {health.database === "connected" ? "đã kết nối" : health.database}
+            <p className="text-[11px] opacity-75">
+              DB: {health.database === "connected" ? "kết nối" : health.database}
             </p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-sky-700 dark:text-sky-300">
               {health.apiLatencyMs} ms
             </p>
-            <p className="text-xs text-slate-500">Độ trễ API</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Độ trễ API</p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-slate-900 dark:text-slate-100">
               {health.storageUsagePercent}%
             </p>
-            <p className="text-xs text-slate-500">Dung lượng lưu trữ</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Dung lượng lưu trữ</p>
           </div>
-          <div>
-            <p className="tabular text-2xl font-extrabold">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+            <p className="tabular text-2xl font-extrabold text-sky-700 dark:text-sky-300">
               {health.queueDepth}
             </p>
-            <p className="text-xs text-slate-500">Tác vụ đang chờ</p>
+            <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Tác vụ đang chờ</p>
           </div>
         </section>
       ) : null}
       <div
-        className={`${["general", "history", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}
+        className={`${["general", "integrations", "backups"].includes(activeSection ?? "") ? "grid" : "hidden"} gap-7`}
       >
         <section
-          className={`${activeSection === "general" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+          className={`${activeSection === "general" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
         >
           <div className="flex items-center gap-3">
             <ShieldCheck className="text-sky-700" />
@@ -521,22 +335,7 @@ export default function SettingsScreen() {
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Field label="Lưu dữ liệu (ngày)">
-                  <input
-                    className={inputClass}
-                    min={30}
-                    max={3650}
-                    type="number"
-                    value={settings.retentionDays}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        retentionDays: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Tệp tối đa (MB)">
                   <input
                     className={inputClass}
@@ -563,6 +362,38 @@ export default function SettingsScreen() {
                       setSettings({
                         ...settings,
                         storageQuotaMb: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Hạn mức hỏi AI mỗi câu (lượt)">
+                  <input
+                    className={inputClass}
+                    min={1}
+                    max={20}
+                    type="number"
+                    value={settings.aiTutorMaxPerQuestion}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        aiTutorMaxPerQuestion: Number(e.target.value),
+                      })
+                    }
+                  />
+                </Field>
+                <Field label="Hạn mức hỏi AI mỗi đề (lượt)">
+                  <input
+                    className={inputClass}
+                    min={1}
+                    max={200}
+                    type="number"
+                    value={settings.aiTutorMaxPerExam}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        aiTutorMaxPerExam: Number(e.target.value),
                       })
                     }
                   />
@@ -596,20 +427,6 @@ export default function SettingsScreen() {
                   }
                 />
               </Field>
-              <label className="flex min-h-11 items-center justify-between rounded-xl bg-slate-50 p-4 text-sm font-bold">
-                <span>Bật kiểm duyệt nội dung</span>
-                <input
-                  checked={settings.moderationEnabled}
-                  onChange={(e) =>
-                    setSettings({
-                      ...settings,
-                      moderationEnabled: e.target.checked,
-                    })
-                  }
-                  className="size-5 accent-sky-600"
-                  type="checkbox"
-                />
-              </label>
               <label className="flex min-h-11 items-center justify-between rounded-xl bg-amber-50 p-4 text-sm font-bold text-amber-900">
                 <span>Chế độ bảo trì</span>
                 <input
@@ -624,22 +441,13 @@ export default function SettingsScreen() {
                   type="checkbox"
                 />
               </label>
-              <Field label="Thời điểm hiệu lực — để trống nếu áp dụng ngay">
-                <input
-                  className={inputClass}
-                  min={new Date().toISOString().slice(0, 16)}
-                  type="datetime-local"
-                  value={effectiveAt}
-                  onChange={(event) => setEffectiveAt(event.target.value)}
-                />
-              </Field>
               <div className="rounded-xl border border-sky-100 bg-sky-50 p-4 text-xs text-sky-900">
                 <p className="font-extrabold">
-                  Phiên bản đang xem: v{settings.version}
+                  Phiên bản hiện tại: v{settings.version}
                 </p>
                 <p className="mt-1">
-                  Hiệu lực{" "}
-                  {new Date(settings.effectiveAt).toLocaleString(
+                  Cập nhật lần cuối{" "}
+                  {new Date(settings.updatedAt).toLocaleString(
                     activeLocale(),
                   )}{" "}
                   · cập nhật bởi {settings.updatedBy}
@@ -647,74 +455,31 @@ export default function SettingsScreen() {
               </div>
               <Button loading={saving} type="submit">
                 <Save size={16} />
-                Phát hành cấu hình
+                Lưu cấu hình
               </Button>
             </form>
           ) : (
             <div className="mt-6 h-80 animate-pulse rounded-xl bg-slate-100" />
           )}
         </section>
-        <section
-          className={`${activeSection === "history" ? "block" : "hidden"} order-3 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6 xl:col-span-2`}
-        >
-          <h2 className="font-heading text-xl font-extrabold">
-            Lịch sử cấu hình
-          </h2>
-          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
-            {history.length ? (
-              history.slice(0, 6).map((item) => (
-                <article
-                  className="py-4"
-                  key={`${item.version}-${item.effectiveAt}`}
-                >
-                  <div className="flex items-center justify-between">
-                    <strong>Phiên bản {item.version}</strong>
-                    <span className="text-xs text-sky-700">
-                      {new Date(item.effectiveAt) > new Date()
-                        ? "Đã lên lịch"
-                        : "Đang/đã hiệu lực"}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    {new Date(item.effectiveAt).toLocaleString(activeLocale())}{" "}
-                    · {item.updatedBy}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {item.timezone} · lưu {item.retentionDays} ngày · quota{" "}
-                    {item.storageQuotaMb} MB ·{" "}
-                    {item.examApprovalMode === "MANUAL"
-                      ? "duyệt đề thủ công"
-                      : "tự động duyệt đề"}{" "}
-                    ·{" "}
-                    {item.questionApprovalMode === "MANUAL"
-                      ? "duyệt câu hỏi thủ công"
-                      : "tự động duyệt câu hỏi"}
-                  </p>
-                </article>
-              ))
-            ) : (
-              <p className="empty-copy">Chưa có phiên bản cấu hình trước đó.</p>
-            )}
-          </div>
-        </section>
         <div
           className={`${["integrations", "backups"].includes(activeSection ?? "") ? "block" : "hidden"} order-2 space-y-7`}
         >
           <section
-            className={`${activeSection === "integrations" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+            className={`${activeSection === "integrations" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
           >
             <div className="flex items-center gap-3">
-              <CloudCog className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">
+              <CloudCog className="text-sky-600" />
+              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
                 Tích hợp lớp học
               </h2>
             </div>
-            <div className="mt-5 divide-y divide-slate-100">
+            <div className="mt-5 space-y-3">
               {integrations.map((item) => (
-                <div className="py-4" key={item.id}>
+                <div className="rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 p-4" key={item.id}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-extrabold">
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-slate-100">
                         {item.provider.replace("_", " ")}{" "}
                         {item.isDefault ? "· Mặc định" : ""}
                       </p>
@@ -728,11 +493,11 @@ export default function SettingsScreen() {
                     <button
                       aria-pressed={item.enabled}
                       aria-label={`Bật tắt ${item.provider}`}
-                      className={`relative h-11 w-14 rounded-full transition ${item.enabled ? "bg-sky-600" : "bg-slate-200"}`}
+                      className={`relative h-9 w-14 rounded-full transition-colors ${item.enabled ? "bg-sky-600" : "bg-slate-200 dark:bg-slate-700"}`}
                       onClick={() => void toggle(item)}
                     >
                       <span
-                        className={`absolute top-3 size-5 rounded-full bg-[var(--surface)] shadow transition ${item.enabled ? "left-8" : "left-1"}`}
+                        className={`absolute top-1.5 size-6 rounded-full bg-white shadow-xs transition-transform ${item.enabled ? "left-7" : "left-1"}`}
                       />
                     </button>
                   </div>
@@ -740,12 +505,14 @@ export default function SettingsScreen() {
                     <Button
                       onClick={() => setConfiguring(item)}
                       variant="ghost"
+                      className="h-8 text-xs"
                     >
                       Cấu hình
                     </Button>
                     <Button
                       onClick={() => void testIntegration(item)}
                       variant="ghost"
+                      className="h-8 text-xs"
                     >
                       Kiểm tra kết nối
                     </Button>
@@ -753,6 +520,7 @@ export default function SettingsScreen() {
                       <Button
                         onClick={() => void setDefault(item)}
                         variant="ghost"
+                        className="h-8 text-xs"
                       >
                         Đặt mặc định
                       </Button>
@@ -761,6 +529,7 @@ export default function SettingsScreen() {
                       <Button
                         onClick={() => void testMeeting(item)}
                         variant="secondary"
+                        className="h-8 text-xs"
                       >
                         Tạo phòng thử
                       </Button>
@@ -771,28 +540,28 @@ export default function SettingsScreen() {
             </div>
           </section>
           <section
-            className={`${activeSection === "backups" ? "block" : "hidden"} border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6`}
+            className={`${activeSection === "backups" ? "block" : "hidden"} rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <DatabaseBackup className="text-sky-700" />
-                <h2 className="font-heading text-xl font-extrabold">Sao lưu</h2>
+                <DatabaseBackup className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Sao lưu</h2>
               </div>
-              <Button onClick={() => void backup()} variant="secondary">
+              <Button onClick={() => void backup()} variant="secondary" className="h-8 text-xs">
                 Chạy ngay
               </Button>
             </div>
-            <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+            <div className="mt-4 space-y-2">
               {backups.slice(0, 4).map((item) => (
                 <div
-                  className="flex items-center justify-between gap-3 py-4"
+                  className="flex items-center justify-between gap-3 p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30"
                   key={item.id}
                 >
                   <div>
-                    <p className="text-sm font-bold">
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
                       {item.type} · {item.sizeMb} MB
                     </p>
-                    <p className="text-[10px] text-slate-400">
+                    <p className="text-[11px] text-slate-400">
                       {new Date(item.createdAt).toLocaleString(activeLocale())}{" "}
                       · {item.checksum}
                     </p>
@@ -805,12 +574,12 @@ export default function SettingsScreen() {
         </div>
       </div>
       {activeSection === "storage" && storage ? (
-        <section className="mt-7 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+        <section className="mt-7 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-6 shadow-xs">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <HardDrive className="text-sky-700" />
+              <HardDrive className="text-sky-600" />
               <div>
-                <h2 className="font-heading text-xl font-extrabold">
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">
                   Phân bổ lưu trữ
                 </h2>
                 <p className="text-xs text-slate-500">
@@ -829,7 +598,7 @@ export default function SettingsScreen() {
               style={{ width: `${storage.usagePercent}%` }}
             />
           </div>
-          <div className="mt-5 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
+          <div className="mt-5 divide-y divide-slate-100 dark:divide-slate-800 border-y border-slate-200 dark:border-slate-800">
             {storage.byClass.length ? (
               storage.byClass.map((item) => (
                 <div className="py-4" key={item.classId}>
@@ -911,6 +680,20 @@ export default function SettingsScreen() {
           className="space-y-4"
           onSubmit={(event) => void saveAiProvider(event)}
         >
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 px-3.5 py-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <AiProviderGlyph provider={aiForm.provider} size="md" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {editingAi?.name || resolveAiProviderVisual(aiForm.provider).shortLabel}
+                </p>
+                <p className="truncate text-xs text-slate-500 dark:text-slate-400">
+                  {resolveAiProviderVisual(aiForm.provider).protocolLabel}
+                </p>
+              </div>
+            </div>
+            {editingAi ? <StatusBadge status={editingAi.healthStatus} /> : null}
+          </div>
           {aiForm.provider === "CUSTOM" ? (
             <Field label="Tên hiển thị">
               <input
@@ -924,32 +707,55 @@ export default function SettingsScreen() {
               />
             </Field>
           ) : null}
-          <Field label="Model">
-            <div className="space-y-2">
+          <Field label="Model mặc định">
+            <div className="space-y-2.5">
               {modelMode === "catalog" && availableModelOptions.length ? (
                 <SearchableSelect
                   aria-label={`Tìm model ${aiForm.provider}`}
                   emptyMessage="Không tìm thấy model phù hợp. Chuyển sang nhập thủ công để dùng model khác."
                   onChange={(model) => setAiForm({ ...aiForm, model })}
-                  options={availableModelOptions.map((model) => ({
-                    ...model,
-                    keywords: `${model.value} ${model.label}`,
-                  }))}
+                  options={availableModelOptions.map((model) => {
+                    const modelMeta = resolveAiModelVisual(
+                      model.value,
+                      aiForm.provider,
+                    );
+                    return {
+                      ...model,
+                      badge: modelMeta.tierBadge,
+                      description: model.description || modelMeta.capabilityLabel,
+                      keywords: `${model.value} ${model.label} ${modelMeta.familyLabel}`,
+                      icon: (
+                        <AiModelGlyph
+                          model={model.value}
+                          provider={aiForm.provider}
+                          size="xs"
+                        />
+                      ),
+                    };
+                  })}
                   placeholder="Gõ tên model để tìm trong danh sách…"
                   value={aiForm.model}
                 />
               ) : (
-                <input
-                  aria-label={`Nhập model ${aiForm.provider}`}
-                  className={inputClass}
-                  maxLength={200}
-                  onChange={(event) =>
-                    setAiForm({ ...aiForm, model: event.target.value })
-                  }
-                  placeholder="org/model-name"
-                  required
-                  value={aiForm.model}
-                />
+                <div className="space-y-2">
+                  <input
+                    aria-label={`Nhập model ${aiForm.provider}`}
+                    className={inputClass}
+                    maxLength={200}
+                    onChange={(event) =>
+                      setAiForm({ ...aiForm, model: event.target.value })
+                    }
+                    placeholder="org/model-name"
+                    required
+                    value={aiForm.model}
+                  />
+                  {aiForm.model.trim() ? (
+                    <AiModelIdentityBadge
+                      model={aiForm.model}
+                      provider={aiForm.provider}
+                    />
+                  ) : null}
+                </div>
               )}
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <span className="max-w-xl text-xs leading-5 text-[var(--ink-muted)]">
@@ -1036,10 +842,10 @@ export default function SettingsScreen() {
             />
           </Field>
           <div className="grid gap-2 sm:grid-cols-2">
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold">
+            <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.enabled}
-                className="size-5 accent-[var(--accent)]"
+                className="size-4 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, enabled: event.target.checked })
                 }
@@ -1047,10 +853,10 @@ export default function SettingsScreen() {
               />
               Bật cấu hình này
             </label>
-            <label className="flex min-h-12 items-center gap-3 rounded-xl border border-[var(--rule)] px-3 text-sm font-bold">
+            <label className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 px-3 text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300">
               <input
                 checked={aiForm.isDefault}
-                className="size-5 accent-[var(--accent)]"
+                className="size-4 accent-sky-600"
                 onChange={(event) =>
                   setAiForm({ ...aiForm, isDefault: event.target.checked })
                 }

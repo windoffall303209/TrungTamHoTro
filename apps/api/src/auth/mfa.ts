@@ -1,6 +1,9 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createEncryptionKeyDeriver } from "../infrastructure/encryption-key.js";
 
+/** Độ dài authentication tag AES-GCM bắt buộc (byte). */
+const GCM_TAG_BYTES = 16;
+
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const TOTP_STEP_SECONDS = 30;
 const deriveKey = createEncryptionKeyDeriver("wind-edu-mfa-v1");
@@ -19,21 +22,30 @@ export function createTotpUri(secret: string, email: string, issuer: string): st
 
 /** Kiểm tra TOTP theo thời gian hiện tại và cho phép lệch một chu kỳ ở mỗi phía. */
 export function verifyTotp(secret: string, code: string, now = Date.now()): boolean {
+  return matchTotpStep(secret, code, now) !== null;
+}
+
+/**
+ * Trả bộ đếm thời gian (bước 30 giây) mà mã khớp trong cửa sổ lệch ±1 chu kỳ, hoặc null nếu không khớp.
+ * Lưu bước này sau khi dùng cho phép chặn phát lại cùng một mã trong 90 giây hiệu lực.
+ */
+export function matchTotpStep(secret: string, code: string, now = Date.now()): number | null {
   const normalized = code.replace(/\s/g, "");
-  if (!/^\d{6}$/.test(normalized)) return false;
+  if (!/^\d{6}$/.test(normalized)) return null;
   const supplied = Buffer.from(normalized);
+  const current = Math.floor(now / 1000 / TOTP_STEP_SECONDS);
   for (let offset = -1; offset <= 1; offset += 1) {
-    const expected = Buffer.from(generateTotp(secret, Math.floor(now / 1000 / TOTP_STEP_SECONDS) + offset));
-    if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) return true;
+    const expected = Buffer.from(generateTotp(secret, current + offset));
+    if (expected.length === supplied.length && timingSafeEqual(expected, supplied)) return current + offset;
   }
-  return false;
+  return null;
 }
 
 /** Mã hóa bí mật MFA bằng AES-256-GCM trước khi lưu, kèm IV và authentication tag. */
 export async function encryptMfaSecret(secret: string, encryptionSecret: string): Promise<string> {
   const iv = randomBytes(12);
   const key = await deriveKey(encryptionSecret);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: GCM_TAG_BYTES });
   const ciphertext = Buffer.concat([cipher.update(secret, "utf8"), cipher.final()]);
   return ["v1", iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ciphertext.toString("base64url")].join(".");
 }
@@ -43,17 +55,13 @@ export async function decryptMfaSecret(payload: string, encryptionSecret: string
   const [version, encodedIv, encodedTag, encodedCiphertext] = payload.split(".");
   if (version !== "v1" || !encodedIv || !encodedTag || !encodedCiphertext) throw new Error("Dữ liệu MFA không hợp lệ.");
   const key = await deriveKey(encryptionSecret);
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(encodedIv, "base64url"));
-  decipher.setAuthTag(Buffer.from(encodedTag, "base64url"));
+  const iv = Buffer.from(encodedIv, "base64url");
+  const tag = Buffer.from(encodedTag, "base64url");
+  // Bắt buộc tag đủ 16 byte: GCM mặc định chấp nhận tag bị cắt ngắn tới 4 byte, làm giảm mạnh độ khó giả mạo (CWE-347).
+  if (iv.length !== 12 || tag.length !== GCM_TAG_BYTES) throw new Error("Dữ liệu MFA không hợp lệ.");
+  const decipher = createDecipheriv("aes-256-gcm", key, iv, { authTagLength: GCM_TAG_BYTES });
+  decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(Buffer.from(encodedCiphertext, "base64url")), decipher.final()]).toString("utf8");
-}
-
-/** Sinh bộ mã khôi phục dùng một lần; AuthService chỉ lưu bản băm của các mã này. */
-export function createRecoveryCodes(count = 8): string[] {
-  return Array.from({ length: count }, () => {
-    const value = randomBytes(5).toString("hex").toUpperCase();
-    return `${value.slice(0, 5)}-${value.slice(5)}`;
-  });
 }
 
 /** Tạo mã HOTP sáu chữ số cho bộ đếm thời gian theo RFC 4226/6238. */

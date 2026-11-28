@@ -22,3 +22,18 @@ debug.log
 npm-debug.log*
 pnpm-debug.log*
 
+
+# Test execution results
+apps/api/test/results/
+apps/web/test/results/
+
+# Internal review, checktask, and benchmark artifacts
+.impeccable/
+task_checklist_build/
+CHECK_TASKS.md
+BUSINESS_FLOW_REVIEW.md
+performance-test-report-*.md
+performance-work-plan.md
+realtime-contract.md
+reference_checktask.xlsx
+

@@ -1,16 +1,3 @@
-/** Các phân hệ dùng chung mà client và API có thể tham chiếu bằng khóa ổn định. */
-export type ModuleKey = "storage" | "question-bank" | "forum" | "live-class";
-
-export type ModuleReadiness = "foundation-ready" | "planned";
-
-/** Metadata tối thiểu mô tả trạng thái sẵn sàng của một phân hệ giảng dạy. */
-export interface TeachingModule {
-  key: ModuleKey;
-  name: string;
-  description: string;
-  readiness: ModuleReadiness;
-}
-
 /** Hợp đồng phản hồi thành công, luôn gắn request ID và thời điểm xử lý. */
 export interface ApiEnvelope<T> {
   data: T;
@@ -33,3 +20,10 @@ export interface ApiErrorEnvelope {
   };
 }
 
+export * from "./primitives.js";
+export * from "./pagination.js";
+export * from "./auth.js";
+export * from "./exam.js";
+export * from "./academic.js";
+export * from "./learning.js";
+export * from "./system.js";

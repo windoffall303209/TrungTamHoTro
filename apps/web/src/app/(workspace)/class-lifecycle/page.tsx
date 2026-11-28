@@ -3,11 +3,11 @@
 import { activeLocale } from "@/i18n/runtime";
 
 import { Archive, ArrowUpRight, CheckCircle2, RotateCcw, ShieldAlert } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { SearchableSelect } from "@/components/searchable-select";
-import { Button, Field, inputClass, StatusBadge } from "@/components/ui";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SearchableSelect } from "@/shared/ui/searchable-select";
+import { Button, Field, inputClass, StatusBadge } from "@/shared/ui/ui";
 import { apiRequest } from "@/lib/api-client";
 import { hasPermission } from "@/lib/access-control";
 import type { ClassClosureReadiness, LearningClass } from "@/lib/learning-types";
@@ -21,42 +21,55 @@ export default function ClassLifecyclePage() {
   const [classes, setClasses] = useState<LearningClass[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [readiness, setReadiness] = useState<ClassClosureReadiness | null>(null);
-  const [closeForm, setCloseForm] = useState({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
-  const [reopenReason, setReopenReason] = useState("");
+  const [closeForm, setCloseForm] = useState({ archivePolicy: "STANDARD_RETENTION" });
   const [saving, setSaving] = useState(false);
+  const [readinessRefresh, setReadinessRefresh] = useState(0);
+  const readinessRequestVersion = useRef(0);
 
   const selected = classes.find((item) => item.id === selectedId);
 
   /** Kiểm tra các điều kiện nghiệp vụ còn thiếu trước khi lớp được phép đóng. */
-  const loadReadiness = useCallback(async (classId: string) => {
-    if (!classId) return;
+  const loadReadiness = useCallback(async (classId: string, signal?: AbortSignal) => {
+    const requestVersion = ++readinessRequestVersion.current;
+    if (!classId) { setReadiness(null); return; }
+    setReadiness(null);
     try {
-      setReadiness(await apiRequest<ClassClosureReadiness>(`/manager/classes/${classId}/closure-readiness`, { roleCode: session.roleCode }));
+      const data = await apiRequest<ClassClosureReadiness>(`/manager/classes/${classId}/closure-readiness`, { roleCode: session.roleCode, signal });
+      if (requestVersion === readinessRequestVersion.current && !signal?.aborted) setReadiness(data);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không kiểm tra được điều kiện đóng lớp.", "error");
+      if (requestVersion === readinessRequestVersion.current && !signal?.aborted) {
+        notify(error instanceof Error ? error.message : "Không kiểm tra được điều kiện đóng lớp.", "error");
+      }
     }
   }, [notify, session.roleCode]);
 
-  /** Nạp danh sách lớp quản lý và báo cáo sẵn sàng của lớp đang chọn. */
-  const load = useCallback(async () => {
+  /** Nạp danh sách lớp mà không tải lại mỗi khi người dùng đổi lựa chọn. */
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (!canManage) return;
     try {
-      const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode });
+      const data = await apiRequest<LearningClass[]>("/classes", { roleCode: session.roleCode, signal });
+      if (signal?.aborted) return;
       setClasses(data);
-      const nextId = selectedId || data.find((item) => item.id === requestedClassId)?.id || data[0]?.id || "";
-      setSelectedId(nextId);
-      if (nextId) await loadReadiness(nextId);
+      setSelectedId((current) => current || data.find((item) => item.id === requestedClassId)?.id || data[0]?.id || "");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
+      if (!signal?.aborted) notify(error instanceof Error ? error.message : "Không tải được danh sách lớp.", "error");
     }
-  }, [canManage, loadReadiness, notify, requestedClassId, selectedId, session.roleCode]);
+  }, [canManage, notify, requestedClassId, session.roleCode]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void load(controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
   }, [load]);
 
-  /** Đóng lớp với lý do nghiệp vụ sau khi máy chủ xác nhận đủ điều kiện. */
+  // Chỉ giữ kết quả kiểm tra điều kiện của lớp hiện đang được chọn.
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => void loadReadiness(selectedId, controller.signal), 0);
+    return () => { window.clearTimeout(timer); controller.abort(); readinessRequestVersion.current += 1; };
+  }, [loadReadiness, readinessRefresh, selectedId]);
+
+  /** Đóng lớp sau khi máy chủ xác nhận đủ điều kiện. */
   const closeClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -65,11 +78,12 @@ export default function ClassLifecyclePage() {
       await apiRequest(`/manager/classes/${selected.id}/close`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify(closeForm),
+        body: JSON.stringify({ archivePolicy: closeForm.archivePolicy }),
       });
       notify("Đã đóng, lưu trữ và chuyển lớp sang chỉ đọc.");
-      setCloseForm({ closeReason: "", archivePolicy: "STANDARD_RETENTION" });
+      setCloseForm({ archivePolicy: "STANDARD_RETENTION" });
       await load();
+      setReadinessRefresh((current) => current + 1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không đóng được lớp.", "error");
     } finally {
@@ -77,7 +91,7 @@ export default function ClassLifecyclePage() {
     }
   };
 
-  /** Mở lại một lớp đã đóng và ghi nhận lý do vào lịch sử vòng đời. */
+  /** Mở lại một lớp đã đóng và ghi nhận vào nhật ký kiểm toán. */
   const reopenClass = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selected) return;
@@ -86,11 +100,11 @@ export default function ClassLifecyclePage() {
       await apiRequest(`/manager/classes/${selected.id}/reopen`, {
         method: "POST",
         roleCode: session.roleCode,
-        body: JSON.stringify({ reason: reopenReason }),
+        body: JSON.stringify({}),
       });
       notify("Đã mở lại lớp và ghi lịch sử kiểm toán.");
-      setReopenReason("");
       await load();
+      setReadinessRefresh((current) => current + 1);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không mở lại được lớp.", "error");
     } finally {
@@ -107,33 +121,96 @@ export default function ClassLifecyclePage() {
     { label: "Bài tập còn mở", value: readiness.openAssignments, href: `/academic?classId=${selectedId}` },
     { label: "Bài tập chờ chấm", value: readiness.pendingAssignmentGrades, href: `/academic?classId=${selectedId}` },
     { label: "Phúc khảo đang mở", value: readiness.openRegrades, href: `/exams?classId=${selectedId}` },
-    { label: "Buổi chưa kết thúc", value: readiness.activeSessions, href: `/live-classes?classId=${selectedId}` },
-    { label: "Điểm danh chưa khóa", value: readiness.unlockedAttendanceSessions, href: `/attendance?classId=${selectedId}` },
-    { label: "Khiếu nại đang mở", value: readiness.openAppeals, href: `/attendance?classId=${selectedId}` },
+    { label: "Buổi chưa kết thúc", value: readiness.activeSessions, href: `/courses/classes/${encodeURIComponent(selectedId)}?tab=schedule` },
   ] : [];
 
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8 md:px-8 md:py-10">
-      <PageHeader eyebrow="Class Governance" title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại có lý do được audit." />
+    <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8 space-y-4">
+      <PageHeader title="Vòng đời và lưu trữ lớp" description="Kiểm tra điều kiện, đóng lớp không mất dữ liệu và mở lại được kiểm toán minh bạch." />
 
-      <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
+      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-3.5 sm:p-4 shadow-xs">
         <Field label="Lớp cần quản lý">
-          <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); void loadReadiness(value); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
+          <SearchableSelect aria-label="Tìm và chọn lớp cần quản lý" onChange={(value) => { setSelectedId(value); setReadiness(null); }} options={classes.map((item) => ({ value: item.id, label: `${item.code} — ${item.name}`, description: `${item.term} · ${item.status}`, keywords: item.id }))} placeholder="Gõ mã hoặc tên lớp để lọc…" value={selectedId} />
         </Field>
-        {selected ? <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--rule)] pt-5"><div><p className="font-extrabold">{selected.name}</p><p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString(activeLocale())} · {selected.learnerIds.length} học viên</p></div><StatusBadge status={selected.status} /></div> : null}
+        {selected ? (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-5">
+            <div>
+              <p className="font-extrabold text-slate-900 dark:text-slate-100">{selected.name}</p>
+              <p className="mt-1 text-xs text-slate-500">Kết thúc {new Date(selected.endAt).toLocaleString(activeLocale())} · {selected.learnerIds.length} học viên</p>
+            </div>
+            <StatusBadge status={selected.status} />
+          </div>
+        ) : null}
       </section>
 
-      {readiness ? <div className="metric-ledger mt-6 [--metric-columns:3] lg:[--metric-columns:5]">{metrics.map((metric) => <a className="group min-w-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" href={metric.href} key={metric.label}><span className="flex items-center justify-between gap-2"><span className={`tabular text-2xl font-extrabold ${metric.value ? "text-rose-700" : "text-emerald-700"}`}>{metric.value}</span><ArrowUpRight className="text-[var(--ink-muted)] transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" size={15} /></span><span className="mt-1 block text-xs font-bold text-slate-500">{metric.label}</span></a>)}</div> : null}
+      {readiness ? (
+        <section aria-label="Chỉ số điều kiện đóng lớp" className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {metrics.map((metric) => (
+            <a key={metric.label} className="group rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs transition-all hover:border-sky-300 dark:hover:border-sky-700 hover:shadow-sm" href={metric.href}>
+              <div className="flex items-center justify-between">
+                <span className={`tabular text-2xl font-extrabold ${metric.value ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>{metric.value}</span>
+                <ArrowUpRight className="text-slate-400 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" size={16} />
+              </div>
+              <span className="mt-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400">{metric.label}</span>
+            </a>
+          ))}
+        </section>
+      ) : null}
 
-      <div className="mt-7 grid gap-7 lg:grid-cols-[1fr_.9fr]">
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          <div className="flex items-center gap-3">{readiness?.eligible ? <CheckCircle2 className="text-emerald-700" /> : <ShieldAlert className="text-amber-600" />}<h2 className="font-heading text-xl font-extrabold">Kiểm tra trước khi đóng</h2></div>
-          {readiness?.eligible ? <p className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-800">Lớp đã đủ điều kiện đóng và lưu trữ.</p> : <div className="mt-5 rounded-xl bg-amber-50 p-4"><p className="text-sm font-extrabold text-amber-900">Cần xử lý trước:</p><ul className="mt-3 space-y-2 text-sm text-amber-900">{readiness?.blockers.map((item) => <li key={item}>• {item}</li>)}</ul></div>}
-          <p className="mt-5 text-sm leading-6 text-slate-500">Lưu trữ chỉ thay đổi trạng thái và quyền ghi. Học liệu, điểm, điểm danh, bài thi và diễn đàn vẫn được giữ nguyên để tra cứu.</p>
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-3">
+              {readiness?.eligible ? <CheckCircle2 className="text-emerald-600 dark:text-emerald-400" /> : <ShieldAlert className="text-amber-500" />}
+              <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Kiểm tra điều kiện lưu trữ</h2>
+            </div>
+            {readiness?.eligible ? (
+              <div className="mt-4 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/80 dark:bg-emerald-950/40 p-4 text-sm font-bold text-emerald-800 dark:text-emerald-300">
+                Lớp đã đủ điều kiện an toàn để đóng và chuyển sang trạng thái lưu trữ.
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/40 p-4">
+                <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">Cần xử lý dứt điểm trước khi đóng:</p>
+                <ul className="mt-2 space-y-1.5 text-xs text-amber-800 dark:text-amber-300">
+                  {readiness?.blockers.map((item) => <li key={item}>• {item}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+          <p className="mt-5 text-xs leading-5 text-slate-400">
+            * Lưu trữ chỉ khóa quyền ghi và chỉnh sửa. Học liệu, điểm số, bài nộp và thảo luận diễn đàn luôn được giữ nguyên vẹn để tra cứu lâu dài.
+          </p>
         </section>
 
-        <section className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-6">
-          {selected?.status === "CLOSED" ? <><div className="flex items-center gap-3"><RotateCcw className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Mở lại lớp</h2></div><p className="mt-2 text-xs text-slate-500">Lý do được ghi vào audit log. Dữ liệu lưu trữ không bị tạo lại hoặc ghi đè.</p><form className="mt-5 space-y-4" onSubmit={(event) => void reopenClass(event)}><Field label="Lý do mở lại"><textarea className={inputClass} minLength={5} required rows={4} value={reopenReason} onChange={(event) => setReopenReason(event.target.value)} /></Field><Button loading={saving} type="submit"><RotateCcw size={16} />Mở lại lớp</Button></form></> : <><div className="flex items-center gap-3"><Archive className="text-sky-700" /><h2 className="font-heading text-xl font-extrabold">Đóng và lưu trữ</h2></div><form className="mt-5 space-y-4" onSubmit={(event) => void closeClass(event)}><Field label="Lý do đóng lớp"><textarea className={inputClass} minLength={5} required rows={4} value={closeForm.closeReason} onChange={(event) => setCloseForm({ ...closeForm, closeReason: event.target.value })} /></Field><Field label="Chính sách lưu trữ"><select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ ...closeForm, archivePolicy: event.target.value })}><option value="STANDARD_RETENTION">Tiêu chuẩn theo quy định chung</option><option value="LONG_TERM_RETENTION">Lưu trữ dài hạn</option></select></Field><Button disabled={!readiness?.eligible} loading={saving} type="submit" variant="danger"><Archive size={16} />Đóng và lưu trữ</Button></form></>}
+        <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs">
+          {selected?.status === "CLOSED" ? (
+            <>
+              <div className="flex items-center gap-3">
+                <RotateCcw className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Mở lại lớp học</h2>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Thao tác mở lại sẽ được ghi vào nhật ký kiểm toán hệ thống. Dữ liệu đã lưu trữ được bảo toàn.</p>
+              <form className="mt-4 space-y-4" onSubmit={(event) => void reopenClass(event)}>
+                <Button loading={saving} type="submit"><RotateCcw size={16} />Mở lại lớp học</Button>
+              </form>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <Archive className="text-sky-600" />
+                <h2 className="font-heading text-lg font-bold text-slate-900 dark:text-slate-100">Đóng và lưu trữ lớp</h2>
+              </div>
+              <form className="mt-4 space-y-4" onSubmit={(event) => void closeClass(event)}>
+                <Field label="Chính sách lưu trữ">
+                  <select className={inputClass} value={closeForm.archivePolicy} onChange={(event) => setCloseForm({ archivePolicy: event.target.value })}>
+                    <option value="STANDARD_RETENTION">Tiêu chuẩn theo quy chế (1 năm)</option>
+                    <option value="LONG_TERM_RETENTION">Lưu trữ dài hạn (Vĩnh viễn)</option>
+                  </select>
+                </Field>
+                <Button disabled={!readiness?.eligible} loading={saving} type="submit" variant="danger"><Archive size={16} />Đóng và lưu trữ</Button>
+              </form>
+            </>
+          )}
         </section>
       </div>
     </div>

@@ -5,15 +5,43 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./primitives": {
+      "types": "./src/primitives.ts",
+      "default": "./dist/primitives.js"
+    },
+    "./pagination": {
+      "types": "./src/pagination.ts",
+      "default": "./dist/pagination.js"
+    },
+    "./auth": {
+      "types": "./src/auth.ts",
+      "default": "./dist/auth.js"
+    },
+    "./exam": {
+      "types": "./src/exam.ts",
+      "default": "./dist/exam.js"
+    },
+    "./academic": {
+      "types": "./src/academic.ts",
+      "default": "./dist/academic.js"
+    },
+    "./learning": {
+      "types": "./src/learning.ts",
+      "default": "./dist/learning.js"
+    },
+    "./system": {
+      "types": "./src/system.ts",
+      "default": "./dist/system.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test"
+    "test": "tsc -p tsconfig.json && node --test test/contracts.test.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

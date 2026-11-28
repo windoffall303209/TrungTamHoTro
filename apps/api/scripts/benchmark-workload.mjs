@@ -199,7 +199,7 @@ async function main() {
   await new Promise((resolve) => probe.close(resolve));
   const child = spawn(process.execPath, ["dist/src/main.js"], { cwd: apiDirectory, windowsHide: true,
     env: { ...process.env, DB_NAME: database, API_PORT: "4401", NODE_ENV: "test", DATABASE_CONNECT_ON_START: "true",
-      RATE_LIMIT_MAX: "100000", RESEND_API_KEY: "", RESEND_FROM: "", STORAGE_PROVIDER: "local", STORAGE_ROOT: "../../output/benchmark/storage" },
+      RATE_LIMIT_MAX: "100000", RESEND_API_KEY: "", RESEND_FROM: "", STORAGE_PROVIDER: "local", STORAGE_ROOT: fileURLToPath(new URL("../test/results/benchmark/storage/", import.meta.url)) },
     stdio: ["ignore", values.verbose ? "inherit" : "ignore", values.verbose ? "inherit" : "ignore"],
   });
   const exited = once(child, "exit");
@@ -227,7 +227,7 @@ async function main() {
       requestsPerSecond: [...measurements.values()].reduce((sum, items) => sum + items.length, 0) / seconds,
       verificationError,
       failedWorkers: results.filter((result) => result.status === "rejected").map((result) => result.reason.message), metrics };
-    const output = new URL(`../../../output/benchmark/${values.label}.json`, import.meta.url);
+    const output = new URL(`../test/results/benchmark/${values.label}.json`, import.meta.url);
     await mkdir(new URL(".", output), { recursive: true });
     await writeFile(output, JSON.stringify(report, null, 2) + "\n");
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");

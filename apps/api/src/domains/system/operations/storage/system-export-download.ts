@@ -1,0 +1,170 @@
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
+import {
+  parseByteRange,
+  RangeNotSatisfiableException,
+  type ByteRange,
+} from "../../../../infrastructure/http-range-stream.js";
+import { openVerifiedObjectStream } from "../../../../infrastructure/verified-download.js";
+import { DataExport } from "../../core/system.shared.js";
+import type { SystemServiceContext } from "../../core/system.context.js";
+
+/** Đọc lại tệp export còn hạn của chính người yêu cầu, kiểm tra checksum và ghi audit mỗi lần tải xuống. */
+export async function downloadExport(
+  serviceContext: SystemServiceContext,
+  exportId: string,
+  actorId: string,
+): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const row = await prisma.operationalJob.findUnique({
+      where: { kind: "EXPORT", id: exportId },
+    });
+    // Bản xuất chứa dữ liệu toàn hệ thống: chỉ người đã tạo được tải, người khác nhận 404 như không tồn tại.
+    if (!row || row.requestedBy !== actorId || row.status !== "COMPLETED" || !row.objectKey || !row.checksum)
+      throw new NotFoundException("Không tìm thấy tệp export hoàn tất.");
+    if (!row.expiresAt || row.expiresAt <= new Date())
+      throw new BadRequestException(
+        "Tệp export đã hết hạn; hãy tạo bản xuất mới.",
+      );
+    if (!serviceContext.objectStorage)
+      throw new ServiceUnavailableException("Kho object chưa sẵn sàng.");
+    const buffer = await serviceContext.objectStorage.get(row.objectKey);
+    const checksum = `sha256:${createHash("sha256").update(buffer).digest("hex")}`;
+    if (checksum !== row.checksum)
+      throw new ServiceUnavailableException(
+        "Checksum tệp export không hợp lệ.",
+      );
+    const format = row.format === "JSON" ? "JSON" : "CSV";
+    await serviceContext.logDatabase(prisma, actorId, "EXPORT_DOWNLOADED", row.id, `Tải bản xuất ${row.category ?? ""} định dạng ${format}.`);
+    return {
+      buffer,
+      filename: `${row.category!.toLowerCase()}-${row.id}.${format.toLowerCase()}`,
+      mimeType:
+        format === "JSON"
+          ? "application/json; charset=utf-8"
+          : "text/csv; charset=utf-8",
+    };
+  }
+  const item = serviceContext.exports.find((entry) => entry.id === exportId);
+  const buffer = serviceContext.exportFiles.get(exportId);
+  if (!item || !buffer)
+    throw new NotFoundException("Không tìm thấy tệp export.");
+  if (new Date(item.expiresAt) <= new Date())
+    throw new BadRequestException(
+      "Tệp export đã hết hạn; hãy tạo bản xuất mới.",
+    );
+  serviceContext.log(actorId, "EXPORT_DOWNLOADED", item.id, `Tải bản xuất ${item.category} định dạng ${item.format}.`);
+  return {
+    buffer,
+    filename: `${item.category.toLowerCase()}-${item.id}.${item.format.toLowerCase()}`,
+    mimeType:
+      item.format === "JSON"
+        ? "application/json; charset=utf-8"
+        : "text/csv; charset=utf-8",
+  };
+}
+
+/** Mở luồng tải tệp export còn hạn có hỗ trợ HTTP Range và kiểm chứng checksum không nạp toàn tệp vào RAM. */
+export async function downloadExportStream(
+  serviceContext: SystemServiceContext,
+  exportId: string,
+  actorId: string,
+  rangeHeader?: string,
+): Promise<{
+  stream: Readable;
+  totalSize: number;
+  range?: ByteRange;
+  filename: string;
+  mimeType: string;
+}> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const row = await prisma.operationalJob.findUnique({
+      where: { kind: "EXPORT", id: exportId },
+    });
+    // Bản xuất chứa dữ liệu toàn hệ thống: chỉ người đã tạo được tải, người khác nhận 404 như không tồn tại.
+    if (!row || row.requestedBy !== actorId || row.status !== "COMPLETED" || !row.objectKey || !row.checksum)
+      throw new NotFoundException("Không tìm thấy tệp export hoàn tất.");
+    if (!row.expiresAt || row.expiresAt <= new Date())
+      throw new BadRequestException(
+        "Tệp export đã hết hạn; hãy tạo bản xuất mới.",
+      );
+    if (!serviceContext.objectStorage)
+      throw new ServiceUnavailableException("Kho object chưa sẵn sàng.");
+    const opened = await openVerifiedObjectStream({
+      objectStorage: serviceContext.objectStorage,
+      objectKey: row.objectKey,
+      checksum: row.checksum,
+      expectedSize: row.sizeBytes !== null ? Number(row.sizeBytes) : undefined,
+      rangeHeader,
+      mismatchError: () =>
+        new ServiceUnavailableException("Checksum tệp export không hợp lệ."),
+    });
+    const format = row.format === "JSON" ? "JSON" : "CSV";
+    try {
+      await serviceContext.logDatabase(
+        prisma,
+        actorId,
+        "EXPORT_DOWNLOADED",
+        row.id,
+        `Tải bản xuất ${row.category ?? ""} định dạng ${format}.`,
+      );
+    } catch (error) {
+      opened.stream.destroy();
+      throw error;
+    }
+    return {
+      ...opened,
+      filename: `${row.category!.toLowerCase()}-${row.id}.${format.toLowerCase()}`,
+      mimeType:
+        format === "JSON"
+          ? "application/json; charset=utf-8"
+          : "text/csv; charset=utf-8",
+    };
+  }
+  const item = serviceContext.exports.find((entry) => entry.id === exportId);
+  const buffer = serviceContext.exportFiles.get(exportId);
+  if (!item || !buffer)
+    throw new NotFoundException("Không tìm thấy tệp export.");
+  if (new Date(item.expiresAt) <= new Date())
+    throw new BadRequestException(
+      "Tệp export đã hết hạn; hãy tạo bản xuất mới.",
+    );
+  const parsed = parseByteRange(rangeHeader, buffer.length);
+  if (parsed.kind === "unsatisfiable") {
+    throw new RangeNotSatisfiableException(parsed.totalSize);
+  }
+  const range = parsed.kind === "partial" ? parsed.range : undefined;
+  const slice = range ? buffer.subarray(range.start, range.end + 1) : buffer;
+  serviceContext.log(actorId, "EXPORT_DOWNLOADED", item.id, `Tải bản xuất ${item.category} định dạng ${item.format}.`);
+  return {
+    stream: Readable.from([slice]),
+    totalSize: buffer.length,
+    range,
+    filename: `${item.category.toLowerCase()}-${item.id}.${item.format.toLowerCase()}`,
+    mimeType:
+      item.format === "JSON"
+        ? "application/json; charset=utf-8"
+        : "text/csv; charset=utf-8",
+  };
+}
+
+/** Liệt kê các lần xuất dữ liệu hệ thống. */
+export async function listExports(
+  serviceContext: SystemServiceContext,
+): Promise<DataExport[]> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "EXPORT" },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => serviceContext.mapExport(row));
+  }
+  return structuredClone(serviceContext.exports);
+}

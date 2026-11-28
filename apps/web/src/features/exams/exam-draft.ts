@@ -21,6 +21,8 @@ export function isExamEditorDraft(value: unknown): value is ExamEditorDraft {
       (key) => typeof form[key] === "number" && Number.isFinite(form[key]),
     ) &&
     typeof form.shuffleQuestions === "boolean" &&
+    (form.aiTutorEnabled === undefined || typeof form.aiTutorEnabled === "boolean") &&
+    (form.showAnswersAfterSubmit === undefined || typeof form.showAnswersAfterSubmit === "boolean") &&
     stringArray(form.questionIds) &&
     numberMap(form.scoreAllocations) &&
     ["focus", "providerId", "model"].every(

@@ -1,18 +1,19 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
-import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ThrottlerModule } from "@nestjs/throttler";
+import { AppThrottlerGuard, AUTH_THROTTLER, IP_THROTTLER } from "./auth/auth-rate-limit.js";
 import { RequestIdMiddleware } from "./common/request-id.middleware.js";
 import { validateEnvironment, type Environment } from "./config/environment.js";
 import { DatabaseModule } from "./database/database.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { IdentityModule } from "./identity/identity.module.js";
-import { LearningModule } from "./learning/learning.module.js";
-import { SystemModule } from "./system/system.module.js";
+import { LearningModule } from "./domains/learning/core/learning.module.js";
+import { SystemModule } from "./domains/system/core/system.module.js";
 import { InfrastructureModule } from "./infrastructure/infrastructure.module.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
-import { MaintenanceGuard } from "./system/maintenance.guard.js";
+import { MaintenanceGuard } from "./domains/system/operations/maintenance.guard.js";
 
 @Module({
   imports: [
@@ -25,10 +26,25 @@ import { MaintenanceGuard } from "./system/maintenance.guard.js";
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<Environment, true>) => ({
-        throttlers: [{
-          ttl: config.get("RATE_LIMIT_TTL_MS", { infer: true }),
-          limit: config.get("RATE_LIMIT_MAX", { infer: true }),
-        }],
+        throttlers: [
+          {
+            name: "default",
+            ttl: config.get("RATE_LIMIT_TTL_MS", { infer: true }),
+            limit: config.get("RATE_LIMIT_MAX", { infer: true }),
+          },
+          {
+            // Trần theo IP chặn lạm dụng khi throttler mặc định đếm theo phiên đăng nhập.
+            name: IP_THROTTLER,
+            ttl: config.get("RATE_LIMIT_TTL_MS", { infer: true }),
+            limit: config.get("RATE_LIMIT_IP_MAX", { infer: true }),
+          },
+          {
+            // Chỉ áp cho route gắn @AuthRateLimit(), đếm theo cặp IP + tài khoản.
+            name: AUTH_THROTTLER,
+            ttl: config.get("AUTH_RATE_LIMIT_TTL_MS", { infer: true }),
+            limit: config.get("AUTH_RATE_LIMIT_MAX", { infer: true }),
+          },
+        ],
       }),
     }),
     DatabaseModule,
@@ -41,7 +57,7 @@ import { MaintenanceGuard } from "./system/maintenance.guard.js";
     SystemModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: AppThrottlerGuard },
     { provide: APP_GUARD, useClass: MaintenanceGuard },
   ],
 })

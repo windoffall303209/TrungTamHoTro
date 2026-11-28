@@ -7,6 +7,7 @@ import {
   type ExceptionFilter,
 } from "@nestjs/common";
 import type { Request, Response } from "express";
+import type { ApiErrorEnvelope } from "@wind-of-fall/contracts";
 import type { RequestWithId } from "./request-context.js";
 import { localizeErrorMessage, resolveRequestLocale } from "./error-localization.js";
 
@@ -32,7 +33,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.error(`${request.method} ${request.originalUrl} [${request.requestId}]`, exception instanceof Error ? exception.stack : String(exception));
     }
 
-    response.status(status).json({
+    const payload: ApiErrorEnvelope = {
       error: {
         code: `HTTP_${status}`,
         message,
@@ -42,7 +43,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
         requestId: request.requestId,
         timestamp: new Date().toISOString(),
       },
-    });
+    };
+    // Lỗi quá tải có thể kèm số giây nên chờ; trình duyệt/proxy đọc header Retry-After để thử lại có kiểm soát.
+    const retryAfter = typeof raw === "object" && raw !== null && "retryAfterSeconds" in raw ? Number((raw as { retryAfterSeconds: unknown }).retryAfterSeconds) : undefined;
+    if (status === 503 && retryAfter && Number.isFinite(retryAfter)) response.setHeader("Retry-After", String(Math.ceil(retryAfter)));
+    response.status(status).json(payload);
   }
 
   /** Rút thông báo ổn định từ các dạng payload mà HttpException có thể mang theo. */

@@ -1,15 +1,19 @@
 "use client";
 
 import {
+  Eye,
+  EyeOff,
   LockKeyhole,
   Plus,
+  RotateCcw,
   Search,
   UnlockKeyhole,
   UserRoundCog,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { AccessDenied } from "@/components/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { AccessDenied } from "@/shared/auth/access-denied";
 import {
   Button,
   Field,
@@ -17,7 +21,7 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { ApiError, apiRequest } from "@/lib/api-client";
 import { hasEveryPermission, hasPermission } from "@/lib/access-control";
 import type { IdentityUser, RoleCode } from "@/lib/app-types";
@@ -40,8 +44,6 @@ const sameRoles = (left: RoleCode[], right: RoleCode[]): boolean =>
 
 interface UserForm {
   username: string;
-  displayName: string;
-  email: string;
   roleCodes: RoleCode[];
   initialPassword: string;
 }
@@ -65,14 +67,11 @@ interface IdentityChangeImpact {
     regrades: number;
     interventions: number;
     supportTickets: number;
-    moderationReports: number;
     upcomingSessions: number;
   };
 }
 const emptyForm: UserForm = {
   username: "",
-  displayName: "",
-  email: "",
   roleCodes: ["LEARNER"],
   initialPassword: "",
 };
@@ -81,24 +80,37 @@ const emptyForm: UserForm = {
 export default function UsersPage() {
   const { session, notify } = useApp();
   const canView =
-    session.roleCode === "SYSTEM_ADMIN" && hasPermission(session, "user:view");
+    (session.roleCode === "SYSTEM_ADMIN" || session.roleCode === "CENTER_MANAGER") &&
+    hasPermission(session, "user:view");
+  // Quản lý trung tâm chỉ được cấp vai trò giáo viên và học sinh; API áp dụng cùng giới hạn.
+  const assignableRoles =
+    session.roleCode === "SYSTEM_ADMIN"
+      ? roles
+      : roles.filter((role) => role.code === "INSTRUCTOR" || role.code === "LEARNER");
   const canCreate = hasPermission(session, "user:create");
   const canUpdate = hasPermission(session, "user:update");
   const canSuspend = hasEveryPermission(session, [
     "user:update",
     "user:suspend",
   ]);
+  /** Chỉ cho phép quản lý chỉnh sửa người dùng không thuộc nhóm quản trị. */
+  const canEditUser = (user: IdentityUser) =>
+    session.roleCode === "SYSTEM_ADMIN" ||
+    (session.roleCode === "CENTER_MANAGER" &&
+      !(user.roleCodes ?? [user.roleCode]).some((code) => ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(code)));
   const [users, setUsers] = useState<IdentityUser[]>([]);
   const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<RoleCode | "">("");
+  const [statusFilter, setStatusFilter] = useState<IdentityUser["status"] | "">("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [editing, setEditing] = useState<IdentityUser | null>(null);
   const [editStatus, setEditStatus] =
     useState<IdentityUser["status"]>("ACTIVE");
   const [impact, setImpact] = useState<IdentityChangeImpact | null>(null);
   const [handoffUserId, setHandoffUserId] = useState("");
-  const [handoffReason, setHandoffReason] = useState("");
   const [form, setForm] = useState<UserForm>(emptyForm);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -109,21 +121,31 @@ export default function UsersPage() {
   // Tìm người nhận độc lập với trang tài khoản đang hiển thị.
   useEffect(() => {
     if (!impact?.requiresHandoff) return;
+    let active = true;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       void apiRequest<{ items: IdentityUser[] }>(`/admin/users?pageSize=50&query=${encodeURIComponent(handoffQuery)}`, { roleCode: session.roleCode, signal: controller.signal })
-        .then((data) => setHandoffUsers(data.items)).catch(() => { if (!controller.signal.aborted) setHandoffUsers([]); });
+        .then((data) => { if (active && !controller.signal.aborted) setHandoffUsers(data.items); })
+        .catch(() => { if (active && !controller.signal.aborted) setHandoffUsers([]); });
     }, 220);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => { active = false; window.clearTimeout(timer); controller.abort(); };
   }, [handoffQuery, impact?.requiresHandoff, session.roleCode]);
 
-  /** Nạp danh sách người dùng theo truy vấn tìm kiếm hiện tại. */
+  /** Nạp danh sách người dùng theo truy vấn tìm kiếm và bộ lọc hiện tại. */
   const loadUsers = useCallback(async () => {
     const version = ++requestVersion.current;
     setLoading(true);
     try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+      });
+      if (query.trim()) params.set("query", query.trim());
+      if (roleFilter) params.set("roleCode", roleFilter);
+      if (statusFilter) params.set("status", statusFilter);
+
       const data = await apiRequest<{ items: IdentityUser[]; total: number; active: number; locked: number }>(
-        `/admin/users?page=${page}&pageSize=${pageSize}&query=${encodeURIComponent(query)}`,
+        `/admin/users?${params.toString()}`,
         { roleCode: session.roleCode },
       );
       if (version !== requestVersion.current) return;
@@ -131,25 +153,28 @@ export default function UsersPage() {
       setTotals(data);
       if (page > 1 && !data.items.length) setPage(Math.max(1, Math.ceil(data.total / pageSize)));
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được danh sách người dùng.",
-        "error",
-      );
+      if (version === requestVersion.current) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được danh sách người dùng.",
+          "error",
+        );
+      }
     } finally {
       if (version === requestVersion.current) setLoading(false);
     }
-  }, [notify, query, page, pageSize, session.roleCode]);
+  }, [notify, query, roleFilter, statusFilter, page, pageSize, session.roleCode]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => void loadUsers(), 220);
-    return () => window.clearTimeout(timeout);
+    return () => { window.clearTimeout(timeout); requestVersion.current += 1; };
   }, [loadUsers]);
 
   /** Mở hộp thoại tạo với biểu mẫu người dùng rỗng. */
   const openCreate = () => {
     setForm(emptyForm);
+    setShowPassword(false);
     setCreateOpen(true);
   };
   /** Sao chép thông tin tài khoản đã chọn vào biểu mẫu chỉnh sửa. */
@@ -161,38 +186,29 @@ export default function UsersPage() {
     setEditStatus(status);
     setImpact(null);
     setHandoffUserId("");
-    setHandoffReason("");
     setForm({
       username: user.username,
-      displayName: user.displayName,
-      email: user.email,
       roleCodes: user.roleCodes?.length ? user.roleCodes : [user.roleCode],
       initialPassword: "",
     });
   };
 
-  /** Tạo tài khoản cùng các vai trò ban đầu; bỏ trống mật khẩu để gửi lời mời kích hoạt. */
+  /** Tạo tài khoản chưa xác thực với tên đăng nhập, mật khẩu tạm và các vai trò ban đầu. */
   const createUser = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true);
     try {
-      const created = await apiRequest<IdentityUser>("/admin/users", {
+      await apiRequest<IdentityUser>("/admin/users", {
         method: "POST",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          ...form,
+          username: form.username,
+          initialPassword: form.initialPassword,
           roleCode: form.roleCodes[0],
-          initialPassword: form.initialPassword || undefined,
+          roleCodes: form.roleCodes,
         }),
       });
-      notify(
-        form.initialPassword
-          ? "Đã tạo tài khoản và ghi audit log."
-          : created.invitationSent
-            ? "Đã tạo tài khoản và gửi lời mời kích hoạt."
-            : "Đã tạo tài khoản ở trạng thái chờ; email chưa gửi được, cần kiểm tra cấu hình Resend.",
-        created.invitationSent === false ? "info" : "success",
-      );
+      notify("Đã tạo tài khoản. Hãy gửi tên tài khoản và mật khẩu tạm thời cho người dùng.");
       setCreateOpen(false);
       await loadUsers();
     } catch (error) {
@@ -226,13 +242,11 @@ export default function UsersPage() {
         method: "PATCH",
         roleCode: session.roleCode,
         body: JSON.stringify({
-          displayName: form.displayName,
           roleCode: form.roleCodes[0],
           roleCodes: form.roleCodes,
           status: editStatus,
           impactToken: impact?.token,
           handoffUserId: impact?.requiresHandoff ? handoffUserId : undefined,
-          handoffReason: impact?.requiresHandoff ? handoffReason : undefined,
         }),
       });
       notify("Đã cập nhật tài khoản.");
@@ -250,92 +264,71 @@ export default function UsersPage() {
     }
   };
 
-  /** Khóa hoặc mở khóa tài khoản theo trạng thái hiện tại rồi tải lại danh sách. */
+  /** Khóa hoặc mở khóa tài khoản; tài khoản chưa từng xác thực (chưa có email) mở khóa thì về Chưa xác thực. */
   const toggleLock = (user: IdentityUser) => {
-    const nextStatus = user.status === "LOCKED" ? "ACTIVE" : "LOCKED";
+    const nextStatus = user.status === "LOCKED" ? (user.email ? "ACTIVE" : "PENDING") : "LOCKED";
     openEdit(user, nextStatus);
   };
 
   /** Dùng chung biểu mẫu tạo/sửa và điều chỉnh các trường theo ngữ cảnh. */
   const formContent = (
-    includeEmail: boolean,
+    creating: boolean,
   ) => (
-    <form className="space-y-5" onSubmit={(event) => void (includeEmail ? createUser(event) : updateUser(event))}>
-      {includeEmail ? (
-        <Field label="Tài khoản">
-          <input
-            autoCapitalize="none"
-            autoComplete="username"
-            className={inputClass}
-            maxLength={32}
-            minLength={4}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                username: event.target.value.toLowerCase(),
-              }))
-            }
-            pattern="[A-Za-z0-9][A-Za-z0-9._\-]{3,31}"
-            required
-            spellCheck={false}
-            value={form.username}
-          />
-          <p className="mt-2 text-xs leading-5 text-slate-500">
-            Dùng để đăng nhập; không thể thay đổi sau khi tạo.
-          </p>
-        </Field>
-      ) : null}
-      <Field label="Họ và tên">
-        <input
-          className={inputClass}
-          minLength={2}
-          onChange={(event) =>
-            setForm((current) => ({
-              ...current,
-              displayName: event.target.value,
-            }))
-          }
-          required
-          value={form.displayName}
-        />
-      </Field>
-      {includeEmail ? (
-        <Field label="Email">
-          <input
-            className={inputClass}
-            onChange={(event) =>
-              setForm((current) => ({ ...current, email: event.target.value }))
-            }
-            required
-            type="email"
-            value={form.email}
-          />
-        </Field>
-      ) : null}
-      {includeEmail ? (
-        <Field label="Mật khẩu ban đầu (không bắt buộc)">
-          <input
-            autoComplete="new-password"
-            className={inputClass}
-            minLength={8}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                initialPassword: event.target.value,
-              }))
-            }
-            type="password"
-            value={form.initialPassword}
-          />
-          <p className="mt-2 text-xs text-slate-500">
-            Để trống để gửi liên kết kích hoạt dùng một lần trong 7 ngày. Nếu nhập, mật khẩu phải có ít nhất 8 ký tự.
-          </p>
-        </Field>
+    <form className="space-y-5" onSubmit={(event) => void (creating ? createUser(event) : updateUser(event))}>
+      {creating ? (
+        <>
+          <Field label="Tài khoản">
+            <input
+              autoCapitalize="none"
+              autoComplete="username"
+              className={inputClass}
+              maxLength={32}
+              minLength={4}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  username: event.target.value.toLowerCase(),
+                }))
+              }
+              pattern="[A-Za-z0-9][A-Za-z0-9._\-]{3,31}"
+              required
+              spellCheck={false}
+              value={form.username}
+            />
+          </Field>
+          <Field label="Mật khẩu tạm thời">
+            <span className="relative block">
+              <input
+                autoComplete="new-password"
+                className={`${inputClass} pr-12`}
+                maxLength={128}
+                minLength={8}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    initialPassword: event.target.value,
+                  }))
+                }
+                required
+                type={showPassword ? "text" : "password"}
+                value={form.initialPassword}
+              />
+              <button
+                aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                className="absolute right-1 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-lg text-[var(--ink-soft)] hover:bg-[var(--surface-muted)]"
+                onClick={() => setShowPassword((value) => !value)}
+                type="button"
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </span>
+          </Field>
+        </>
       ) : null}
       <Field label="Vai trò sử dụng">
         <div className="grid gap-2 sm:grid-cols-2">
-          {roles.map((role) => (
-            <label className="flex min-h-11 items-center gap-3 border border-[var(--rule)] bg-[var(--surface)] px-3 py-2 text-sm font-bold" key={role.code}>
+          {assignableRoles.map((role) => (
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 px-3 py-2 text-sm font-bold" key={role.code}>
               <input
                 checked={form.roleCodes.includes(role.code)}
                 className="size-5 accent-[var(--accent-deep)]"
@@ -356,7 +349,7 @@ export default function UsersPage() {
         </div>
         <p className="mt-2 text-xs text-[var(--ink-soft)]">Người dùng chuyển vai trò đang dùng trong header; thêm vai trò không xóa các vai trò còn lại.</p>
       </Field>
-      {!includeEmail ? (
+      {!creating ? (
         <Field label="Trạng thái">
           <select
             className={inputClass}
@@ -366,15 +359,18 @@ export default function UsersPage() {
             }}
             value={editStatus}
           >
+            {editing && !editing.email ? (
+              <option value="PENDING">Chưa xác thực</option>
+            ) : null}
             <option value="ACTIVE">Hoạt động</option>
             <option value="INACTIVE">Ngừng hoạt động</option>
             <option value="LOCKED">Bị khóa</option>
           </select>
         </Field>
       ) : null}
-      {!includeEmail && impact ? (
-        <div className="border-y border-[var(--rule-strong)] bg-[var(--surface-muted)] px-4 py-4">
-          <p className="text-sm font-extrabold">Ảnh hưởng trước khi áp dụng</p>
+      {!creating && impact ? (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/80 dark:bg-amber-950/40 p-4">
+          <p className="text-sm font-extrabold text-amber-950 dark:text-amber-200">Ảnh hưởng trước khi áp dụng</p>
           <ul className="mt-2 space-y-1 text-xs leading-5 text-[var(--ink-soft)]">
             <li>{impact.classes.length} lớp đang phụ trách</li>
             <li>
@@ -384,7 +380,6 @@ export default function UsersPage() {
             </li>
             <li>
               {impact.openWork.supportTickets} phiếu hỗ trợ ·{" "}
-              {impact.openWork.moderationReports} hồ sơ kiểm duyệt
             </li>
             <li>{impact.activeSessions} phiên đăng nhập sẽ bị thu hồi ngay</li>
           </ul>
@@ -424,16 +419,6 @@ export default function UsersPage() {
                     ))}
                 </select>
               </Field>
-              <Field label="Lý do bàn giao">
-                <textarea
-                  className={inputClass}
-                  minLength={5}
-                  onChange={(event) => setHandoffReason(event.target.value)}
-                  required
-                  rows={3}
-                  value={handoffReason}
-                />
-              </Field>
             </div>
           ) : null}
         </div>
@@ -441,7 +426,7 @@ export default function UsersPage() {
       <div className="flex justify-end gap-2 border-t border-slate-100 pt-5">
         <Button
           onClick={() =>
-            includeEmail ? setCreateOpen(false) : setEditing(null)
+            creating ? setCreateOpen(false) : setEditing(null)
           }
           type="button"
           variant="secondary"
@@ -451,15 +436,12 @@ export default function UsersPage() {
         <Button
           disabled={
             form.roleCodes.length === 0 ||
-            Boolean(
-              impact?.requiresHandoff &&
-                (!handoffUserId || handoffReason.trim().length < 5),
-            )
+            Boolean(impact?.requiresHandoff && !handoffUserId)
           }
           loading={saving}
           type="submit"
         >
-          {includeEmail
+          {creating
             ? "Tạo tài khoản"
             : impact
               ? "Xác nhận áp dụng"
@@ -475,7 +457,7 @@ export default function UsersPage() {
   if (!canView) return <AccessDenied />;
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="w-full space-y-4">
       <PageHeader
         actions={
           canCreate ? (
@@ -486,38 +468,165 @@ export default function UsersPage() {
           ) : undefined
         }
         description="Tạo, cập nhật, khóa và khôi phục tài khoản. Mọi thay đổi đều được ghi lại để truy vết."
-        eyebrow="Identity & Access · FUNC-ADM-001"
         title="Quản lý người dùng"
       />
-      <section className="grid grid-cols-2 divide-x divide-slate-200 border-b border-slate-200 md:max-w-md">
-        <div className="py-5 pr-6">
-          <p className="text-2xl font-extrabold">{totals.active}</p>
-          <p className="text-xs font-semibold text-slate-500">Đang hoạt động</p>
+      <section className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-slate-100">{totals.total}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Tổng tài khoản</p>
         </div>
-        <div className="py-5 pl-6">
-          <p className="text-2xl font-extrabold">{totals.locked}</p>
-          <p className="text-xs font-semibold text-slate-500">Đã khóa</p>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-emerald-600 dark:text-emerald-400">{totals.active}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đang hoạt động</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs text-center col-span-2 sm:col-span-1">
+          <p className="tabular text-2xl sm:text-3xl font-extrabold text-rose-600 dark:text-rose-400">{totals.locked}</p>
+          <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Đã khóa</p>
         </div>
       </section>
-      <div className="mt-7 flex items-center gap-3">
-        <div className="relative max-w-md flex-1">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            size={17}
-          />
-          <input
-            aria-label="Tìm kiếm người dùng"
-            className={`${inputClass} pl-10`}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Tìm theo tài khoản, tên hoặc email…"
-            value={query}
-          />
+
+      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[240px] flex-1">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              size={17}
+            />
+            <input
+              aria-label="Tìm kiếm người dùng"
+              className={`${inputClass} pl-10 pr-9`}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Tìm theo tài khoản, tên hoặc email…"
+              value={query}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setPage(1);
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                aria-label="Xóa từ khóa tìm kiếm"
+              >
+                <X size={15} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[170px]">
+              <select
+                aria-label="Lọc theo vai trò"
+                className={`${inputClass} font-medium text-xs sm:text-sm cursor-pointer`}
+                value={roleFilter}
+                onChange={(e) => {
+                  setRoleFilter(e.target.value as RoleCode | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả vai trò</option>
+                {roles.map((r) => (
+                  <option key={r.code} value={r.code}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative min-w-[170px]">
+              <select
+                aria-label="Lọc theo trạng thái"
+                className={`${inputClass} font-medium text-xs sm:text-sm cursor-pointer`}
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as IdentityUser["status"] | "");
+                  setPage(1);
+                }}
+              >
+                <option value="">Tất cả trạng thái</option>
+                <option value="ACTIVE">Đang hoạt động</option>
+                <option value="LOCKED">Đã khóa</option>
+                <option value="PENDING">Chưa xác thực</option>
+              </select>
+            </div>
+
+            {(Boolean(query) || Boolean(roleFilter) || Boolean(statusFilter)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setRoleFilter("");
+                  setStatusFilter("");
+                  setPage(1);
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 transition-colors"
+              >
+                <RotateCcw size={13} />
+                Đặt lại
+              </button>
+            )}
+          </div>
         </div>
+
+        {(Boolean(query) || Boolean(roleFilter) || Boolean(statusFilter)) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+            <span className="font-semibold text-slate-700 dark:text-slate-300">Đang lọc:</span>
+            {query && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-sky-50 dark:bg-sky-950/50 px-2 py-1 text-sky-700 dark:text-sky-300 font-medium">
+                Từ khóa: &quot;{query}&quot;
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    setPage(1);
+                  }}
+                  className="hover:text-sky-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {roleFilter && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 px-2 py-1 text-indigo-700 dark:text-indigo-300 font-medium">
+                Vai trò: {roleLabel[roleFilter as RoleCode] || roleFilter}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoleFilter("");
+                    setPage(1);
+                  }}
+                  className="hover:text-indigo-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            {statusFilter && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 px-2 py-1 text-emerald-700 dark:text-emerald-300 font-medium">
+                Trạng thái: {statusFilter === "ACTIVE" ? "Đang hoạt động" : statusFilter === "LOCKED" ? "Đã khóa" : "Chưa xác thực"}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter("");
+                    setPage(1);
+                  }}
+                  className="hover:text-emerald-900"
+                >
+                  <X size={12} />
+                </button>
+              </span>
+            )}
+            <span className="ml-auto text-xs text-slate-500 font-medium">
+              Tìm thấy <strong className="text-slate-800 dark:text-slate-200">{totals.total}</strong> tài khoản
+            </span>
+          </div>
+        )}
       </div>
-      <div className="mt-5 overflow-hidden border-y border-[var(--rule-strong)] bg-[var(--surface)]/65">
+      <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left">
             <thead className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wider text-[var(--ink-soft)]">
@@ -566,9 +675,11 @@ export default function UsersPage() {
                           <p className="mt-0.5 text-xs font-semibold text-[var(--ink-soft)]">
                             @{user.username}
                           </p>
-                          <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
-                            {user.email}
-                          </p>
+                          {user.email ? (
+                            <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                              {user.email}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -580,7 +691,7 @@ export default function UsersPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-1">
-                        {canUpdate ? (
+                        {canUpdate && canEditUser(user) ? (
                           <Button
                             aria-label={`Sửa ${user.displayName}`}
                             onClick={() => openEdit(user)}
@@ -590,7 +701,7 @@ export default function UsersPage() {
                             Sửa
                           </Button>
                         ) : null}
-                        {canSuspend ? (
+                        {canSuspend && canEditUser(user) ? (
                           <Button
                             aria-label={`${user.status === "LOCKED" ? "Mở khóa" : "Khóa"} ${user.displayName}`}
                             onClick={() => void toggleLock(user)}
@@ -627,7 +738,7 @@ export default function UsersPage() {
         totalItems={totals.total}
       />
       <Modal
-        description="Tài khoản được kích hoạt ngay với vai trò và mật khẩu ban đầu do quản trị viên cấp."
+        description="Tài khoản mới được tạo ở trạng thái chưa xác thực với mật khẩu tạm thời do bạn cấp."
         onClose={() => setCreateOpen(false)}
         open={canCreate && createOpen}
         title="Tạo tài khoản"

@@ -10,8 +10,8 @@ import {
   Send,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PageHeader } from "@/components/page-header";
-import { SectionState } from "@/components/section-state";
+import { PageHeader } from "@/shared/ui/page-header";
+import { SectionState } from "@/shared/ui/section-state";
 import {
   Button,
   Field,
@@ -19,8 +19,8 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-  usePagination,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
 import type {
   LearningNotification,
@@ -34,7 +34,16 @@ export default function SupportPage() {
   const { session, notify } = useApp();
   const admin = ["SYSTEM_ADMIN", "CENTER_MANAGER"].includes(session.roleCode);
   const [items, setItems] = useState<Ticket[]>([]);
-  const pagination = usePagination(items);
+  const pagination = useServerPagination(10);
+  const {
+    page: ticketPage,
+    displayPage: ticketDisplayPage,
+    pageSize: ticketPageSize,
+    totalItems: ticketTotalItems,
+    setPage: setTicketPage,
+    setPageSize: setTicketPageSize,
+    syncResponse: syncTicketPage,
+  } = pagination;
   const [alerts, setAlerts] = useState<LearningNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -47,6 +56,8 @@ export default function SupportPage() {
   const [clientRequestId, setClientRequestId] = useState("");
   const [creating, setCreating] = useState(false);
   const creatingRef = useRef(false);
+  const loadRequestId = useRef(0);
+  const conversationRequestId = useRef(0);
   const [uploadRetry, setUploadRetry] = useState<{
     ticketId: string;
     file: File;
@@ -62,34 +73,48 @@ export default function SupportPage() {
     setClientRequestId(crypto.randomUUID());
     setOpen(true);
   };
-  /** Nạp danh sách phiếu theo vai trò và cập nhật hội thoại đang mở nếu cần. */
+  /** Nạp danh sách phiếu phân trang từ DB theo vai trò và cập nhật hội thoại đang mở nếu cần. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
     try {
-      const [tickets, notifications] = await Promise.all([
-        apiRequest<Ticket[]>("/support/tickets", {
-          roleCode: session.roleCode,
-        }),
+      const [ticketsResult, notifications] = await Promise.all([
+        apiRequest<PaginatedResponse<Ticket> | Ticket[]>(
+          `/support/tickets/page?page=${ticketPage}&pageSize=${ticketPageSize}`,
+          { roleCode: session.roleCode },
+        ),
         admin
           ? apiRequest<LearningNotification[]>("/notifications", {
               roleCode: session.roleCode,
             })
           : Promise.resolve([]),
       ]);
-      setItems(tickets);
+      if (requestId !== loadRequestId.current) return;
+      if (Array.isArray(ticketsResult)) {
+        setItems(ticketsResult);
+        syncTicketPage({ total: ticketsResult.length, page: 1, totalPages: 1 });
+      } else {
+        setItems(Array.isArray(ticketsResult.items) ? ticketsResult.items : []);
+        syncTicketPage(ticketsResult);
+      }
       setAlerts(notifications.filter((item) => item.type === "SUPPORT_P0"));
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được yêu cầu.",
-        "error",
+      if (requestId === loadRequestId.current) notify(
+        error instanceof Error ? error.message : "Không tải được yêu cầu.", "error",
       );
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, [admin, notify, session.roleCode]);
+  }, [admin, notify, session.roleCode, syncTicketPage, ticketPage, ticketPageSize]);
   useEffect(() => {
+    const loadSequence = loadRequestId;
+    const conversationSequence = conversationRequestId;
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadSequence.current++;
+      conversationSequence.current++;
+    };
   }, [load]);
   /** Mở đúng phiếu từ thông báo sau khi kiểm tra phạm vi trả về của API. */
   useEffect(() => {
@@ -276,18 +301,18 @@ export default function SupportPage() {
   };
   /** Chọn phiếu và nạp lịch sử trao đổi đầy đủ của phiếu đó. */
   const openConversation = async (item: Ticket) => {
+    const requestId = ++conversationRequestId.current;
+    if (selected?.id !== item.id) setComments([]);
+    setSelected(item);
     try {
-      setSelected(item);
-      setComments(
-        await apiRequest<TicketComment[]>(
-          `/support/tickets/${item.id}/comments`,
-          { roleCode: session.roleCode },
-        ),
+      const rows = await apiRequest<TicketComment[]>(
+        `/support/tickets/${item.id}/comments`,
+        { roleCode: session.roleCode },
       );
+      if (requestId === conversationRequestId.current) setComments(rows);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được trao đổi.",
-        "error",
+      if (requestId === conversationRequestId.current) notify(
+        error instanceof Error ? error.message : "Không tải được trao đổi.", "error",
       );
     }
   };
@@ -312,9 +337,8 @@ export default function SupportPage() {
     }
   };
   return (
-    <div className="mx-auto max-w-6xl px-5 py-8 md:px-8 md:py-10">
+    <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
       <PageHeader
-        eyebrow="Service Desk"
         title="Trung tâm hỗ trợ"
         description="Tiếp nhận, phân loại mức độ và theo dõi yêu cầu đến khi có kết quả."
         actions={
@@ -348,14 +372,14 @@ export default function SupportPage() {
       ) : null}
       <SectionState loading={loading} empty={items.length === 0}>
         <div className="space-y-3">
-          {pagination.pageItems.map((item) => (
+          {items.map((item) => (
             <article
-              className="grid gap-4 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-5 md:grid-cols-[auto_1fr_auto] md:items-center"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 shadow-xs hover:border-sky-300 dark:hover:border-sky-700 transition-all grid gap-4 md:grid-cols-[auto_1fr_auto] md:items-center"
               id={`ticket-${item.id}`}
               key={item.id}
             >
               <div
-                className={`grid size-11 place-items-center rounded-xl ${item.severity === "P0" || item.severity === "P1" ? "bg-rose-100 text-rose-700" : "bg-sky-50 text-sky-700"}`}
+                className={`grid size-11 place-items-center rounded-xl border ${item.severity === "P0" || item.severity === "P1" ? "bg-rose-50 dark:bg-rose-950/40 border-rose-200/80 dark:border-rose-900/50 text-rose-600 dark:text-rose-400" : "bg-sky-50 dark:bg-sky-950/40 border-sky-100 dark:border-sky-900/50 text-sky-600 dark:text-sky-400"}`}
               >
                 <LifeBuoy size={21} />
               </div>
@@ -463,11 +487,11 @@ export default function SupportPage() {
       </SectionState>
       <Pagination
         itemLabel="yêu cầu hỗ trợ"
-        onPageChange={pagination.setPage}
-        onPageSizeChange={pagination.setPageSize}
-        page={pagination.page}
-        pageSize={pagination.pageSize}
-        totalItems={pagination.totalItems}
+        onPageChange={setTicketPage}
+        onPageSizeChange={setTicketPageSize}
+        page={ticketDisplayPage}
+        pageSize={ticketPageSize}
+        totalItems={ticketTotalItems}
       />
       <Modal
         open={open}
@@ -540,7 +564,7 @@ export default function SupportPage() {
       </Modal>
       <Modal
         open={Boolean(selected)}
-        onClose={() => setSelected(null)}
+        onClose={() => { conversationRequestId.current++; setSelected(null); setComments([]); }}
         title="Trao đổi yêu cầu hỗ trợ"
         description={
           selected

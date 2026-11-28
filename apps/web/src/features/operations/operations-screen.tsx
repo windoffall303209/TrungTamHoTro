@@ -1,7 +1,7 @@
 "use client";
-import { AccessDenied } from "@/components/access-denied";
-import { PageHeader } from "@/components/page-header";
-import { RequestError } from "@/components/request-error";
+import { AccessDenied } from "@/shared/auth/access-denied";
+import { PageHeader } from "@/shared/ui/page-header";
+import { RequestError } from "@/shared/ui/request-error";
 import {
   Button,
   Field,
@@ -9,24 +9,17 @@ import {
   Modal,
   Pagination,
   StatusBadge,
-} from "@/components/ui";
+} from "@/shared/ui/ui";
 import { activeLocale } from "@/i18n/runtime";
 import { downloadApiFile } from "@/lib/api-client";
-import {
-  BellRing,
-  DatabaseZap,
-  FileClock,
-  Plus,
-  Search,
-  ShieldAlert,
-} from "lucide-react";
-import { operationalStatusText, Policy } from "./operations.shared";
+import { DatabaseZap, FileClock, Search } from "lucide-react";
+import { operationalStatusText } from "./operations.shared";
 import { useOperationsModel } from "./use-operations-model";
 import { useState } from "react";
 import {
   OperationsNavigation,
   type OperationsView,
-} from "./operations-navigation";
+} from "@/roles/manager/operations-navigation";
 
 /** Lắp ghép màn hình vận hành từ trạng thái, hành động và các thành phần nghiệp vụ. */
 export default function OperationsScreen() {
@@ -38,67 +31,31 @@ export default function OperationsScreen() {
     backups,
     exports,
     restores,
-    policy,
-    setPolicy,
     query,
     setQuery,
     auditFilter,
     setAuditFilter,
-    retentionPreview,
-    retentionPolicies,
-    retentionBusy,
-    retentionJobs,
-    legalHolds,
-    retentionForm,
-    setRetentionForm,
-    alerts,
     cleanupFailures,
     outboxStats,
     auditPagination,
-    templatePagination,
-    alertPagination,
-    templateOpen,
-    setTemplateOpen,
     restoreOpen,
     setRestoreOpen,
-    legalHoldOpen,
-    setLegalHoldOpen,
-    releaseHold,
-    setReleaseHold,
-    legalHoldForm,
-    setLegalHoldForm,
-    releaseReason,
-    setReleaseReason,
     restoreForm,
     setRestoreForm,
-    form,
-    setForm,
     requestRestore,
     approveRestore,
     retryCleanup,
     exportData,
     exportAudit,
-    previewRetention,
-    saveRetention,
-    runRetention,
-    approveRetention,
-    verifyRetention,
     runBackup,
-    createLegalHold,
-    releaseLegalHold,
-    actOnAlert,
-    saveTemplate,
-    testTemplate,
-    savePolicy,
   } = model;
 
   if (!canConfigure) return <AccessDenied />;
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8 md:px-8 md:py-10">
+    <div className="w-full space-y-4">
       <PageHeader
-        eyebrow="Governance & Compliance"
         title="Vận hành và tuân thủ"
-        description="Truy vết thay đổi, phục hồi dữ liệu, xuất báo cáo, thông báo và kiểm duyệt tập trung."
+        description="Xem nhật ký hoạt động, sao lưu, khôi phục và xuất dữ liệu."
       />
       <OperationsNavigation value={view} onChange={setView} />
       <RequestError
@@ -108,7 +65,7 @@ export default function OperationsScreen() {
       <div className="grid gap-7">
         <section
           hidden={view !== "monitoring"}
-          className="order-2 border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -131,11 +88,11 @@ export default function OperationsScreen() {
               />
             </div>
           </div>
-          <details className="mt-4 border-y border-[var(--rule)] py-2">
-            <summary className="min-h-11 cursor-pointer py-3 text-sm font-bold text-[var(--ink)]">
+          <details className="mt-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 p-4">
+            <summary className="cursor-pointer py-1 text-sm font-bold text-slate-800 dark:text-slate-200">
               Bộ lọc chi tiết
             </summary>
-            <div className="grid gap-3 pb-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Người thực hiện">
                 <input
                   aria-label="Lọc người thực hiện"
@@ -259,7 +216,7 @@ export default function OperationsScreen() {
         </section>
         <section
           hidden={view !== "data"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
+          className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5 sm:p-6 shadow-xs"
         >
           <div className="flex items-center gap-3">
             <DatabaseZap className="text-sky-700" />
@@ -362,9 +319,9 @@ export default function OperationsScreen() {
                 )}
               </div>
             ))}
-            <div className="rounded-xl border border-[var(--rule)] p-3">
-              <p className="text-sm font-bold">Hàng đợi email</p>
-              <p className="mt-1 text-xs text-[var(--ink-soft)]">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 shadow-xs">
+              <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Hàng đợi email</p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Chờ {outboxStats.PENDING ?? 0} · lỗi chờ retry{" "}
                 {outboxStats.FAILED ?? 0} · đã gửi {outboxStats.DELIVERED ?? 0}
               </p>
@@ -392,441 +349,6 @@ export default function OperationsScreen() {
             ))}
           </div>
         </section>
-        <section
-          hidden={view !== "content"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BellRing className="text-sky-700" />
-              <h2 className="font-heading text-xl font-extrabold">
-                Mẫu thông báo
-              </h2>
-            </div>
-            <Button onClick={() => setTemplateOpen(true)} variant="secondary">
-              <Plus size={15} />
-              Tạo mẫu
-            </Button>
-          </div>
-          <div className="mt-5 space-y-3">
-            {templatePagination.pageItems.map((item) => (
-              <div
-                className="rounded-xl border border-slate-100 p-4"
-                key={item.id}
-              >
-                <div className="flex justify-between">
-                  <p className="text-xs font-extrabold text-sky-700">
-                    {item.eventCode} · {item.locale}
-                  </p>
-                  <StatusBadge status={item.status} />
-                </div>
-                <p className="mt-2 text-sm font-bold">{item.subject}</p>
-                <p className="mt-1 line-clamp-2 text-xs text-[var(--ink-soft)]">
-                  {item.body}
-                </p>
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-xs font-bold text-[var(--ink-soft)]">
-                    Phiên bản {item.version}
-                  </p>
-                  <Button
-                    onClick={() => void testTemplate(item)}
-                    variant="ghost"
-                  >
-                    Gửi thử
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-          <Pagination
-            itemLabel="mẫu thông báo"
-            onPageChange={templatePagination.setPage}
-            onPageSizeChange={templatePagination.setPageSize}
-            page={templatePagination.page}
-            pageSize={templatePagination.pageSize}
-            totalItems={templatePagination.totalItems}
-          />
-        </section>
-        <section
-          hidden={view !== "content"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
-        >
-          <div className="flex items-center gap-3">
-            <ShieldAlert className="text-sky-700" />
-            <h2 className="font-heading text-xl font-extrabold">
-              Chính sách kiểm duyệt
-            </h2>
-          </div>
-          {policy ? (
-            <div className="mt-5 space-y-4">
-              <Field label="Từ khóa cấm — ngăn cách bằng dấu phẩy">
-                <textarea
-                  className={inputClass}
-                  rows={3}
-                  value={policy.prohibitedTerms.join(", ")}
-                  onChange={(e) =>
-                    setPolicy({
-                      ...policy,
-                      prohibitedTerms: e.target.value
-                        .split(",")
-                        .map((v) => v.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </Field>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Số bài/phút">
-                  <input
-                    className={inputClass}
-                    min={1}
-                    max={100}
-                    type="number"
-                    value={policy.maxPostsPerMinute}
-                    onChange={(e) =>
-                      setPolicy({
-                        ...policy,
-                        maxPostsPerMinute: Number(e.target.value),
-                      })
-                    }
-                  />
-                </Field>
-                <Field label="Hành động">
-                  <select
-                    className={inputClass}
-                    value={policy.action}
-                    onChange={(e) =>
-                      setPolicy({
-                        ...policy,
-                        action: e.target.value as Policy["action"],
-                      })
-                    }
-                  >
-                    <option value="FLAG">Gắn cờ</option>
-                    <option value="HIDE_PENDING_REVIEW">Ẩn chờ duyệt</option>
-                  </select>
-                </Field>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-[var(--ink-soft)]">
-                  Phiên bản {policy.version}
-                </p>
-                <Button onClick={() => void savePolicy()}>
-                  Phát hành chính sách
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-5 h-52 animate-pulse rounded-xl bg-slate-100" />
-          )}
-        </section>
-        <section
-          hidden={view !== "data"}
-          className="border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
-        >
-          <div className="flex items-center gap-3">
-            <DatabaseZap className="text-sky-700" />
-            <h2 className="font-heading text-xl font-extrabold">
-              Lưu giữ và bảo toàn dữ liệu
-            </h2>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <Field label="Loại dữ liệu">
-              <select
-                className={inputClass}
-                value={retentionForm.category}
-                onChange={(event) =>
-                  setRetentionForm({
-                    ...retentionForm,
-                    category: event.target.value,
-                  })
-                }
-              >
-                <option value="LEARNING">Dữ liệu học tập</option>
-                <option value="AI_RESULTS">Kết quả AI đã lưu</option>
-                <option value="AUDIT">Audit log</option>
-                <option value="SUPPORT">Hỗ trợ</option>
-              </select>
-            </Field>
-            <Field label="Thời hạn (ngày)">
-              <input
-                className={inputClass}
-                min={30}
-                max={3650}
-                type="number"
-                value={retentionForm.retentionDays}
-                onChange={(event) =>
-                  setRetentionForm({
-                    ...retentionForm,
-                    retentionDays: Number(event.target.value),
-                  })
-                }
-              />
-            </Field>
-            <Field label="Hành động">
-              <select
-                className={inputClass}
-                value={retentionForm.action}
-                onChange={(event) =>
-                  setRetentionForm({
-                    ...retentionForm,
-                    action: event.target.value as "ARCHIVE" | "DELETE",
-                  })
-                }
-              >
-                <option value="ARCHIVE">Lưu trữ</option>
-                <option value="DELETE">Xóa theo chính sách</option>
-              </select>
-            </Field>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button onClick={() => void previewRetention()} variant="secondary">
-              Mô phỏng tác động
-            </Button>
-            <Button onClick={() => void saveRetention()}>
-              Phát hành chính sách
-            </Button>
-          </div>
-          {retentionForm.category === "AI_RESULTS" ? (
-            <p className="mt-3 text-xs leading-5 text-[var(--ink-soft)]">
-              Chỉ xử lý kết quả AI ở trạng thái đã lưu và quá hạn. Tác vụ đang
-              xử lý, chưa rõ kết quả và bộ ôn tập đã phát hành luôn được giữ để
-              đối soát hoặc tiếp tục sử dụng.
-            </p>
-          ) : null}
-          {retentionPreview ? (
-            <div className="mt-4 grid grid-cols-3 divide-x divide-[var(--rule)] border-y border-[var(--rule)] py-4 text-center">
-              <div>
-                <strong>{retentionPreview.estimatedRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Đủ điều kiện</p>
-              </div>
-              <div>
-                <strong>{retentionPreview.legalHoldRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Legal hold</p>
-              </div>
-              <div>
-                <strong>{retentionPreview.deletableRows}</strong>
-                <p className="text-xs text-[var(--ink-soft)]">Sẽ xử lý</p>
-              </div>
-            </div>
-          ) : null}
-          <div className="mt-6 border-t border-[var(--rule)] pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="font-heading text-base font-extrabold">
-                  Legal hold đang theo dõi
-                </h3>
-                <p className="mt-1 text-xs leading-5 text-[var(--ink-soft)]">
-                  Mỗi hold bảo vệ độc lập; giải tỏa một hold không tự xóa dữ
-                  liệu hoặc chạy retention.
-                </p>
-              </div>
-              <Button
-                onClick={() => setLegalHoldOpen(true)}
-                variant="secondary"
-              >
-                <ShieldAlert size={15} />
-                Tạo legal hold
-              </Button>
-            </div>
-            <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
-              {legalHolds.length ? (
-                legalHolds.map((item) => (
-                  <article
-                    className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between"
-                    key={item.id}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <strong className="text-sm">{item.category}</strong>
-                        <StatusBadge
-                          status={item.active ? "ACTIVE" : "RELEASED"}
-                        />
-                      </div>
-                      <p className="mt-1 text-sm leading-6 text-[var(--ink-soft)]">
-                        {item.reason}
-                      </p>
-                      <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                        Tạo bởi {item.createdBy} ·{" "}
-                        {new Date(item.createdAt).toLocaleString(
-                          activeLocale(),
-                        )}
-                      </p>
-                      {!item.active && item.releaseReason ? (
-                        <p className="mt-1 text-xs text-[var(--ink-muted)]">
-                          Giải tỏa bởi {item.releasedBy}: {item.releaseReason}
-                        </p>
-                      ) : null}
-                    </div>
-                    {item.active ? (
-                      <Button
-                        onClick={() => {
-                          setReleaseHold(item);
-                          setReleaseReason("");
-                        }}
-                        variant="ghost"
-                      >
-                        Giải tỏa
-                      </Button>
-                    ) : null}
-                  </article>
-                ))
-              ) : (
-                <p className="py-4 text-sm text-[var(--ink-soft)]">
-                  Chưa có legal hold.
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="mt-4 divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
-            {retentionPolicies.slice(0, 4).map((item) => (
-              <div
-                className="flex items-center justify-between gap-3 py-4"
-                key={item.id}
-              >
-                <div>
-                  <p className="text-sm font-bold">
-                    {item.category} · v{item.version} · {item.action}
-                  </p>
-                  <p className="text-xs text-[var(--ink-soft)]">
-                    {item.retentionDays} ngày · duyệt bởi {item.approvedBy}
-                  </p>
-                </div>
-                <Button
-                  disabled={Boolean(retentionBusy)}
-                  loading={retentionBusy === item.id}
-                  onClick={() => void runRetention(item)}
-                  variant="ghost"
-                >
-                  Chạy tác vụ
-                </Button>
-              </div>
-            ))}
-            {retentionJobs.map((item) => (
-              <div
-                className="flex flex-col items-start justify-between gap-3 border-b border-[var(--rule)] py-3 text-sm text-[var(--ink)] sm:flex-row sm:flex-wrap sm:items-center"
-                key={item.id}
-              >
-                <div className="min-w-0 flex-1 break-words">
-                  <p className="font-bold">
-                    {String(item.evidence.category ?? item.policyId)} ·{" "}
-                    {String(item.evidence.action ?? "")}
-                  </p>
-                  <p className="text-xs text-[var(--ink-soft)]">
-                    {item.requestedBy} ·{" "}
-                    {typeof item.evidence.cutoffAt === "string"
-                      ? new Date(item.evidence.cutoffAt).toLocaleDateString(
-                          activeLocale(),
-                        )
-                      : ""}
-                  </p>
-                  <p>
-                    {item.status === "PENDING" && !item.approvedAt
-                      ? "Chờ quản trị viên khác phê duyệt"
-                      : operationalStatusText(item)}{" "}
-                    · xử lý {item.affectedRows}, giữ {item.skippedRows}
-                  </p>
-                </div>
-                {item.status === "PENDING" && !item.approvedAt ? (
-                  <Button
-                    disabled={
-                      Boolean(retentionBusy) ||
-                      item.requestedBy === session.user.id
-                    }
-                    loading={retentionBusy === item.id}
-                    onClick={() => void approveRetention(item)}
-                    variant="secondary"
-                  >
-                    Phê duyệt tác vụ
-                  </Button>
-                ) : null}
-                {typeof item.evidence.archiveObjectKey === "string" ? (
-                  <Button
-                    onClick={() => void verifyRetention(item)}
-                    variant="ghost"
-                  >
-                    Kiểm tra phục hồi
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
-        </section>
-        <section
-          hidden={view !== "monitoring"}
-          className="order-first border-y border-[var(--rule-strong)] bg-[var(--surface)]/65 p-4 sm:p-6"
-        >
-          <div className="flex items-center gap-3">
-            <ShieldAlert className="text-rose-600" />
-            <h2 className="font-heading text-xl font-extrabold">
-              Cảnh báo hệ thống
-            </h2>
-          </div>
-          <p className="mt-2 text-sm text-[var(--ink-soft)]">
-            Nhận xử lý cảnh báo, tạm dừng thông báo hoặc đánh dấu đã khôi phục.
-            Các cảnh báo trùng được tự động gộp.
-          </p>
-          <div className="mt-5 space-y-3">
-            {alerts.length ? (
-              alertPagination.pageItems.map((item) => (
-                <article
-                  className={`rounded-xl border p-4 ${item.severity === "CRITICAL" ? "border-rose-200 bg-rose-50" : "border-amber-200 bg-amber-50"}`}
-                  key={item.id}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-extrabold uppercase">
-                        {item.serviceName} · {item.severity}
-                      </p>
-                      <p className="mt-1 text-sm font-bold">{item.summary}</p>
-                      <p className="mt-1 text-xs text-[var(--ink-soft)]">
-                        Phát hiện{" "}
-                        {new Date(item.detectedAt).toLocaleString(
-                          activeLocale(),
-                        )}
-                      </p>
-                    </div>
-                    <StatusBadge status={item.status} />
-                  </div>
-                  {item.status !== "RESOLVED" ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        onClick={() => void actOnAlert(item, "ACKNOWLEDGE")}
-                        variant="ghost"
-                      >
-                        Nhận xử lý
-                      </Button>
-                      <Button
-                        onClick={() => void actOnAlert(item, "MUTE")}
-                        variant="ghost"
-                      >
-                        Im lặng 60 phút
-                      </Button>
-                      <Button
-                        onClick={() => void actOnAlert(item, "RESOLVE")}
-                        variant="secondary"
-                      >
-                        Đóng cảnh báo
-                      </Button>
-                    </div>
-                  ) : null}
-                </article>
-              ))
-            ) : (
-              <p className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">
-                Không có cảnh báo đang ghi nhận.
-              </p>
-            )}
-          </div>
-          <Pagination
-            itemLabel="cảnh báo"
-            onPageChange={alertPagination.setPage}
-            onPageSizeChange={alertPagination.setPageSize}
-            page={alertPagination.page}
-            pageSize={alertPagination.pageSize}
-            totalItems={alertPagination.totalItems}
-          />
-        </section>
       </div>
       <Modal
         open={restoreOpen}
@@ -837,6 +359,29 @@ export default function OperationsScreen() {
           className="space-y-4"
           onSubmit={(event) => void requestRestore(event)}
         >
+          <Field label="Bản sao lưu nguồn">
+            <select
+              className={inputClass}
+              required
+              value={restoreForm.backupId}
+              onChange={(event) =>
+                setRestoreForm({ ...restoreForm, backupId: event.target.value })
+              }
+            >
+              <option value="">
+                {backups.some((item) => item.canRestore)
+                  ? "Chọn bản sao lưu đã hoàn tất"
+                  : "Chưa có bản sao lưu có thể khôi phục"}
+              </option>
+              {backups
+                .filter((item) => item.canRestore)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.id} · {new Date(item.createdAt).toLocaleString(activeLocale())}
+                  </option>
+                ))}
+            </select>
+          </Field>
           <Field label="Chế độ">
             <select
               className={inputClass}
@@ -870,158 +415,20 @@ export default function OperationsScreen() {
               />
             </Field>
           ) : null}
-          <Field label="Lý do">
-            <textarea
-              className={inputClass}
-              minLength={10}
-              required
-              rows={3}
-              value={restoreForm.reason}
-              onChange={(event) =>
-                setRestoreForm({ ...restoreForm, reason: event.target.value })
-              }
-            />
-          </Field>
           <p className="text-xs leading-5 text-[var(--ink-soft)]">
             Người tạo yêu cầu không thể tự phê duyệt. Chế độ vận hành chỉ chạy
             khi hệ thống đang bảo trì và không ghi đè database hiện tại.
           </p>
-          <Button type="submit">Gửi yêu cầu</Button>
-        </form>
-      </Modal>
-      <Modal
-        open={legalHoldOpen}
-        onClose={() => setLegalHoldOpen(false)}
-        title="Tạo legal hold"
-        description="Hold có hiệu lực ngay cho toàn bộ danh mục và được ghi vào audit log."
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void createLegalHold(event)}
-        >
-          <Field label="Loại dữ liệu">
-            <select
-              className={inputClass}
-              value={legalHoldForm.category}
-              onChange={(event) =>
-                setLegalHoldForm({
-                  ...legalHoldForm,
-                  category: event.target.value,
-                })
-              }
-            >
-              <option value="LEARNING">Dữ liệu học tập</option>
-              <option value="AI_RESULTS">Kết quả AI đã lưu</option>
-              <option value="AUDIT">Audit log</option>
-              <option value="SUPPORT">Hỗ trợ</option>
-            </select>
-          </Field>
-          <Field label="Lý do bảo toàn">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              maxLength={500}
-              required
-              rows={4}
-              value={legalHoldForm.reason}
-              onChange={(event) =>
-                setLegalHoldForm({
-                  ...legalHoldForm,
-                  reason: event.target.value,
-                })
-              }
-            />
-          </Field>
           <Button
-            disabled={legalHoldForm.reason.trim().length < 5}
+            disabled={
+              !backups.some(
+                (item) => item.canRestore && item.id === restoreForm.backupId,
+              )
+            }
             type="submit"
           >
-            Kích hoạt hold
+            Gửi yêu cầu
           </Button>
-        </form>
-      </Modal>
-      <Modal
-        open={Boolean(releaseHold)}
-        onClose={() => setReleaseHold(null)}
-        title="Giải tỏa legal hold"
-        description={
-          releaseHold
-            ? `${releaseHold.category} · ${releaseHold.reason}`
-            : undefined
-        }
-      >
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void releaseLegalHold(event)}
-        >
-          <Field label="Lý do giải tỏa">
-            <textarea
-              className={inputClass}
-              minLength={5}
-              maxLength={500}
-              required
-              rows={4}
-              value={releaseReason}
-              onChange={(event) => setReleaseReason(event.target.value)}
-            />
-          </Field>
-          <p className="text-xs leading-5 text-[var(--ink-soft)]">
-            Thao tác chỉ giải tỏa hold này. Dữ liệu không bị xử lý cho đến khi
-            có một lệnh retention riêng được phê duyệt.
-          </p>
-          <Button
-            disabled={releaseReason.trim().length < 5}
-            type="submit"
-            variant="danger"
-          >
-            Xác nhận giải tỏa
-          </Button>
-        </form>
-      </Modal>
-      <Modal
-        open={templateOpen}
-        onClose={() => setTemplateOpen(false)}
-        title="Phát hành mẫu thông báo"
-      >
-        <form className="space-y-4" onSubmit={(e) => void saveTemplate(e)}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Mã sự kiện">
-              <input
-                className={inputClass}
-                required
-                value={form.eventCode}
-                onChange={(e) =>
-                  setForm({ ...form, eventCode: e.target.value.toUpperCase() })
-                }
-              />
-            </Field>
-            <Field label="Ngôn ngữ">
-              <input
-                className={inputClass}
-                required
-                value={form.locale}
-                onChange={(e) => setForm({ ...form, locale: e.target.value })}
-              />
-            </Field>
-          </div>
-          <Field label="Tiêu đề">
-            <input
-              className={inputClass}
-              required
-              value={form.subject}
-              onChange={(e) => setForm({ ...form, subject: e.target.value })}
-            />
-          </Field>
-          <Field label="Nội dung">
-            <textarea
-              className={inputClass}
-              required
-              rows={5}
-              value={form.body}
-              onChange={(e) => setForm({ ...form, body: e.target.value })}
-            />
-          </Field>
-          <Button type="submit">Phát hành</Button>
         </form>
       </Modal>
     </div>

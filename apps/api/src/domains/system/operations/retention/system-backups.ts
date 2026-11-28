@@ -1,0 +1,352 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import { withTemporaryFile } from "../../../../infrastructure/file-streams.js";
+import { startOperationalLease } from "../operational-lease.js";
+import { BackupRun, RestoreRun } from "../../core/system.shared.js";
+import type { SystemServiceContext } from "../../core/system.context.js";
+
+const backupLogger = new Logger("SystemBackups");
+
+/** Liệt kê các job sao lưu từ DB hoặc dữ liệu nhớ demo. */
+export async function listBackups(
+  serviceContext: SystemServiceContext,
+): Promise<BackupRun[]> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "BACKUP" },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => serviceContext.mapBackup(row));
+  }
+  return structuredClone(serviceContext.backups);
+}
+
+/** Xếp sao lưu vào hàng đợi bền vững để request không phải chờ tác vụ nặng. */
+export async function runBackup(
+  serviceContext: SystemServiceContext,
+  type: BackupRun["type"],
+  actorId: string,
+): Promise<BackupRun> {
+  if (type === "INCREMENTAL")
+    throw new BadRequestException(
+      "Sao lưu gia tăng cần binary log và điểm khôi phục liên tục; hệ thống hiện chỉ cho phép FULL để bảo đảm khôi phục được.",
+    );
+  const prisma = serviceContext.database();
+  if (
+    !prisma ||
+    !serviceContext.databaseBackup ||
+    !serviceContext.objectStorage
+  )
+    throw new ServiceUnavailableException(
+      "Sao lưu thật yêu cầu kết nối database và kho object đang hoạt động.",
+    );
+  const backupId = `backup-${randomUUID()}`;
+  const row = await prisma.operationalJob.create({
+    data: { kind: "BACKUP",
+      id: backupId,
+      type,
+      status: "PENDING",
+      requestedBy: actorId,
+      availableAt: new Date(),
+    },
+  });
+  await serviceContext.logDatabase(
+    prisma,
+    actorId,
+    "BACKUP_QUEUED",
+    row.id,
+    `${type} · chờ worker xử lý.`,
+  );
+  return serviceContext.mapBackup(row);
+}
+
+/** Database hệ thống của PostgreSQL không bao giờ được làm đích khôi phục. */
+const SYSTEM_DATABASES = new Set(["postgres", "template0", "template1"]);
+
+/** Tên đích trùng database đang vận hành (không phân biệt hoa thường) hoặc database hệ thống/tiền tố pg_. */
+function isReservedRestoreTarget(serviceContext: SystemServiceContext, target: string): boolean {
+  const normalized = target.toLowerCase();
+  return SYSTEM_DATABASES.has(normalized) || normalized.startsWith("pg_") || Boolean(serviceContext.databaseBackup?.isCurrentDatabase(target));
+}
+
+/** Tạo yêu cầu drill hoặc khôi phục vận hành và để trạng thái chờ một quản trị viên khác phê duyệt. */
+export async function requestRestore(
+  serviceContext: SystemServiceContext,
+  input: {
+    backupId: string;
+    mode: "DRILL" | "OPERATIONAL";
+    reason?: string;
+    targetDatabase?: string;
+  },
+  actorId: string,
+): Promise<RestoreRun> {
+  const normalizedReason = input.reason?.trim() || "Yêu cầu khôi phục bản sao lưu";
+  if (
+    input.mode === "OPERATIONAL" &&
+    !/^[a-zA-Z0-9_]+$/.test(input.targetDatabase ?? "")
+  )
+    throw new BadRequestException(
+      "Khôi phục vận hành cần tên database đích mới, chỉ gồm chữ, số và dấu gạch dưới.",
+    );
+  if (input.mode === "OPERATIONAL" && isReservedRestoreTarget(serviceContext, input.targetDatabase!.trim()))
+    throw new BadRequestException(
+      "Database đích không được trùng database đang vận hành hoặc database hệ thống của PostgreSQL.",
+    );
+  const prisma = serviceContext.database();
+  if (!prisma)
+    throw new ServiceUnavailableException(
+      "Khôi phục thật yêu cầu kết nối database.",
+    );
+  const backup = await prisma.operationalJob.findUnique({
+    where: { kind: "BACKUP", id: input.backupId },
+  });
+  if (
+    !backup ||
+    backup.status !== "COMPLETED" ||
+    !backup.checksum ||
+    !backup.objectKey
+  )
+    throw new NotFoundException("Không tìm thấy điểm sao lưu thật hợp lệ.");
+  const row = await prisma.operationalJob.create({
+    data: { kind: "RESTORE",
+      id: `restore-${randomUUID()}`,
+      backupId: input.backupId,
+      mode: input.mode,
+      requestedBy: actorId,
+      reason: normalizedReason,
+      targetDatabase: input.targetDatabase?.trim(),
+      status: "PENDING",
+    },
+  });
+  await serviceContext.logDatabase(
+    prisma,
+    actorId,
+    "RESTORE_REQUESTED",
+    row.id,
+    `${input.mode} · ${normalizedReason}`,
+  );
+  return serviceContext.mapRestore(row);
+}
+
+/** Xác thực người duyệt độc lập rồi chạy drill hoặc phục hồi vào database staging mới. */
+export async function approveRestore(
+  serviceContext: SystemServiceContext,
+  restoreId: string,
+  approverId: string,
+): Promise<RestoreRun> {
+  const prisma = serviceContext.database();
+  if (
+    !prisma ||
+    !serviceContext.databaseBackup ||
+    !serviceContext.objectStorage
+  )
+    throw new ServiceUnavailableException("Dịch vụ khôi phục chưa sẵn sàng.");
+  const restore = await prisma.operationalJob.findUnique({
+    where: { kind: "RESTORE", id: restoreId },
+    include: { backup: true },
+  });
+  if (!restore)
+    throw new NotFoundException("Không tìm thấy yêu cầu khôi phục.");
+  if (restore.status !== "PENDING")
+    throw new BadRequestException(
+      "Yêu cầu khôi phục không còn ở trạng thái chờ duyệt.",
+    );
+  if (restore.requestedBy === approverId)
+    throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
+  const approver = await prisma.user.findUnique({
+    where: { id: approverId },
+    include: {
+      roles: {
+        include: {
+          role: { include: { permissions: { include: { permission: true } } } },
+        },
+      },
+    },
+  });
+  const canApprove =
+    approver?.status === "ACTIVE" &&
+    approver.roles.some((entry) =>
+      entry.role.permissions.some(
+        (grant) => grant.permission.code === "system:configure",
+      ),
+    );
+  if (!canApprove)
+    throw new BadRequestException(
+      "Người phê duyệt không còn tài khoản hoạt động hoặc thiếu quyền vận hành hệ thống.",
+    );
+  if (
+    restore.backup?.kind !== "BACKUP" ||
+    !restore.backup.checksum ||
+    !restore.backup.objectKey ||
+    restore.backup.status !== "COMPLETED"
+  )
+    throw new BadRequestException("Điểm sao lưu không còn hợp lệ.");
+  if (
+    restore.mode === "OPERATIONAL" &&
+    (!restore.targetDatabase?.trim() ||
+      !/^[a-zA-Z0-9_]+$/.test(restore.targetDatabase.trim()) ||
+      isReservedRestoreTarget(serviceContext, restore.targetDatabase.trim()))
+  )
+    throw new BadRequestException(
+      "Database đích không hợp lệ hoặc trùng database đang vận hành hay database hệ thống của PostgreSQL.",
+    );
+  const backup = restore.backup;
+  // Đọc cờ bảo trì, chặn restore song song và gắn hạn lease trong cùng khóa advisory với updateSettings.
+  const claimed = await prisma.$transaction(async (transaction) => {
+    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('system_settings.platform', 0))`;
+    const activeRestores = await transaction.operationalJob.count({
+      where: { kind: "RESTORE", status: "RUNNING" },
+    });
+    if (activeRestores > 0)
+      throw new ConflictException(
+        "Đang có tiến trình khôi phục khác chạy; hãy chờ hoàn tất trước khi phê duyệt tiếp.",
+      );
+    if (restore.mode === "OPERATIONAL") {
+      const platform = await transaction.systemSetting.findUnique({ where: { key: "platform" } });
+      const maintenanceMode = platform
+        ? serviceContext.mapSettings(platform.value, platform.updatedAt, platform.version, platform.updatedBy).maintenanceMode
+        : false;
+      if (!maintenanceMode)
+        throw new BadRequestException(
+          "Khôi phục vận hành chỉ được chạy khi hệ thống đang ở chế độ bảo trì.",
+        );
+    }
+    return transaction.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "PENDING" },
+      data: {
+        status: "RUNNING",
+        approvedBy: approverId,
+        approvedAt: new Date(),
+        availableAt: serviceContext.jobLeaseExpiry(),
+        attempts: { increment: 1 },
+      },
+    });
+  });
+  if (claimed.count !== 1)
+    throw new BadRequestException(
+      "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.",
+    );
+  const lease = startOperationalLease(() =>
+    prisma.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "RUNNING", availableAt: { gt: new Date() } },
+      data: { availableAt: serviceContext.jobLeaseExpiry() },
+    }),
+  );
+  try {
+    const result = await withTemporaryFile(async (path) => {
+      const expectedSize = Number(backup.sizeBytes);
+      if (!Number.isSafeInteger(expectedSize) || expectedSize < 5)
+        throw new BadRequestException(
+          "Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.",
+        );
+      const downloaded = await serviceContext.objectStorage!.getToFile(
+        backup.objectKey!,
+        path,
+        expectedSize,
+      );
+      if (
+        downloaded.checksum !== backup.checksum ||
+        downloaded.size !== expectedSize
+      )
+        throw new BadRequestException(
+          "Checksum bản sao lưu không hợp lệ; đã dừng khôi phục.",
+        );
+      await lease.assertOwned();
+      return restore.mode === "OPERATIONAL"
+        ? serviceContext.databaseBackup!.restoreToDatabase(
+            path,
+            restore.targetDatabase!.trim(),
+          )
+        : serviceContext.databaseBackup!.verifyRestore(path);
+    });
+    const verification =
+      restore.mode === "OPERATIONAL"
+        ? `Checksum hợp lệ; đã khôi phục ${result.tableCount} bảng và ${result.rowCount} dòng vào database staging ${result.database}. Cần cutover hạ tầng theo runbook riêng.`
+        : `Checksum hợp lệ; đã phục hồi thử nghiệm ${result.tableCount} bảng và ${result.rowCount} dòng vào database tạm, sau đó dọn dẹp an toàn.`;
+    const completed = await prisma.operationalJob.updateMany({
+      where: { kind: "RESTORE", id: restoreId, status: "RUNNING" },
+      data: { status: "COMPLETED", verification, completedAt: new Date() },
+    });
+    if (completed.count !== 1)
+      throw new ConflictException(
+        "Tiến trình khôi phục đã mất quyền xử lý trước khi ghi nhận hoàn tất.",
+      );
+    const row = await prisma.operationalJob.findUnique({
+      where: { kind: "RESTORE", id: restoreId },
+    });
+    await serviceContext.logDatabase(
+      prisma,
+      approverId,
+      restore.mode === "OPERATIONAL"
+        ? "RESTORE_STAGING_COMPLETED"
+        : "RESTORE_DRILL_COMPLETED",
+      restore.backup.id,
+      verification,
+    );
+    return serviceContext.mapRestore(row ?? { ...restore, status: "COMPLETED", verification });
+  } catch (error) {
+    await prisma.operationalJob
+      .updateMany({
+        where: { id: restoreId, kind: "RESTORE", status: "RUNNING" },
+        data: {
+          status: "FAILED",
+          verification:
+            "Khôi phục thất bại; database vận hành hiện tại không bị thay đổi.",
+          completedAt: new Date(),
+        },
+      })
+      .catch((updateError: unknown) => {
+        backupLogger.error(`Không thể ghi trạng thái FAILED cho restore job ${restoreId}: ${updateError instanceof Error ? updateError.message : String(updateError)}`);
+      });
+    if (
+      error instanceof BadRequestException ||
+      error instanceof ConflictException ||
+      error instanceof ServiceUnavailableException
+    )
+      throw error;
+    throw new ServiceUnavailableException("Khôi phục thất bại.");
+  } finally {
+    await lease.stop();
+  }
+}
+
+/** Giữ API service cũ ở dạng drill một bước chỉ để tương thích test không kết nối DB. */
+export async function restoreBackup(
+  serviceContext: SystemServiceContext,
+  backupId: string,
+  approvedBy: string,
+  actorId: string,
+): Promise<RestoreRun> {
+  if (approvedBy.trim().length < 3)
+    throw new BadRequestException("Cần người phê duyệt khôi phục.");
+  if (approvedBy.trim() === actorId)
+    throw new BadRequestException("Người phê duyệt phải khác người yêu cầu.");
+  return serviceContext.requestRestore(
+    {
+      backupId,
+      mode: "DRILL",
+      reason: "Kiểm tra khả năng phục hồi bản sao lưu",
+    },
+    actorId,
+  );
+}
+
+/** Liệt kê lịch sử kiểm tra phục hồi sao lưu. */
+export async function listRestores(
+  serviceContext: SystemServiceContext,
+): Promise<RestoreRun[]> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const rows = await prisma.operationalJob.findMany({ where: { kind: "RESTORE" },
+      orderBy: { createdAt: "desc" },
+    });
+    return rows.map((row) => serviceContext.mapRestore(row));
+  }
+  return structuredClone(serviceContext.restores);
+}

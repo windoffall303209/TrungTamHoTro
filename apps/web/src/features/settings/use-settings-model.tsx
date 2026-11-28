@@ -3,7 +3,7 @@ import { hasPermission } from "@/lib/access-control";
 import { apiRequest } from "@/lib/api-client";
 import { useApp } from "@/providers/app-provider";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AiProvider,
   AiProviderType,
@@ -29,10 +29,6 @@ export function useSettingsModel() {
     hasPermission(session, "system:configure");
 
   const [settings, setSettings] = useState<Settings | null>(null);
-
-  const [history, setHistory] = useState<Settings[]>([]);
-
-  const [effectiveAt, setEffectiveAt] = useState("");
 
   const [integrations, setIntegrations] = useState<Integration[]>([]);
 
@@ -78,12 +74,19 @@ export function useSettingsModel() {
     credentialReference: "",
     webhookUrl: "",
   });
+  const loadRequestId = useRef(0);
+  const modelRequestId = useRef(0);
+
+  useEffect(() => () => {
+    modelRequestId.current += 1;
+  }, [aiEditorOpen, editingAi?.id]);
 
   /** Nạp cấu hình hệ thống, tích hợp và nhà cung cấp AI theo quyền quản trị. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!canConfigure) return;
     try {
-      const [a, b, c, d, e, f, g, h] = await Promise.all([
+      const [a, b, c, d, e, g, h] = await Promise.all([
         apiRequest<Settings>("/system/settings", {
           roleCode: session.roleCode,
         }),
@@ -97,9 +100,6 @@ export function useSettingsModel() {
         apiRequest<StorageOverview>("/system/storage-overview", {
           roleCode: session.roleCode,
         }),
-        apiRequest<Settings[]>("/system/settings/history", {
-          roleCode: session.roleCode,
-        }),
         apiRequest<AiProvider[]>("/system/ai-providers", {
           roleCode: session.roleCode,
         }),
@@ -107,25 +107,30 @@ export function useSettingsModel() {
           roleCode: session.roleCode,
         }),
       ]);
+      if (requestId !== loadRequestId.current) return;
       setSettings(a);
       setIntegrations(b);
       setBackups(c);
       setHealth(d);
       setStorage(e);
-      setHistory(f);
       setAiProviders(g);
       setModelCatalog(h);
     } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không tải được cấu hình.",
-        "error",
-      );
+      if (requestId === loadRequestId.current) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được cấu hình.",
+          "error",
+        );
+      }
     }
   }, [canConfigure, notify, session.roleCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+    };
   }, [load]);
 
   /** Lưu quy định vận hành chung sau khi chuẩn hóa các trường danh sách và giới hạn. */
@@ -142,31 +147,62 @@ export function useSettingsModel() {
             centerName: settings.centerName,
             timezone: settings.timezone,
             locale: settings.locale,
-            retentionDays: settings.retentionDays,
             maxFileSizeMb: settings.maxFileSizeMb,
             storageQuotaMb: settings.storageQuotaMb,
             allowedMimeTypes: settings.allowedMimeTypes,
-            moderationEnabled: settings.moderationEnabled,
             notificationSender: settings.notificationSender,
             maintenanceMode: settings.maintenanceMode,
             learnerEmailNotificationsEnabled:
               settings.learnerEmailNotificationsEnabled,
-            effectiveAt: effectiveAt
-              ? new Date(effectiveAt).toISOString()
-              : undefined,
+            aiTutorMaxPerQuestion: settings.aiTutorMaxPerQuestion,
+            aiTutorMaxPerExam: settings.aiTutorMaxPerExam,
           }),
         }),
       );
-      notify(
-        effectiveAt
-          ? "Đã lên lịch phiên bản cấu hình mới."
-          : "Đã phát hành phiên bản cấu hình mới.",
-      );
-      setEffectiveAt("");
+      notify("Đã lưu cấu hình hệ thống.");
       await load();
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không lưu được cấu hình.",
+        "error",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Kiểm tra và lưu riêng hạn mức hỏi đáp AI mỗi câu / mỗi đề ngay từ trang quản trị AI. */
+  const saveAiTutorQuota = async () => {
+    if (!settings) return;
+    const perQuestion = Math.trunc(Number(settings.aiTutorMaxPerQuestion));
+    const perExam = Math.trunc(Number(settings.aiTutorMaxPerExam));
+    if (!Number.isInteger(perQuestion) || perQuestion < 1 || perQuestion > 20) {
+      notify("Giới hạn hỏi AI mỗi câu phải từ 1 đến 20 lượt.", "error");
+      return;
+    }
+    if (!Number.isInteger(perExam) || perExam < 1 || perExam > 200) {
+      notify("Giới hạn hỏi AI mỗi đề phải từ 1 đến 200 lượt.", "error");
+      return;
+    }
+    if (perExam < perQuestion) {
+      notify("Giới hạn hỏi AI mỗi đề không được nhỏ hơn giới hạn của một câu hỏi.", "error");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await apiRequest<Settings>("/system/settings", {
+        method: "PATCH",
+        roleCode: session.roleCode,
+        body: JSON.stringify({
+          aiTutorMaxPerQuestion: perQuestion,
+          aiTutorMaxPerExam: perExam,
+        }),
+      });
+      setSettings(updated);
+      notify("Đã lưu hạn mức hỏi đáp AI cho bài tập.");
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "Không lưu được hạn mức hỏi đáp AI.",
         "error",
       );
     } finally {
@@ -292,66 +328,6 @@ export function useSettingsModel() {
     }
   };
 
-  /** Chuyển giữa tự động duyệt và duyệt tay cho đề thi ở cấp hệ thống. */
-  const saveExamApprovalMode = async (mode: Settings["examApprovalMode"]) => {
-    if (!settings || settings.examApprovalMode === mode) return;
-    setSaving(true);
-    try {
-      const updated = await apiRequest<Settings>("/system/settings", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ examApprovalMode: mode }),
-      });
-      setSettings(updated);
-      notify(
-        mode === "AUTO"
-          ? "Đã bật tự động phê duyệt đề thi."
-          : "Đã chuyển sang phê duyệt đề thi thủ công.",
-      );
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không đổi được chế độ phê duyệt.",
-        "error",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  /** Chuyển giữa tự động duyệt và duyệt tay cho câu hỏi trong ngân hàng. */
-  const saveQuestionApprovalMode = async (
-    mode: Settings["questionApprovalMode"],
-  ) => {
-    if (!settings || settings.questionApprovalMode === mode) return;
-    setSaving(true);
-    try {
-      const updated = await apiRequest<Settings>("/system/settings", {
-        method: "PATCH",
-        roleCode: session.roleCode,
-        body: JSON.stringify({ questionApprovalMode: mode }),
-      });
-      setSettings(updated);
-      notify(
-        mode === "AUTO"
-          ? "Đã bật tự động phê duyệt câu hỏi."
-          : "Đã chuyển sang phê duyệt câu hỏi thủ công.",
-      );
-      await load();
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không đổi được chế độ phê duyệt câu hỏi.",
-        "error",
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
   /** Bật hoặc tắt việc gửi thông báo qua email tới học viên qua Resend. */
   const saveLearnerEmailNotifications = async (enabled: boolean) => {
     if (!settings || settings.learnerEmailNotificationsEnabled === enabled) return;
@@ -386,6 +362,8 @@ export function useSettingsModel() {
     item?: AiProvider,
     provider: AiProviderType = "CUSTOM",
   ) => {
+    modelRequestId.current += 1;
+    setLoadingModels(false);
     const target = item ?? null;
     setEditingAi(target);
     setAiEditorOpen(true);
@@ -414,6 +392,7 @@ export function useSettingsModel() {
 
   /** Tải danh sách model mà API key hiện tại nhìn thấy và không tự thay lựa chọn của quản trị viên. */
   const loadProviderModels = async () => {
+    const requestId = ++modelRequestId.current;
     if (!editingAi?.id) {
       notify(
         "Hãy lưu cấu hình và API key trước khi tải danh sách model.",
@@ -427,18 +406,21 @@ export function useSettingsModel() {
         `/system/ai-providers/${editingAi.id}/models`,
         { roleCode: session.roleCode },
       );
+      if (requestId !== modelRequestId.current) return;
       setDiscoveredModels(models);
       setModelMode("catalog");
       notify(`Đã tải ${models.length} model từ ${editingAi.name}.`);
     } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được danh sách model từ nhà cung cấp.",
-        "error",
-      );
+      if (requestId === modelRequestId.current) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được danh sách model từ nhà cung cấp.",
+          "error",
+        );
+      }
     } finally {
-      setLoadingModels(false);
+      if (requestId === modelRequestId.current) setLoadingModels(false);
     }
   };
 
@@ -532,9 +514,6 @@ export function useSettingsModel() {
     canConfigure,
     settings,
     setSettings,
-    history,
-    effectiveAt,
-    setEffectiveAt,
     integrations,
     backups,
     health,
@@ -563,14 +542,14 @@ export function useSettingsModel() {
     setDefault,
     testMeeting,
     backup,
-    saveExamApprovalMode,
-    saveQuestionApprovalMode,
     saveLearnerEmailNotifications,
+    saveAiTutorQuota,
     openAiEditor,
     loadProviderModels,
     availableModelOptions,
     saveAiProvider,
     testAiProvider,
     removeAiProvider,
+    reload: load,
   };
 }

@@ -1,0 +1,639 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
+import { id, now } from "../../core/learning.shared.js";
+import type {
+  ClassProgressReport,
+  ProgressIntervention,
+  RiskThresholds,
+} from "../../core/learning.types.js";
+import type { LearningServiceContext } from "../../core/learning.context.js";
+
+/** Tổng hợp điểm số, hoàn thành đánh giá và sinh phân loại rủi ro từng học viên. */
+export async function getClassProgress(
+  serviceContext: LearningServiceContext,
+  classId: string,
+  input: { from?: string; to?: string } & Partial<RiskThresholds>,
+  actorId: string,
+  actorRole: string,
+): Promise<ClassProgressReport> {
+  if (!["SYSTEM_ADMIN", "CENTER_MANAGER", "INSTRUCTOR"].includes(actorRole)) {
+    throw new ForbiddenException("Không có quyền xem báo cáo tiến độ lớp học.");
+  }
+  const { from, to } = serviceContext.reportingPeriod(input.from, input.to);
+  const thresholds: RiskThresholds = {
+    scoreBelow: input.scoreBelow ?? 50,
+    completionBelow: input.completionBelow ?? 60,
+  };
+  serviceContext.validateRiskThresholds(thresholds);
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const classItem = await prisma.learningClass.findFirst({
+      where: {
+        id: classId,
+        ...(actorRole === "INSTRUCTOR"
+          ? { instructors: { some: { instructorId: actorId } } }
+          : {}),
+      },
+      include: {
+        enrollments: { where: { status: "ACTIVE" }, select: { learnerId: true } },
+        // Chỉ đề đã phát hành/đóng và không ẩn: đề nháp, chờ duyệt hay đang ẩn không thuộc mẫu số tiến độ.
+        exams: {
+          where: { openAt: { lte: to }, closeAt: { gte: from }, status: { in: ["PUBLISHED", "CLOSED"] }, hidden: false },
+          select: {
+            id: true,
+            status: true,
+            closeAt: true,
+            totalScore: true,
+            // Chỉ cột phục vụ tính điểm/hoạt động; không kéo đáp án, thứ tự câu hay metadata lượt thi.
+            attempts: {
+              where: { submittedAt: { gte: from, lte: to } },
+              orderBy: { attemptNo: "desc" },
+              select: { learnerId: true, status: true, score: true, submittedAt: true },
+            },
+          },
+        },
+        assignments: {
+          where: {
+            status: { in: ["PUBLISHED", "CLOSED"] },
+            hidden: false,
+            dueAt: { gte: from, lte: to },
+          },
+          select: {
+            id: true,
+            status: true,
+            dueAt: true,
+            maxScore: true,
+            // Không kéo nội dung bài luận/nhận xét của cả lớp chỉ để đếm bài nộp và lấy điểm.
+            submissions: {
+              where: { submittedAt: { lte: to } },
+              select: { learnerId: true, status: true, score: true, submittedAt: true },
+            },
+          },
+        },
+      },
+    });
+    if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+    const interventions = await prisma.progressIntervention.findMany({
+      where: { classId },
+      orderBy: { createdAt: "desc" },
+    });
+    // Lập chỉ mục một lượt theo (học viên, bài) thay vì lọc lại toàn bộ lượt thi/bài nộp cho từng học viên: O(L×M) → O(L+M).
+    type ExamAttemptRow = (typeof classItem.exams)[number]["attempts"][number];
+    const attemptIndex = new Map<string, ExamAttemptRow[]>();
+    for (const exam of classItem.exams)
+      for (const attempt of exam.attempts) {
+        const key = `${attempt.learnerId}:${exam.id}`;
+        const list = attemptIndex.get(key);
+        if (list) list.push(attempt);
+        else attemptIndex.set(key, [attempt]);
+      }
+    const submissionIndex = new Map<string, (typeof classItem.assignments)[number]["submissions"][number]>();
+    for (const assignment of classItem.assignments)
+      for (const submission of assignment.submissions) {
+        const key = `${submission.learnerId}:${assignment.id}`;
+        if (!submissionIndex.has(key)) submissionIndex.set(key, submission);
+      }
+    const interventionsByLearner = new Map<string, typeof interventions>();
+    for (const item of interventions) {
+      const list = interventionsByLearner.get(item.learnerId);
+      if (list) list.push(item);
+      else interventionsByLearner.set(item.learnerId, [item]);
+    }
+    const learners = classItem.enrollments.map(({ learnerId }) => {
+      // Cùng công thức với sổ điểm: trung bình phần trăm từng bài, lượt điểm cao nhất của đề; bài đã nộp nhưng chưa
+      // chấm không bị tính 0, chỉ bài quá hạn mà học viên không làm mới tính 0.
+      let percentSum = 0;
+      let scoredItems = 0;
+      let completedAssessments = 0;
+      const activityDates: Date[] = [];
+      for (const exam of classItem.exams) {
+        const learnerAttempts = attemptIndex.get(`${learnerId}:${exam.id}`) ?? [];
+        if (learnerAttempts.some((attempt) => attempt.status !== "IN_PROGRESS")) completedAssessments += 1;
+        for (const attempt of learnerAttempts) if (attempt.submittedAt) activityDates.push(attempt.submittedAt);
+        const best = learnerAttempts
+          .filter((attempt) => attempt.status === "GRADED")
+          .reduce<ExamAttemptRow | undefined>((top, current) => (!top || Number(current.score ?? 0) > Number(top.score ?? 0) ? current : top), undefined);
+        const total = Number(exam.totalScore);
+        if (best) {
+          percentSum += total > 0 ? Number(best.score ?? 0) / total : 0;
+          scoredItems += 1;
+        } else if (!learnerAttempts.length && (exam.status === "CLOSED" || exam.closeAt <= to)) scoredItems += 1;
+      }
+      for (const assignment of classItem.assignments) {
+        const submission = submissionIndex.get(`${learnerId}:${assignment.id}`);
+        if (submission) {
+          completedAssessments += 1;
+          activityDates.push(submission.submittedAt);
+        }
+        const max = Number(assignment.maxScore);
+        if (submission?.status === "GRADED") {
+          percentSum += max > 0 ? Number(submission.score ?? 0) / max : 0;
+          scoredItems += 1;
+        } else if (!submission && (assignment.status === "CLOSED" || assignment.dueAt <= to)) scoredItems += 1;
+      }
+      const totalAssessments =
+        classItem.exams.length + classItem.assignments.length;
+      return serviceContext.buildLearnerProgress({
+        learnerId,
+        materialCompletionRate: 0,
+        assessmentCompletionRate: serviceContext.percentage(
+          completedAssessments,
+          totalAssessments,
+        ),
+        averageScore: scoredItems ? Math.round((percentSum / scoredItems) * 10_000) / 100 : 0,
+        lastActivityAt: serviceContext.latestDate(activityDates),
+        thresholds,
+        scoredItems,
+        totalAssessments,
+        interventions: (interventionsByLearner.get(learnerId) ?? [])
+          .map((item) => serviceContext.mapProgressIntervention(item)),
+      });
+    });
+    return {
+      classId,
+      classCode: classItem.code,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      thresholds,
+      learners,
+      generatedAt: now(),
+    };
+  }
+  const classItem = serviceContext.findClass(classId);
+  if (actorRole === "INSTRUCTOR" && !classItem.instructorIds.includes(actorId)) {
+    throw new NotFoundException("Không tìm thấy lớp học.");
+  }
+  const exams = serviceContext.exams.filter(
+    (exam) =>
+      exam.classId === classId &&
+      new Date(exam.openAt) <= to &&
+      new Date(exam.closeAt) >= from,
+  );
+  const learners = classItem.learnerIds.map((learnerId) => {
+    const attempts = serviceContext.attempts.filter(
+      (attempt) =>
+        attempt.learnerId === learnerId &&
+        exams.some((exam) => exam.id === attempt.examId) &&
+        attempt.submittedAt &&
+        new Date(attempt.submittedAt) >= from &&
+        new Date(attempt.submittedAt) <= to,
+    );
+    const latestGraded = exams.map((exam) => attempts.filter((a) => a.examId === exam.id && a.status === "GRADED")
+      .sort((a, b) => (b.attemptNo ?? 0) - (a.attemptNo ?? 0) || b.startedAt.localeCompare(a.startedAt))[0]).filter(a => a !== undefined);
+    const activityDates = [
+      ...attempts.flatMap((attempt) =>
+        attempt.submittedAt ? [new Date(attempt.submittedAt)] : [],
+      ),
+    ];
+    return serviceContext.buildLearnerProgress({
+      learnerId,
+      materialCompletionRate: 0,
+      assessmentCompletionRate: serviceContext.percentage(
+        new Set(attempts.map((attempt) => attempt.examId)).size,
+        exams.length,
+      ),
+      averageScore: latestGraded.length
+        ? Math.round(
+            (latestGraded.reduce((sum, attempt) => {
+              const exam = exams.find(
+                (candidate) => candidate.id === attempt.examId,
+              );
+              return (
+                sum +
+                (exam ? ((attempt.score ?? 0) / exam.totalScore) * 100 : 0)
+              );
+            }, 0) /
+              latestGraded.length) *
+              100,
+          ) / 100
+        : 0,
+      lastActivityAt: serviceContext.latestDate(activityDates),
+      thresholds,
+      interventions: serviceContext.progressInterventions
+        .filter(
+          (item) => item.classId === classId && item.learnerId === learnerId,
+        )
+        .map((item) => ({ ...item })),
+    });
+  });
+  return {
+    classId,
+    classCode: classItem.code,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    thresholds,
+    learners,
+    generatedAt: now(),
+  };
+}
+
+/** Tạo kế hoạch can thiệp, giao đúng giảng viên của lớp và lưu riêng người tạo. */
+export async function createProgressIntervention(
+  serviceContext: LearningServiceContext,
+  classId: string,
+  input: Pick<
+    ProgressIntervention,
+    "learnerId" | "title" | "notes" | "dueAt"
+  > & { assigneeId: string },
+  createdById: string,
+  actorRole: string,
+): Promise<ProgressIntervention> {
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
+    throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép tạo hành động hỗ trợ.");
+  }
+  const dueAt = new Date(input.dueAt);
+  if (Number.isNaN(dueAt.getTime()) || dueAt <= new Date())
+    throw new BadRequestException("Hạn hành động hỗ trợ phải ở tương lai.");
+  const title = input.title.trim();
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const [classItem, enrollment, assignee] = await Promise.all([
+      prisma.learningClass.findUnique({
+        where: { id: classId },
+        select: { status: true, code: true },
+      }),
+      prisma.classEnrollment.findFirst({
+        where: { classId, learnerId: input.learnerId, status: "ACTIVE" },
+      }),
+      prisma.classInstructor.findUnique({
+        where: {
+          classId_instructorId: { classId, instructorId: input.assigneeId },
+        },
+      }),
+    ]);
+    if (!classItem) throw new NotFoundException("Không tìm thấy lớp học.");
+    if (classItem.status === "CLOSED")
+      throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (!enrollment)
+      throw new NotFoundException("Học viên không thuộc lớp đang hoạt động.");
+    if (!assignee)
+      throw new BadRequestException(
+        "Người phụ trách phải là giảng viên đang được phân công cho lớp.",
+      );
+    const row = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.progressIntervention.create({
+        data: {
+          id: id("intervention"),
+          classId,
+          learnerId: input.learnerId,
+          ownerId: input.assigneeId,
+          createdById,
+          title,
+          notes: input.notes?.trim(),
+          dueAt,
+          handoffHistory: [],
+        },
+      });
+      await transaction.notification.upsert({
+        where: {
+          dedupKey: `progress-assigned:${created.id}:${input.assigneeId}`,
+        },
+        update: { readAt: null, createdAt: new Date() },
+        create: {
+          id: id("notification"),
+          recipientId: input.assigneeId,
+          type: "PROGRESS_INTERVENTION_ASSIGNED",
+          title: `Bạn được giao hỗ trợ một học viên của lớp ${classItem.code}`,
+          entityType: "PROGRESS_INTERVENTION",
+          entityId: created.id,
+          dedupKey: `progress-assigned:${created.id}:${input.assigneeId}`,
+        },
+      });
+      await transaction.auditLog.create({
+        data: {
+          actorId: createdById,
+          action: "PROGRESS_INTERVENTION_CREATED",
+          entityType: "progress_intervention",
+          entityId: created.id,
+          context: {
+            classId,
+            learnerId: input.learnerId,
+            assigneeId: input.assigneeId,
+            dueAt: dueAt.toISOString(),
+          },
+        },
+      });
+      return created;
+    });
+    return serviceContext.mapProgressIntervention(row);
+  }
+  const classItem = serviceContext.findClass(classId);
+  if (classItem.status === "CLOSED")
+    throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (!classItem.learnerIds.includes(input.learnerId))
+    throw new NotFoundException("Học viên không thuộc lớp đang hoạt động.");
+  if (!classItem.instructorIds.includes(input.assigneeId))
+    throw new BadRequestException(
+      "Người phụ trách phải là giảng viên đang được phân công cho lớp.",
+    );
+  const item: ProgressIntervention = {
+    id: id("intervention"),
+    classId,
+    learnerId: input.learnerId,
+    ownerId: input.assigneeId,
+    createdById,
+    title,
+    notes: input.notes?.trim(),
+    dueAt: dueAt.toISOString(),
+    status: "OPEN",
+    history: [],
+    createdAt: now(),
+  };
+  serviceContext.progressInterventions.unshift(item);
+  serviceContext.notifications.unshift({
+    id: id("notification"),
+    recipientId: input.assigneeId,
+    type: "PROGRESS_INTERVENTION_ASSIGNED",
+    title: `Bạn được giao hỗ trợ một học viên của lớp ${classItem.code}`,
+    entityType: "PROGRESS_INTERVENTION",
+    entityId: item.id,
+    createdAt: now(),
+  });
+  return { ...item };
+}
+
+/** Liệt kê hành động hỗ trợ đang thuộc trách nhiệm của người dùng hiện tại. */
+export async function listMyProgressInterventions(
+  serviceContext: LearningServiceContext,
+  ownerId: string,
+): Promise<ProgressIntervention[]> {
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const rows = await prisma.progressIntervention.findMany({
+      where: { ownerId },
+      orderBy: [{ status: "asc" }, { dueAt: "asc" }],
+    });
+    return rows.map((row) => serviceContext.mapProgressIntervention(row));
+  }
+  return serviceContext.progressInterventions
+    .filter((item) => item.ownerId === ownerId)
+    .map((item) => structuredClone(item));
+}
+
+/** Nhận, hoàn tất hoặc hủy hành động hỗ trợ theo quyền sở hữu và điều kiện kết quả. */
+export async function updateProgressIntervention(
+  serviceContext: LearningServiceContext,
+  interventionId: string,
+  input: {
+    status: "IN_PROGRESS" | "DONE" | "CANCELLED";
+    outcome?: string;
+    cancellationReason?: string;
+  },
+  actorId: string,
+  actorRole: string,
+): Promise<ProgressIntervention> {
+  const outcome = input.outcome?.trim();
+  const cancellationReason = input.cancellationReason?.trim() || "Hủy hành động hỗ trợ";
+  if (input.status === "DONE" && (!outcome || outcome.length < 5))
+    throw new BadRequestException("Kết quả hỗ trợ cần ít nhất 5 ký tự.");
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const current = await prisma.progressIntervention.findUnique({
+      where: { id: interventionId },
+    });
+    if (!current)
+      throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (!["OPEN", "IN_PROGRESS"].includes(current.status))
+      throw new ConflictException("Hành động hỗ trợ đã kết thúc.");
+    if (
+      current.ownerId !== actorId &&
+      !["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)
+    )
+      throw new ConflictException(
+        "Chỉ người được giao hoặc quản lý mới được cập nhật hành động này.",
+      );
+    // Hồ sơ can thiệp thuộc lớp: lớp đã đóng chỉ đọc, giảng viên đã bị gỡ khỏi lớp không còn cập nhật được.
+    const classItem = await prisma.learningClass.findUnique({
+      where: { id: current.classId },
+      select: { status: true, instructors: { where: { instructorId: actorId }, select: { instructorId: true } } },
+    });
+    if (!classItem) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (classItem.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+    if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole) && !classItem.instructors.length)
+      throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (current.status === "IN_PROGRESS" && input.status === "IN_PROGRESS")
+      throw new ConflictException("Hành động hỗ trợ đã được nhận xử lý.");
+    const terminal = ["DONE", "CANCELLED"].includes(input.status);
+    const row = await prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.progressIntervention.updateMany({
+        where: { id: interventionId, status: current.status },
+        data: {
+          status: input.status,
+          acceptedAt:
+            input.status === "IN_PROGRESS" ? new Date() : current.acceptedAt,
+          completedAt: terminal ? new Date() : null,
+          outcome: input.status === "DONE" ? outcome : null,
+          cancellationReason:
+            input.status === "CANCELLED" ? cancellationReason : null,
+        },
+      });
+      if (claimed.count !== 1)
+        throw new ConflictException(
+          "Hành động đã được người khác cập nhật; hãy tải lại.",
+        );
+      if (terminal) {
+        const recipients = new Set([current.createdById, current.ownerId]);
+        for (const recipientId of recipients)
+          await transaction.notification.upsert({
+            where: {
+              dedupKey: `progress-${input.status.toLowerCase()}:${interventionId}:${recipientId}`,
+            },
+            update: { readAt: null, createdAt: new Date() },
+            create: {
+              id: id("notification"),
+              recipientId,
+              type: `PROGRESS_INTERVENTION_${input.status}`,
+              title:
+                input.status === "DONE"
+                  ? "Hành động hỗ trợ học viên đã hoàn tất"
+                  : "Hành động hỗ trợ học viên đã bị hủy",
+              entityType: "PROGRESS_INTERVENTION",
+              entityId: interventionId,
+              dedupKey: `progress-${input.status.toLowerCase()}:${interventionId}:${recipientId}`,
+            },
+          });
+      }
+      await transaction.auditLog.create({
+        data: {
+          actorId,
+          action: `PROGRESS_INTERVENTION_${input.status}`,
+          entityType: "progress_intervention",
+          entityId: interventionId,
+          context: {
+            previousStatus: current.status,
+            nextStatus: input.status,
+            outcome,
+            cancellationReason: input.status === "CANCELLED" ? cancellationReason : null,
+          },
+        },
+      });
+      return transaction.progressIntervention.findUniqueOrThrow({
+        where: { id: interventionId },
+      });
+    });
+    return serviceContext.mapProgressIntervention(row);
+  }
+  const item = serviceContext.progressInterventions.find(
+    (candidate) => candidate.id === interventionId,
+  );
+  if (!item) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+  if (!["OPEN", "IN_PROGRESS"].includes(item.status))
+    throw new ConflictException("Hành động hỗ trợ đã kết thúc.");
+  if (
+    item.ownerId !== actorId &&
+    !["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)
+  )
+    throw new ConflictException(
+      "Chỉ người được giao hoặc quản lý mới được cập nhật hành động này.",
+    );
+  const memoryClass = serviceContext.findClass(item.classId);
+  if (memoryClass.status === "CLOSED") throw new ConflictException("Lớp đã lưu trữ và chỉ cho phép đọc.");
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole) && !memoryClass.instructorIds.includes(actorId))
+    throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+  if (item.status === "IN_PROGRESS" && input.status === "IN_PROGRESS")
+    throw new ConflictException("Hành động hỗ trợ đã được nhận xử lý.");
+  item.status = input.status;
+  item.acceptedAt = input.status === "IN_PROGRESS" ? now() : item.acceptedAt;
+  item.completedAt = ["DONE", "CANCELLED"].includes(input.status)
+    ? now()
+    : undefined;
+  item.outcome = input.status === "DONE" ? outcome : undefined;
+  item.cancellationReason =
+    input.status === "CANCELLED" ? cancellationReason : undefined;
+  return { ...item };
+}
+
+/** Bàn giao hành động đang mở cho giảng viên khác và lưu toàn bộ dấu vết chuyển giao. */
+export async function transferProgressIntervention(
+  serviceContext: LearningServiceContext,
+  interventionId: string,
+  assigneeId: string,
+  rawReason: string | undefined,
+  actorId: string,
+  actorRole: string,
+): Promise<ProgressIntervention> {
+  if (!["CENTER_MANAGER", "SYSTEM_ADMIN"].includes(actorRole)) {
+    throw new ForbiddenException("Chỉ quản lý trung tâm hoặc quản trị viên mới được phép bàn giao hành động hỗ trợ.");
+  }
+  const reason = rawReason?.trim() || "Bàn giao hỗ trợ";
+  const prisma = serviceContext.database();
+  if (prisma) {
+    const current = await prisma.progressIntervention.findUnique({
+      where: { id: interventionId },
+    });
+    if (!current)
+      throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+    if (!["OPEN", "IN_PROGRESS"].includes(current.status))
+      throw new ConflictException(
+        "Chỉ có thể bàn giao hành động chưa kết thúc.",
+      );
+    if (current.ownerId === assigneeId)
+      throw new BadRequestException(
+        "Người nhận bàn giao phải khác người hiện tại.",
+      );
+    const assignment = await prisma.classInstructor.findUnique({
+      where: {
+        classId_instructorId: {
+          classId: current.classId,
+          instructorId: assigneeId,
+        },
+      },
+    });
+    if (!assignment)
+      throw new BadRequestException(
+        "Người nhận phải là giảng viên đang được phân công cho lớp.",
+      );
+    const history = serviceContext.progressInterventionHistory(
+      current.handoffHistory,
+    );
+    history.push({
+      fromOwnerId: current.ownerId,
+      toOwnerId: assigneeId,
+      reason,
+      actorId,
+      createdAt: now(),
+    });
+    const row = await prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.progressIntervention.updateMany({
+        where: {
+          id: interventionId,
+          ownerId: current.ownerId,
+          status: current.status,
+        },
+        data: {
+          ownerId: assigneeId,
+          status: "OPEN",
+          acceptedAt: null,
+          handoffHistory: history,
+        },
+      });
+      if (claimed.count !== 1)
+        throw new ConflictException(
+          "Hành động đã được cập nhật; hãy tải lại trước khi bàn giao.",
+        );
+      await transaction.notification.upsert({
+        where: {
+          dedupKey: `progress-transferred:${interventionId}:${assigneeId}:${history.length}`,
+        },
+        update: { readAt: null, createdAt: new Date() },
+        create: {
+          id: id("notification"),
+          recipientId: assigneeId,
+          type: "PROGRESS_INTERVENTION_ASSIGNED",
+          title: "Bạn vừa nhận bàn giao một hành động hỗ trợ học viên",
+          entityType: "PROGRESS_INTERVENTION",
+          entityId: interventionId,
+          dedupKey: `progress-transferred:${interventionId}:${assigneeId}:${history.length}`,
+        },
+      });
+      await transaction.auditLog.create({
+        data: {
+          actorId,
+          action: "PROGRESS_INTERVENTION_TRANSFERRED",
+          entityType: "progress_intervention",
+          entityId: interventionId,
+          context: {
+            fromOwnerId: current.ownerId,
+            toOwnerId: assigneeId,
+            reason,
+          },
+        },
+      });
+      return transaction.progressIntervention.findUniqueOrThrow({
+        where: { id: interventionId },
+      });
+    });
+    return serviceContext.mapProgressIntervention(row);
+  }
+  const item = serviceContext.progressInterventions.find(
+    (candidate) => candidate.id === interventionId,
+  );
+  if (!item) throw new NotFoundException("Không tìm thấy hành động hỗ trợ.");
+  if (!["OPEN", "IN_PROGRESS"].includes(item.status))
+    throw new ConflictException("Chỉ có thể bàn giao hành động chưa kết thúc.");
+  if (item.ownerId === assigneeId)
+    throw new BadRequestException(
+      "Người nhận bàn giao phải khác người hiện tại.",
+    );
+  if (
+    !serviceContext.findClass(item.classId).instructorIds.includes(assigneeId)
+  )
+    throw new BadRequestException(
+      "Người nhận phải là giảng viên đang được phân công cho lớp.",
+    );
+  item.history.push({
+    fromOwnerId: item.ownerId,
+    toOwnerId: assigneeId,
+    reason,
+    actorId,
+    createdAt: now(),
+  });
+  item.ownerId = assigneeId;
+  item.status = "OPEN";
+  item.acceptedAt = undefined;
+  return structuredClone(item);
+}

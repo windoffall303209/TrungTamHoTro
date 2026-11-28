@@ -1,10 +1,10 @@
 "use client";
-import { Button, Field, inputClass, Modal } from "@/components/ui";
+import { SubmissionFile } from "@/features/academic/submission-file";
+import { Button, Field, inputClass, Modal } from "@/shared/ui/ui";
 import {
-  Download,
-  Eye,
   FileText,
   Paperclip,
+  RotateCcw,
   Send,
   Trash2,
   X,
@@ -18,40 +18,50 @@ export function AssignmentSubmissionDialog({
   model: Pick<
     ReturnType<typeof useAcademicModel>,
     | "submitting"
-    | "setSubmitting"
+    | "closeSubmissionDialog"
     | "submissionContent"
     | "setSubmissionContent"
     | "submissionFiles"
     | "setSubmissionFiles"
+    | "removedStoredIds"
     | "submissionError"
     | "setSubmissionError"
     | "submissionBusy"
     | "submitAssignment"
     | "chooseSubmissionFiles"
     | "removeStoredAttachment"
-    | "openAttachment"
+    | "restoreStoredAttachment"
   >;
 }) {
   const {
     submitting,
-    setSubmitting,
+    closeSubmissionDialog,
     submissionContent,
     setSubmissionContent,
     submissionFiles,
     setSubmissionFiles,
+    removedStoredIds,
     submissionError,
     setSubmissionError,
     submissionBusy,
     submitAssignment,
     chooseSubmissionFiles,
     removeStoredAttachment,
-    openAttachment,
+    restoreStoredAttachment,
   } = model;
+  const storedAttachments = submitting?.submission?.attachments ?? [];
+  const keptStoredAttachments = storedAttachments.filter(
+    (file) => !removedStoredIds.includes(file.id),
+  );
+  const removedStoredAttachments = storedAttachments.filter((file) =>
+    removedStoredIds.includes(file.id),
+  );
+  const canEditSubmission = submitting?.submission?.status !== "GRADED";
   return (
     <Modal
       open={Boolean(submitting)}
       onClose={() => {
-        if (!submissionBusy) setSubmitting(null);
+        if (!submissionBusy) closeSubmissionDialog();
       }}
       title={submitting?.title ?? "Nộp bài"}
       description={submitting?.instructions}
@@ -63,6 +73,7 @@ export function AssignmentSubmissionDialog({
         <Field label="Nội dung bài làm (không bắt buộc khi có tệp)">
           <textarea
             className={inputClass}
+            disabled={!canEditSubmission || submissionBusy}
             maxLength={20_000}
             rows={7}
             value={submissionContent}
@@ -85,9 +96,8 @@ export function AssignmentSubmissionDialog({
               className="sr-only"
               disabled={
                 submissionBusy ||
-                (submitting?.submission?.attachments.length ?? 0) +
-                  submissionFiles.length >=
-                  5
+                !canEditSubmission ||
+                keptStoredAttachments.length + submissionFiles.length >= 5
               }
               multiple
               onChange={(event) => {
@@ -98,12 +108,28 @@ export function AssignmentSubmissionDialog({
             />
           </label>
         </div>
-        {submitting?.submission?.attachments.length ||
+        {keptStoredAttachments.length ||
+        removedStoredAttachments.length ||
         submissionFiles.length ? (
           <div className="divide-y divide-[var(--rule)] border-y border-[var(--rule)]">
-            {submitting?.submission?.attachments.map((file) => (
+            {keptStoredAttachments.map((file) => (
+                  <SubmissionFile key={file.id} submissionId={submitting!.submission!.id} file={file}>
+{canEditSubmission ? (
+                  <button
+                    aria-label={`Xóa ${file.originalName}`}
+                    className="rounded-lg p-2 text-[var(--accent-ink)] hover:bg-[var(--accent-soft)]"
+                    disabled={submissionBusy}
+                    onClick={() => removeStoredAttachment(file.id)}
+                    type="button"
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                ) : null}
+                  </SubmissionFile>
+                ))}
+            {removedStoredAttachments.map((file) => (
               <div
-                className="flex min-w-0 items-center gap-3 py-3"
+                className="flex min-w-0 items-center gap-3 py-3 opacity-75"
                 key={file.id}
               >
                 <FileText
@@ -111,52 +137,23 @@ export function AssignmentSubmissionDialog({
                   size={18}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold">
+                  <p className="truncate text-sm font-semibold line-through text-[var(--ink-muted)]">
                     {file.originalName}
                   </p>
-                  <p className="text-xs text-[var(--ink-muted)]">
-                    {(file.sizeBytes / 1024 / 1024).toFixed(2)} MB · Đã lưu
+                  <p className="text-xs text-[var(--accent-ink)]">
+                    Sẽ xóa khi lưu bài nộp mới
                   </p>
                 </div>
-                {file.canPreview ? (
+                {canEditSubmission ? (
                   <button
-                    aria-label={`Xem trước ${file.originalName}`}
-                    className="rounded-lg p-2 text-[var(--ink-soft)] hover:bg-[var(--surface-muted)]"
-                    onClick={() =>
-                      void openAttachment(
-                        submitting.submission!.id,
-                        file.id,
-                        true,
-                      )
-                    }
-                    type="button"
-                  >
-                    <Eye size={17} />
-                  </button>
-                ) : null}
-                <button
-                  aria-label={`Tải ${file.originalName}`}
-                  className="rounded-lg p-2 text-[var(--ink-soft)] hover:bg-[var(--surface-muted)]"
-                  onClick={() =>
-                    void openAttachment(
-                      submitting.submission!.id,
-                      file.id,
-                      false,
-                    )
-                  }
-                  type="button"
-                >
-                  <Download size={17} />
-                </button>
-                {submitting.submission?.status !== "GRADED" ? (
-                  <button
-                    aria-label={`Xóa ${file.originalName}`}
-                    className="rounded-lg p-2 text-[var(--accent-ink)] hover:bg-[var(--accent-soft)]"
+                    aria-label={`Khôi phục ${file.originalName}`}
+                    className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-bold text-[var(--accent-deep)] hover:bg-[var(--surface-muted)]"
                     disabled={submissionBusy}
-                    onClick={() => void removeStoredAttachment(file.id)}
+                    onClick={() => restoreStoredAttachment(file.id)}
                     type="button"
                   >
-                    <Trash2 size={17} />
+                    <RotateCcw size={14} />
+                    Khôi phục
                   </button>
                 ) : null}
               </div>
@@ -201,8 +198,9 @@ export function AssignmentSubmissionDialog({
         <Button
           disabled={
             submissionBusy ||
+            !canEditSubmission ||
             (!submissionContent.trim() &&
-              !(submitting?.submission?.attachments.length ?? 0) &&
+              !keptStoredAttachments.length &&
               !submissionFiles.length)
           }
           type="submit"

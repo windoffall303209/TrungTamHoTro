@@ -3,6 +3,7 @@ import type { ChatDirectoryEntry } from "@/lib/learning-types";
 import { ImageOff, LoaderCircle, RotateCcw } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { isSafePreviewImage, safePreviewBlob } from "@/lib/safe-content";
 
 export const roleLabels: Record<ChatDirectoryEntry["roleCode"], string> = {
   SYSTEM_ADMIN: "Quản trị hệ thống",
@@ -33,6 +34,7 @@ export function InlineChatImage({
 
   useEffect(() => {
     const controller = new AbortController();
+    let active = true;
     let objectUrl = "";
     void fetch(publicApiUrl(path), {
       cache: "no-store",
@@ -43,16 +45,19 @@ export function InlineChatImage({
       .then(async (response) => {
         if (!response.ok) throw new Error("image-preview-failed");
         const blob = await response.blob();
-        if (!blob.type.startsWith("image/"))
+        if (!isSafePreviewImage(blob.type))
           throw new Error("invalid-image-preview");
-        objectUrl = URL.createObjectURL(blob);
+        // Không tạo URL sau khi ảnh hoặc hội thoại đã rời khỏi màn hình.
+        if (!active) return;
+        objectUrl = URL.createObjectURL(safePreviewBlob(blob));
         setImageUrl(objectUrl);
       })
       .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === "AbortError"))
+        if (active && !(error instanceof DOMException && error.name === "AbortError"))
           setFailed(true);
       });
     return () => {
+      active = false;
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
@@ -60,7 +65,7 @@ export function InlineChatImage({
 
   return (
     <div
-      className={`overflow-hidden rounded-lg ${mine ? "bg-white/10" : "border border-[var(--rule)] bg-[var(--surface-muted)]"}`}
+      className={`overflow-hidden rounded-xl ${mine ? "bg-white/10" : "border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40"}`}
     >
       {imageUrl ? (
         <button
@@ -111,9 +116,13 @@ export function InlineChatImage({
 export function loadStoredDrafts(userId: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {
-    return JSON.parse(
+    const parsed: unknown = JSON.parse(
       window.localStorage.getItem(`wind-chat-drafts:${userId}`) ?? "{}",
-    ) as Record<string, string>;
+    );
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
   } catch {
     return {};
   }

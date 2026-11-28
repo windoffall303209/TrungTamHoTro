@@ -1,20 +1,15 @@
 "use client";
-import { usePagination } from "@/components/ui";
+import { usePagination } from "@/shared/ui/ui";
+import { useServerPagination, type PaginatedResponse } from "@/shared/hooks/use-server-pagination";
 import { hasPermission } from "@/lib/access-control";
-import { apiRequest, downloadApiFile, previewApiFile } from "@/lib/api-client";
-import type {
-  AcademicCalendarEvent,
-  Assignment,
-  AssignmentChange,
-  AssignmentSubmission,
-  ClassAnnouncement,
-  GradebookRow,
-  LearningClass,
-} from "@/lib/learning-types";
+import { apiRequest } from "@/lib/api-client";
+import { localDateTimeToIso, toLocalDateTimeInput } from "@/lib/date-time";
+import type { AcademicCalendarEvent, Assignment, AssignmentSubmission, ClassAnnouncement, GradebookAssessmentColumn, GradebookResponse, GradebookRow, LearningClass } from "@/lib/learning-types";
 import { useApp } from "@/providers/app-provider";
 import { useSearchParams } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { emptyAssignment } from "./academic.shared";
+import { normalizeGradebookResponse } from "./class-gradebook-table";
 
 /** Quản lý trạng thái, tải dữ liệu và hành động của màn hình học vụ; giữ nguyên thứ tự hook. */
 export function useAcademicModel() {
@@ -33,8 +28,33 @@ export function useAcademicModel() {
   const [announcements, setAnnouncements] = useState<ClassAnnouncement[]>([]);
 
   const [gradebook, setGradebook] = useState<GradebookRow[]>([]);
+  const [gradebookAssessments, setGradebookAssessments] = useState<GradebookAssessmentColumn[]>([]);
+  const loadRequestId = useRef(0);
+  const gradebookRequestId = useRef(0);
+  const gradebookControllerRef = useRef<AbortController | null>(null);
+  const assignmentRequestId = useRef(0);
+  const assignmentControllerRef = useRef<AbortController | null>(null);
+  const [classesResolved, setClassesResolved] = useState(false);
 
   const [selectedClassId, setSelectedClassId] = useState("");
+  const selectedClassIdRef = useRef("");
+
+  useEffect(() => {
+    selectedClassIdRef.current = selectedClassId;
+  }, [selectedClassId]);
+
+  const serverAssignmentPagination = useServerPagination(10);
+  const {
+    page: assignmentPage,
+    displayPage: assignmentDisplayPage,
+    pageSize: assignmentPageSize,
+    totalItems: assignmentTotalItems,
+    totalPages: assignmentTotalPages,
+    setPage: setAssignmentPage,
+    setPageSize: setAssignmentPageSize,
+    resetPage: resetAssignmentPage,
+    syncResponse: syncAssignmentPage,
+  } = serverAssignmentPagination;
 
   const [assignmentForm, setAssignmentForm] = useState(emptyAssignment);
 
@@ -61,12 +81,6 @@ export function useAcademicModel() {
 
   const [lifecycleMinDueAt, setLifecycleMinDueAt] = useState("");
 
-  const [lifecycleReason, setLifecycleReason] = useState("");
-
-  const [assignmentHistory, setAssignmentHistory] = useState<
-    AssignmentChange[] | null
-  >(null);
-
   const [creatingAnnouncement, setCreatingAnnouncement] = useState(false);
 
   const [submitting, setSubmitting] = useState<Assignment | null>(null);
@@ -74,6 +88,8 @@ export function useAcademicModel() {
   const [submissionContent, setSubmissionContent] = useState("");
 
   const [submissionFiles, setSubmissionFiles] = useState<File[]>([]);
+
+  const [removedStoredIds, setRemovedStoredIds] = useState<string[]>([]);
 
   const [submissionError, setSubmissionError] = useState("");
 
@@ -89,8 +105,6 @@ export function useAcademicModel() {
 
   const [feedback, setFeedback] = useState("");
 
-  const [correctionReason, setCorrectionReason] = useState("");
-
   const allowed =
     session.roleCode === "INSTRUCTOR" || session.roleCode === "LEARNER";
 
@@ -99,16 +113,14 @@ export function useAcademicModel() {
 
   /** Nạp các lớp và dữ liệu học vụ tương ứng với vai trò, sau đó chọn lớp khả dụng đầu tiên. */
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (!allowed) return;
     setDataReady(false);
     setLoadError("");
     try {
-      const [classData, assignmentData, calendarData, announcementData] =
+      const [classData, calendarData, announcementData] =
         await Promise.all([
           apiRequest<LearningClass[]>("/classes", {
-            roleCode: session.roleCode,
-          }),
-          apiRequest<Assignment[]>("/academic/assignments", {
             roleCode: session.roleCode,
           }),
           apiRequest<AcademicCalendarEvent[]>("/academic/calendar", {
@@ -118,27 +130,36 @@ export function useAcademicModel() {
             roleCode: session.roleCode,
           }),
         ]);
+      if (requestId !== loadRequestId.current) return;
       setClasses(classData);
-      setAssignments(assignmentData);
       setEvents(calendarData);
       setAnnouncements(announcementData);
-      const linkedAssignment = assignmentData.find(
-        (item) => item.id === searchParams.get("assignmentId"),
-      );
       const linkedAnnouncement = announcementData.find(
         (item) => item.id === searchParams.get("announcementId"),
       );
       const requestedClassId = searchParams.get("classId");
+      const linkedAssignmentId = searchParams.get("assignmentId");
+      let linkedAssignmentClassId = "";
+      if (linkedAssignmentId && !requestedClassId && !linkedAnnouncement?.classId) {
+        const assignmentLookup = await apiRequest<PaginatedResponse<Assignment> | Assignment[]>(
+          "/academic/assignments/page?page=1&pageSize=100",
+          { roleCode: session.roleCode },
+        );
+        if (requestId !== loadRequestId.current) return;
+        const lookupItems = Array.isArray(assignmentLookup) ? assignmentLookup : assignmentLookup.items;
+        linkedAssignmentClassId = lookupItems.find((item) => item.id === linkedAssignmentId)?.classId ?? "";
+      }
       const first =
-        linkedAssignment?.classId ||
+        linkedAssignmentClassId ||
         linkedAnnouncement?.classId ||
         (classData.some((item) => item.id === requestedClassId)
           ? requestedClassId!
           : "") ||
-        selectedClassId ||
+        selectedClassIdRef.current ||
         classData[0]?.id ||
         "";
       setSelectedClassId(first);
+      setClassesResolved(true);
       setAssignmentForm((value) => ({
         ...value,
         classId: value.classId || first,
@@ -147,36 +168,117 @@ export function useAcademicModel() {
         ...value,
         classId: value.classId || first,
       }));
-      if (canTeach && first)
-        setGradebook(
-          await apiRequest<GradebookRow[]>(
+      if (canTeach && first) {
+        const gradebookId = ++gradebookRequestId.current;
+        gradebookControllerRef.current?.abort();
+        const controller = new AbortController();
+        gradebookControllerRef.current = controller;
+        try {
+          const payload = await apiRequest<GradebookResponse | GradebookRow[]>(
             `/academic/classes/${first}/gradebook`,
-            { roleCode: session.roleCode },
-          ),
-        );
-      setDataReady(true);
+            { roleCode: session.roleCode, signal: controller.signal },
+          );
+          if (
+            controller.signal.aborted ||
+            requestId !== loadRequestId.current ||
+            gradebookId !== gradebookRequestId.current
+          ) return;
+          const normalized = normalizeGradebookResponse(payload);
+          setGradebookAssessments(normalized.assessments);
+          setGradebook(normalized.rows);
+        } catch (gradebookError) {
+          if (
+            !controller.signal.aborted &&
+            requestId === loadRequestId.current &&
+            gradebookId === gradebookRequestId.current
+          ) {
+            throw gradebookError;
+          }
+          return;
+        }
+      }
+      if (requestId === loadRequestId.current) setDataReady(true);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : "Không tải được dữ liệu học vụ.");
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được dữ liệu học vụ.",
-        "error",
-      );
+      if (requestId === loadRequestId.current) {
+        setLoadError(error instanceof Error ? error.message : "Không tải được dữ liệu học vụ.");
+        notify(
+          error instanceof Error
+            ? error.message
+            : "Không tải được dữ liệu học vụ.",
+          "error",
+        );
+      }
     }
   }, [
     allowed,
     canTeach,
     notify,
     searchParams,
+    session.roleCode,
+  ]);
+
+  /** Nạp danh sách bài tập theo trang trực tiếp từ DB cho lớp đang chọn. */
+  const loadAssignments = useCallback(async () => {
+    const requestId = ++assignmentRequestId.current;
+    if (!allowed || !classesResolved) return;
+    assignmentControllerRef.current?.abort();
+    const controller = new AbortController();
+    assignmentControllerRef.current = controller;
+    try {
+      const params = new URLSearchParams({
+        page: String(assignmentPage),
+        pageSize: String(assignmentPageSize),
+      });
+      if (selectedClassId) params.set("classId", selectedClassId);
+      const pageResult = await apiRequest<PaginatedResponse<Assignment> | Assignment[]>(
+        `/academic/assignments/page?${params.toString()}`,
+        { roleCode: session.roleCode, signal: controller.signal },
+      );
+      if (controller.signal.aborted || requestId !== assignmentRequestId.current) return;
+      if (Array.isArray(pageResult)) {
+        setAssignments(pageResult);
+        syncAssignmentPage({ total: pageResult.length, page: 1, totalPages: 1 });
+      } else {
+        setAssignments(Array.isArray(pageResult.items) ? pageResult.items : []);
+        syncAssignmentPage(pageResult);
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && requestId === assignmentRequestId.current) {
+        notify(
+          error instanceof Error ? error.message : "Không tải được danh sách bài tập.",
+          "error",
+        );
+      }
+    }
+  }, [
+    allowed,
+    assignmentPage,
+    assignmentPageSize,
+    classesResolved,
+    notify,
     selectedClassId,
     session.roleCode,
+    syncAssignmentPage,
   ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      loadRequestId.current += 1;
+      gradebookRequestId.current += 1;
+      gradebookControllerRef.current?.abort();
+    };
   }, [load]);
+
+  useEffect(() => {
+    if (!allowed || !classesResolved) return;
+    void loadAssignments();
+    return () => {
+      assignmentRequestId.current += 1;
+      assignmentControllerRef.current?.abort();
+    };
+  }, [allowed, classesResolved, loadAssignments]);
 
   /** Đưa đối tượng từ lịch hoặc thông báo vào vùng nhìn sau khi dữ liệu đã sẵn sàng. */
   useEffect(() => {
@@ -193,23 +295,34 @@ export function useAcademicModel() {
 
   /** Chuyển ngữ cảnh lớp và tải lại bài tập/thông báo gắn với lớp đó. */
   async function changeClass(classId: string): Promise<void> {
+    const requestId = ++gradebookRequestId.current;
+    gradebookControllerRef.current?.abort();
+    selectedClassIdRef.current = classId;
     setSelectedClassId(classId);
-    assignmentPagination.resetPage();
+    resetAssignmentPage();
     gradebookPagination.resetPage();
-    if (canTeach && classId)
+    if (canTeach && classId) {
+      const controller = new AbortController();
+      gradebookControllerRef.current = controller;
       try {
-        setGradebook(
-          await apiRequest<GradebookRow[]>(
-            `/academic/classes/${classId}/gradebook`,
-            { roleCode: session.roleCode },
-          ),
+        const payload = await apiRequest<GradebookResponse | GradebookRow[]>(
+          `/academic/classes/${classId}/gradebook`,
+          { roleCode: session.roleCode, signal: controller.signal },
         );
+        if (!controller.signal.aborted && requestId === gradebookRequestId.current) {
+          const normalized = normalizeGradebookResponse(payload);
+          setGradebookAssessments(normalized.assessments);
+          setGradebook(normalized.rows);
+        }
       } catch (error) {
-        notify(
-          error instanceof Error ? error.message : "Không tải được sổ điểm.",
-          "error",
-        );
+        if (!controller.signal.aborted && requestId === gradebookRequestId.current) {
+          notify(
+            error instanceof Error ? error.message : "Không tải được sổ điểm.",
+            "error",
+          );
+        }
       }
+    }
   }
 
   /** Tạo hoặc cập nhật bài nháp cùng rubric và khóa phiên bản hiện tại. */
@@ -225,7 +338,7 @@ export function useAcademicModel() {
           roleCode: session.roleCode,
           body: JSON.stringify({
             ...assignmentForm,
-            dueAt: new Date(assignmentForm.dueAt).toISOString(),
+            dueAt: localDateTimeToIso(assignmentForm.dueAt),
             ...(editingAssignment
               ? { expectedVersion: editingAssignment.version }
               : {}),
@@ -243,7 +356,7 @@ export function useAcademicModel() {
           ? "Đã lưu phiên bản bài tập mới."
           : "Đã tạo bài tập nháp.",
       );
-      await load();
+      await Promise.all([load(), loadAssignments()]);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không tạo được bài tập.",
@@ -260,7 +373,7 @@ export function useAcademicModel() {
       title: item.title,
       description: item.description,
       instructions: item.instructions,
-      dueAt: new Date(item.dueAt).toISOString().slice(0, 16),
+      dueAt: toLocalDateTimeInput(item.dueAt),
       maxScore: item.maxScore,
       rubric: item.rubric.map(({ title, description, maxPoints }) => ({
         title,
@@ -271,22 +384,17 @@ export function useAcademicModel() {
     setCreatingAssignment(true);
   }
 
-  /** Mở thao tác gia hạn hoặc đóng bài với lý do bắt buộc. */
+  /** Mở thao tác gia hạn hoặc đóng bài tập. */
   function openLifecycle(item: Assignment, mode: "EXTEND" | "CLOSE"): void {
     setLifecycleAssignment(item);
     setLifecycleMode(mode);
-    const minimumDueAt = new Date(Date.now() + 60_000)
-      .toISOString()
-      .slice(0, 16);
+    const minimumDueAt = toLocalDateTimeInput(Date.now() + 60_000);
     setLifecycleMinDueAt(minimumDueAt);
     setLifecycleDueAt(
-      new Date(
+      toLocalDateTimeInput(
         Math.max(Date.now() + 60_000, new Date(item.dueAt).getTime() + 60_000),
-      )
-        .toISOString()
-        .slice(0, 16),
+      ),
     );
-    setLifecycleReason("");
   }
 
   /** Gửi lệnh gia hạn hoặc đóng bài bằng expectedVersion rồi làm mới màn hình. */
@@ -300,16 +408,15 @@ export function useAcademicModel() {
           method: lifecycleMode === "EXTEND" ? "PATCH" : "POST",
           roleCode: session.roleCode,
           body: JSON.stringify({
-            reason: lifecycleReason,
             expectedVersion: lifecycleAssignment.version,
             ...(lifecycleMode === "EXTEND"
-              ? { dueAt: new Date(lifecycleDueAt).toISOString() }
+              ? { dueAt: localDateTimeToIso(lifecycleDueAt) }
               : {}),
           }),
         },
       );
       setLifecycleAssignment(null);
-      await load();
+      await Promise.all([load(), loadAssignments()]);
       notify(
         lifecycleMode === "EXTEND"
           ? "Đã gia hạn và thông báo cho lớp."
@@ -323,25 +430,6 @@ export function useAcademicModel() {
     }
   }
 
-  /** Tải lịch sử thay đổi để đối soát phiên bản bài tập. */
-  async function openAssignmentHistory(item: Assignment): Promise<void> {
-    try {
-      setAssignmentHistory(
-        await apiRequest<AssignmentChange[]>(
-          `/instructor/assignments/${item.id}/history`,
-          { roleCode: session.roleCode },
-        ),
-      );
-    } catch (error) {
-      notify(
-        error instanceof Error
-          ? error.message
-          : "Không tải được lịch sử bài tập.",
-        "error",
-      );
-    }
-  }
-
   /** Xuất bản bài tập để học viên trong lớp có thể xem và nộp bài. */
   async function publish(item: Assignment): Promise<void> {
     try {
@@ -350,7 +438,7 @@ export function useAcademicModel() {
         roleCode: session.roleCode,
       });
       notify("Đã xuất bản bài tập và thông báo cho học viên.");
-      await load();
+      await Promise.all([load(), loadAssignments()]);
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không xuất bản được bài tập.",
@@ -359,14 +447,33 @@ export function useAcademicModel() {
     }
   }
 
-  /** Tải các tệp đã chọn rồi tạo/cập nhật bài nộp với danh sách tệp đính kèm. */
+  /** Mở hộp thoại nộp bài và khởi tạo lại danh sách tệp tạm chưa lưu. */
+  function openSubmissionDialog(item: Assignment): void {
+    setSubmitting(item);
+    setSubmissionContent(item.submission?.content ?? "");
+    setSubmissionFiles([]);
+    setRemovedStoredIds([]);
+    setSubmissionError("");
+  }
+
+  /** Đóng hộp thoại nộp bài mà không làm thay đổi bài đã lưu trên máy chủ. */
+  function closeSubmissionDialog(): void {
+    setSubmitting(null);
+    setSubmissionFiles([]);
+    setRemovedStoredIds([]);
+    setSubmissionError("");
+  }
+
+  /** Tải các tệp đã chọn rồi tạo/cập nhật bài nộp với danh sách tệp hiện hành. */
   async function submitAssignment(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (!submitting) return;
-    const existingCount = submitting.submission?.attachments.length ?? 0;
+    const activeStoredIds = (submitting.submission?.attachments ?? [])
+      .filter((file) => !removedStoredIds.includes(file.id))
+      .map((file) => file.id);
     if (
       !submissionContent.trim() &&
-      !existingCount &&
+      !activeStoredIds.length &&
       !submissionFiles.length
     ) {
       setSubmissionError("Cần nhập nội dung hoặc đính kèm ít nhất một tệp.");
@@ -377,6 +484,9 @@ export function useAcademicModel() {
     const body = new FormData();
     body.set("content", submissionContent.trim());
     body.set("expectedRevision", String(submitting.submission?.revision ?? 0));
+    if (submitting.submission) {
+      body.set("keepAttachmentIds", JSON.stringify(activeStoredIds));
+    }
     submissionFiles.forEach((file) => body.append("files", file));
     try {
       await apiRequest(`/learner/assignments/${submitting.id}/submissions`, {
@@ -387,8 +497,9 @@ export function useAcademicModel() {
       setSubmitting(null);
       setSubmissionContent("");
       setSubmissionFiles([]);
+      setRemovedStoredIds([]);
       notify("Đã lưu bài nộp và tệp đính kèm.");
-      await load();
+      await Promise.all([load(), loadAssignments()]);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Không nộp được bài.";
@@ -403,7 +514,9 @@ export function useAcademicModel() {
   function chooseSubmissionFiles(files: FileList | null): void {
     if (!files || !submitting) return;
     const next = [...submissionFiles, ...Array.from(files)];
-    const existingCount = submitting.submission?.attachments.length ?? 0;
+    const existingCount = (submitting.submission?.attachments ?? []).filter(
+      (file) => !removedStoredIds.includes(file.id),
+    ).length;
     if (existingCount + next.length > 5) {
       setSubmissionError("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
       return;
@@ -425,47 +538,28 @@ export function useAcademicModel() {
     setSubmissionError("");
   }
 
-  /** Gỡ một tệp đã lưu khỏi bài nộp hiện tại rồi đồng bộ lại chi tiết bài. */
-  async function removeStoredAttachment(attachmentId: string): Promise<void> {
-    const submission = submitting?.submission;
-    if (!submission) return;
-    setSubmissionBusy(true);
+  /** Đánh dấu bỏ tệp đã lưu khi nộp lại; bài nộp hiện tại vẫn nguyên vẹn nếu lưu thất bại. */
+  function removeStoredAttachment(attachmentId: string): void {
+    setRemovedStoredIds((current) =>
+      current.includes(attachmentId) ? current : [...current, attachmentId],
+    );
     setSubmissionError("");
-    try {
-      const updated = await apiRequest<AssignmentSubmission>(
-        `/learner/assignment-submissions/${submission.id}/attachments/${attachmentId}?expectedRevision=${submission.revision}`,
-        { method: "DELETE", roleCode: session.roleCode },
-      );
-      setSubmitting((current) =>
-        current ? { ...current, submission: updated } : current,
-      );
-      notify("Đã xóa tệp khỏi bài nộp.");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Không xóa được tệp.";
-      setSubmissionError(message);
-      notify(message, "error");
-    } finally {
-      setSubmissionBusy(false);
-    }
   }
 
-  /** Lấy URL có kiểm soát để xem trước hoặc tải tệp bài nộp mà không điều hướng khỏi ứng dụng. */
-  async function openAttachment(
-    submissionId: string,
-    attachmentId: string,
-    preview: boolean,
-  ): Promise<void> {
-    try {
-      const path = `/assignment-submissions/${submissionId}/attachments/${attachmentId}${preview ? "?action=preview" : ""}`;
-      if (preview) await previewApiFile(path, session.roleCode);
-      else await downloadApiFile(path, session.roleCode);
-    } catch (error) {
-      notify(
-        error instanceof Error ? error.message : "Không mở được tệp bài nộp.",
-        "error",
-      );
+  /** Hủy đánh dấu bỏ để giữ lại tệp đã lưu trước khi gửi bài nộp. */
+  function restoreStoredAttachment(attachmentId: string): void {
+    if (!submitting) return;
+    const activeStoredCount = (submitting.submission?.attachments ?? []).filter(
+      (file) => !removedStoredIds.includes(file.id),
+    ).length;
+    if (activeStoredCount + 1 + submissionFiles.length > 5) {
+      setSubmissionError("Mỗi bài nộp được đính kèm tối đa 5 tệp.");
+      return;
     }
+    setRemovedStoredIds((current) =>
+      current.filter((id) => id !== attachmentId),
+    );
+    setSubmissionError("");
   }
 
   /** Nạp danh sách bài nộp của một bài tập để giảng viên chấm. */
@@ -503,17 +597,14 @@ export function useAcademicModel() {
             })),
             feedback,
             expectedSubmissionRevision: grading.revision,
-            correctionReason:
-              grading.status === "GRADED" ? correctionReason : undefined,
           }),
         },
       );
       setGrading(null);
       setFeedback("");
-      setCorrectionReason("");
       await openSubmissions(reviewing);
-      await load();
-      notify("Đã lưu điểm rubric và phản hồi.");
+      await Promise.all([load(), loadAssignments()]);
+      notify("Đã lưu điểm.");
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Không lưu được điểm.",
@@ -553,17 +644,21 @@ export function useAcademicModel() {
     }
   }
 
-  const filteredAssignments = useMemo(
-    () =>
-      selectedClassId
-        ? assignments.filter((item) => item.classId === selectedClassId)
-        : assignments,
-    [assignments, selectedClassId],
-  );
+  const filteredAssignments = assignments;
 
   const upcomingEvents = useMemo(() => events.slice(0, 12), [events]);
 
-  const assignmentPagination = usePagination(filteredAssignments);
+  const assignmentPagination = {
+    page: assignmentDisplayPage,
+    displayPage: assignmentDisplayPage,
+    pageSize: assignmentPageSize,
+    totalItems: assignmentTotalItems,
+    totalPages: assignmentTotalPages,
+    setPage: setAssignmentPage,
+    setPageSize: setAssignmentPageSize,
+    resetPage: resetAssignmentPage,
+    pageItems: assignments,
+  };
 
   const gradebookPagination = usePagination(gradebook);
 
@@ -571,11 +666,14 @@ export function useAcademicModel() {
   return {
     dataReady,
     loadError,
-    reload: load,
+    reload: async () => {
+      await Promise.all([load(), loadAssignments()]);
+    },
     session,
     classes,
     announcements,
     gradebook,
+    gradebookAssessments,
     selectedClassId,
     assignmentForm,
     setAssignmentForm,
@@ -591,18 +689,17 @@ export function useAcademicModel() {
     lifecycleDueAt,
     setLifecycleDueAt,
     lifecycleMinDueAt,
-    lifecycleReason,
-    setLifecycleReason,
-    assignmentHistory,
-    setAssignmentHistory,
     creatingAnnouncement,
     setCreatingAnnouncement,
     submitting,
     setSubmitting,
+    openSubmissionDialog,
+    closeSubmissionDialog,
     submissionContent,
     setSubmissionContent,
     submissionFiles,
     setSubmissionFiles,
+    removedStoredIds,
     submissionError,
     setSubmissionError,
     submissionBusy,
@@ -614,8 +711,6 @@ export function useAcademicModel() {
     setRubricScores,
     feedback,
     setFeedback,
-    correctionReason,
-    setCorrectionReason,
     allowed,
     canTeach,
     changeClass,
@@ -623,12 +718,11 @@ export function useAcademicModel() {
     editAssignment,
     openLifecycle,
     applyLifecycle,
-    openAssignmentHistory,
     publish,
     submitAssignment,
     chooseSubmissionFiles,
     removeStoredAttachment,
-    openAttachment,
+    restoreStoredAttachment,
     openSubmissions,
     grade,
     createAnnouncement,
