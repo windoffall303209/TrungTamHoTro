@@ -11,6 +11,7 @@ export const blank = {
   attemptLimit: 1,
   shuffleQuestions: false,
   aiTutorEnabled: false,
+  showAnswersAfterSubmit: false,
   randomSeed: "wind-exam-2026",
   scoreAllocations: {} as Record<string, number>,
 };

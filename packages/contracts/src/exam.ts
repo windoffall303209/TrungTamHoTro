@@ -58,6 +58,7 @@ export interface ExamAiContext {
 export interface LearningExam {
   hidden?: boolean;
   aiTutorEnabled?: boolean;
+  showAnswersAfterSubmit?: boolean;
   id: string;
   classId: string;
   title: string;
@@ -206,14 +207,23 @@ export interface RegradeRequest {
 
 export interface LearnerResult {
   attempt: ExamAttempt;
-  exam: { id: string; title: string; totalScore: DecimalNumber; closeAt: IsoDateTimeString };
+  exam: {
+    id: string;
+    title: string;
+    totalScore: DecimalNumber;
+    closeAt: IsoDateTimeString;
+    showAnswersAfterSubmit?: boolean;
+  };
   answerBreakdown: Array<{
     questionId: string;
     content: string;
     submittedAnswers: string[];
-    /** Ẩn khi đề còn mở để kết quả từng câu không trở thành công cụ dò đáp án cho lượt sau/học viên khác. */
+    /** Ẩn khi đề còn mở (trừ khi giảng viên bật cho phép xem đáp án sau khi nộp) để không lộ đáp án cho học viên khác. */
     awardedScore?: DecimalNumber;
     maxScore: DecimalNumber;
+    /** Chỉ trả về khi giảng viên bật tùy chọn cho phép học sinh xem đáp án sau khi nộp bài. */
+    options?: string[];
+    correctAnswers?: string[];
   }>;
   /** Có giá trị khi điểm từng câu đang ẩn: thời điểm đề đóng và chi tiết được công bố. */
   breakdownVisibleAt?: IsoDateTimeString;

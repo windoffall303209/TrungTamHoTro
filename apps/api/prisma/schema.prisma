@@ -676,9 +676,10 @@ model Question {
 }
 
 model Exam {
-  hidden          Boolean        @default(false)
-  aiTutorEnabled  Boolean        @default(false) @map("ai_tutor_enabled")
-  id              String         @id @default(cuid())
+  hidden                 Boolean        @default(false)
+  aiTutorEnabled         Boolean        @default(false) @map("ai_tutor_enabled")
+  showAnswersAfterSubmit Boolean        @default(false) @map("show_answers_after_submit")
+  id                     String         @id @default(cuid())
   classId         String         @map("class_id")
   title           String         @db.VarChar(255)
   durationMinutes Int            @map("duration_minutes")

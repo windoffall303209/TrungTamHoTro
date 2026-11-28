@@ -227,6 +227,7 @@ export function AiExamBuilderModal({
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [showAnswersAfterSubmit, setShowAnswersAfterSubmit] = useState(false);
   const [targetScaleScore, setTargetScaleScore] = useState(10);
   const [essayMaxScore, setEssayMaxScore] = useState(10);
 
@@ -258,6 +259,7 @@ export function AiExamBuilderModal({
       setMaxAttempts(1);
       setShuffleQuestions(false);
       setAiTutorEnabled(false);
+      setShowAnswersAfterSubmit(false);
       setTargetScaleScore(10);
       setEssayMaxScore(10);
     }
@@ -483,6 +485,7 @@ export function AiExamBuilderModal({
           maxAttempts,
           shuffleQuestions: mode === "MULTIPLE_CHOICE" && shuffleQuestions,
           aiTutorEnabled: mode === "MULTIPLE_CHOICE" && aiTutorEnabled,
+          showAnswersAfterSubmit: mode === "MULTIPLE_CHOICE" && showAnswersAfterSubmit,
         },
       });
       onClose();
@@ -834,6 +837,23 @@ export function AiExamBuilderModal({
                       </span>
                       <span className="block text-[11px] text-slate-600 dark:text-slate-400">
                         AI chỉ gợi mở phương pháp giải theo từng câu hỏi, không đưa ra đáp án đúng.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showAnswersAfterSubmit}
+                      onChange={(event) => setShowAnswersAfterSubmit(event.target.checked)}
+                      className="mt-0.5 size-4 accent-emerald-600"
+                    />
+                    <span>
+                      <span className="block font-bold">
+                        Cho phép học sinh xem đáp án sau khi làm xong bài
+                      </span>
+                      <span className="block text-[11px] text-emerald-800/80 dark:text-emerald-200/80">
+                        Mặc định tắt để học sinh làm trước không biết và chia sẻ đáp án cho các bạn khác.
                       </span>
                     </span>
                   </label>

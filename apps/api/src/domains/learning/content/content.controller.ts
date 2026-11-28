@@ -515,6 +515,7 @@ export class ContentController {
       attemptLimit: input.attemptLimit,
       shuffleQuestions: input.shuffleQuestions,
       aiTutorEnabled: input.aiTutorEnabled,
+      showAnswersAfterSubmit: input.showAnswersAfterSubmit,
       randomSeed: input.randomSeed,
     }, generated.questions, courseId, { ...generated.context, providerId: generated.providerId, provider: generated.provider, model: generated.model, warnings: generated.warnings }, canonicalRequestId, session.user.id);
     const draftWarning = exam.status === "PUBLISHED" ? [] : ["Đề đã được lưu ở dạng nháp vì chưa đủ điều kiện công bố; hãy kiểm tra rồi công bố thủ công."];

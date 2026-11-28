@@ -611,11 +611,15 @@ async function collectLearnerResults(
         title: row.exam.title,
         totalScore: Number(row.exam.totalScore),
         closeAt: row.exam.closeAt.toISOString(),
+        ...(row.exam.showAnswersAfterSubmit ? { showAnswersAfterSubmit: true } : {}),
       },
       answerBreakdown: row.exam.questions.map((examQuestion) => {
         const answer = row.answers.find(
           (item) => item.questionId === examQuestion.questionId,
         );
+        const mappedQuestion = row.exam.showAnswersAfterSubmit
+          ? serviceContext.mapQuestion(examQuestion.question)
+          : null;
         return {
           questionId: examQuestion.questionId,
           content: examQuestion.question.content,
@@ -624,6 +628,12 @@ async function collectLearnerResults(
           ),
           awardedScore: Number(answer?.score ?? 0),
           maxScore: Number(examQuestion.score),
+          ...(mappedQuestion
+            ? {
+                options: [...mappedQuestion.options],
+                correctAnswers: [...mappedQuestion.correctAnswers],
+              }
+            : {}),
         };
       }),
       regradeRequest: row.regradeRequests[0]
@@ -647,6 +657,7 @@ async function collectLearnerResults(
     )
     .map((attempt) => {
       const exam = serviceContext.findExam(attempt.examId);
+      const allowImmediateReview = Boolean(exam.showAnswersAfterSubmit);
       return withBreakdownPolicy({
         attempt: { ...attempt, answers: structuredClone(attempt.answers) },
         exam: {
@@ -654,22 +665,31 @@ async function collectLearnerResults(
           title: exam.title,
           totalScore: exam.totalScore,
           closeAt: exam.closeAt,
+          ...(allowImmediateReview ? { showAnswersAfterSubmit: true } : {}),
         },
-        answerBreakdown: exam.questionIds.map((questionId) => ({
-          questionId,
-          content:
-            serviceContext.questions.find(
-              (question) => question.id === questionId,
-            )?.content ?? "Câu hỏi không còn tồn tại",
-          submittedAnswers: [...(attempt.answers[questionId] ?? [])],
-          awardedScore: serviceContext.isMemoryAnswerCorrect(
+        answerBreakdown: exam.questionIds.map((questionId) => {
+          const foundQuestion = serviceContext.questions.find(
+            (question) => question.id === questionId,
+          );
+          return {
             questionId,
-            attempt.answers[questionId] ?? [],
-          )
-            ? serviceContext.examQuestionScore(exam, questionId)
-            : 0,
-          maxScore: serviceContext.examQuestionScore(exam, questionId),
-        })),
+            content: foundQuestion?.content ?? "Câu hỏi không còn tồn tại",
+            submittedAnswers: [...(attempt.answers[questionId] ?? [])],
+            awardedScore: serviceContext.isMemoryAnswerCorrect(
+              questionId,
+              attempt.answers[questionId] ?? [],
+            )
+              ? serviceContext.examQuestionScore(exam, questionId)
+              : 0,
+            maxScore: serviceContext.examQuestionScore(exam, questionId),
+            ...(allowImmediateReview && foundQuestion
+              ? {
+                  options: [...foundQuestion.options],
+                  correctAnswers: [...foundQuestion.correctAnswers],
+                }
+              : {}),
+          };
+        }),
         regradeRequest: serviceContext.regradeRequests.find(
           (request) =>
             request.attemptId === attempt.id && request.learnerId === learnerId,
@@ -679,16 +699,19 @@ async function collectLearnerResults(
 }
 
 /**
- * Chính sách công bố mặc định: tổng điểm trả ngay, điểm từng câu chỉ trả khi đề đã đóng; trước đó gỡ awardedScore
- * để học viên không dùng lượt trước dò đáp án cho lượt sau hoặc chuyển đáp án cho bạn đang thi.
+ * Chính sách công bố mặc định: tổng điểm trả ngay; nếu giảng viên bật showAnswersAfterSubmit thì mở ngay điểm và đáp án
+ * từng câu sau khi nộp, ngược lại ẩn tới khi đề đóng để học viên không chuyển đáp án cho người chưa làm bài.
  */
 function withBreakdownPolicy(result: LearnerResult, timestamp: Date): LearnerResult {
+  if (result.exam.showAnswersAfterSubmit) return result;
   if (timestamp >= new Date(result.exam.closeAt)) return result;
   return {
     ...result,
     answerBreakdown: result.answerBreakdown.map((item) => {
       const visible = { ...item };
       delete visible.awardedScore;
+      delete visible.options;
+      delete visible.correctAnswers;
       return visible;
     }),
     breakdownVisibleAt: result.exam.closeAt,

@@ -343,6 +343,7 @@ export async function createGeneratedExam(
           attemptLimit: input.attemptLimit,
           shuffleQuestions: input.shuffleQuestions ?? false,
           aiTutorEnabled: input.aiTutorEnabled ?? false,
+          showAnswersAfterSubmit: input.showAnswersAfterSubmit ?? false,
           randomSeed: input.randomSeed?.trim(),
           status: "DRAFT",
           aiContext: generationContext,

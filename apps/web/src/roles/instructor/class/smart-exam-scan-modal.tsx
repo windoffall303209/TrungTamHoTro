@@ -255,6 +255,7 @@ export function SmartExamScanModal({
   const [maxAttempts, setMaxAttempts] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [showAnswersAfterSubmit, setShowAnswersAfterSubmit] = useState(false);
   const [targetScaleScore, setTargetScaleScore] = useState(10);
   const [essayMaxScore, setEssayMaxScore] = useState(10);
   const [attachFirstImage, setAttachFirstImage] = useState(true);
@@ -303,6 +304,7 @@ export function SmartExamScanModal({
       setMaxAttempts(1);
       setShuffleQuestions(false);
       setAiTutorEnabled(false);
+      setShowAnswersAfterSubmit(false);
       setTargetScaleScore(10);
       setEssayMaxScore(10);
       setAttachFirstImage(true);
@@ -812,6 +814,7 @@ export function SmartExamScanModal({
           maxAttempts,
           shuffleQuestions: isMcAssignment && shuffleQuestions,
           aiTutorEnabled: isMcAssignment && aiTutorEnabled,
+          showAnswersAfterSubmit: isMcAssignment && showAnswersAfterSubmit,
         },
       });
       await onImported();
@@ -1224,6 +1227,16 @@ export function SmartExamScanModal({
                       />
                       <Sparkles size={14} className="mt-0.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
                       <span>Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài</span>
+                    </label>
+
+                    <label className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-2.5 text-xs text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showAnswersAfterSubmit}
+                        onChange={(event) => setShowAnswersAfterSubmit(event.target.checked)}
+                        className="mt-0.5 size-4 accent-emerald-600"
+                      />
+                      <span>Cho phép học sinh xem đáp án sau khi làm xong bài</span>
                     </label>
                   </>
                 ) : (

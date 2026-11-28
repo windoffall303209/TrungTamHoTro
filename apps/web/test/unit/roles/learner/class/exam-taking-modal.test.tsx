@@ -303,4 +303,90 @@ describe("ExamTakingModal learner attempt lifecycle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Câu trước" }));
     expect(await screen.findByText(/Gợi ý tức thì/)).toBeInTheDocument();
   });
+
+  it("ẩn bảng đối soát đáp án khi showAnswersAfterSubmit tắt và hiển thị đầy đủ khi giảng viên bật cho phép xem đáp án", async () => {
+    mockApiRequest.mockImplementation((path: string, init?: { method?: string }) => {
+      if (path === "/learner/exams/exam-hide-ans/attempts") {
+        return Promise.resolve({
+          id: "attempt-hide-1",
+          startedAt: new Date().toISOString(),
+          serverTime: new Date().toISOString(),
+          answers: {},
+        });
+      }
+      if (path === "/learner/exams/exam-hide-ans/questions") {
+        return Promise.resolve([
+          { id: "q-1", type: "SINGLE_CHOICE", content: "2 + 2 bằng mấy?", options: ["3", "4"], correctAnswers: [] },
+        ]);
+      }
+      if (path === "/learner/exam-attempts/attempt-hide-1/submit" && init?.method === "POST") {
+        return Promise.resolve({ status: "GRADED", score: 10 });
+      }
+      if (path === "/learner/exams/exam-show-ans/attempts") {
+        return Promise.resolve({
+          id: "attempt-show-1",
+          startedAt: new Date().toISOString(),
+          serverTime: new Date().toISOString(),
+          answers: {},
+        });
+      }
+      if (path === "/learner/exams/exam-show-ans/questions") {
+        return Promise.resolve([
+          { id: "q-1", type: "SINGLE_CHOICE", content: "2 + 2 bằng mấy?", options: ["3", "4"], correctAnswers: [] },
+          { id: "q-2", type: "SINGLE_CHOICE", content: "5 + 5 bằng mấy?", options: ["9", "10"], correctAnswers: [] },
+        ]);
+      }
+      if (path === "/learner/exam-attempts/attempt-show-1/submit" && init?.method === "POST") {
+        return Promise.resolve({ status: "GRADED", score: 5 });
+      }
+      if (path === "/learner/attempts/attempt-show-1/result") {
+        return Promise.resolve({
+          attempt: { id: "attempt-show-1", examId: "exam-show-ans", learnerId: "u1", answers: {}, status: "GRADED", startedAt: new Date().toISOString(), score: 5 },
+          exam: { id: "exam-show-ans", title: "Đề mở đáp án", totalScore: 10, closeAt: new Date(Date.now() + 60_000).toISOString(), showAnswersAfterSubmit: true },
+          answerBreakdown: [
+            { questionId: "q-1", content: "2 + 2 bằng mấy?", submittedAnswers: ["4"], awardedScore: 5, maxScore: 5, options: ["3", "4"], correctAnswers: ["4"] },
+            { questionId: "q-2", content: "5 + 5 bằng mấy?", submittedAnswers: ["9"], awardedScore: 0, maxScore: 5, options: ["9", "10"], correctAnswers: ["10"] },
+          ],
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    // 1. Khi showAnswersAfterSubmit = false (mặc định): không lộ đúng/sai từng câu sau khi nộp
+    const { unmount } = render(
+      <ExamTakingModal
+        open
+        exam={{ id: "exam-hide-ans", title: "Đề ẩn đáp án", durationMinutes: 15, totalScore: 10, showAnswersAfterSubmit: false }}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Bắt đầu làm bài" }));
+    fireEvent.click(await screen.findByText("4"));
+    fireEvent.click(screen.getByRole("button", { name: /^Nộp bài$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Nộp bài ngay" }));
+
+    expect(await screen.findByText("Đã nộp bài")).toBeInTheDocument();
+    expect(screen.queryByText("Rà soát chi tiết bài làm")).not.toBeInTheDocument();
+    expect(screen.getByText(/Giáo viên đang tắt chế độ xem đáp án chi tiết sau khi nộp bài/)).toBeInTheDocument();
+    unmount();
+
+    // 2. Khi showAnswersAfterSubmit = true: hiển thị rà soát đúng/sai và đáp án đúng ngay sau khi nộp
+    render(
+      <ExamTakingModal
+        open
+        exam={{ id: "exam-show-ans", title: "Đề mở đáp án", durationMinutes: 15, totalScore: 10, showAnswersAfterSubmit: true }}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Bắt đầu làm bài" }));
+    fireEvent.click(await screen.findByText("4"));
+    fireEvent.click(screen.getByRole("button", { name: "Câu tiếp theo" }));
+    fireEvent.click(await screen.findByText("9"));
+    fireEvent.click(screen.getByRole("button", { name: /^Nộp bài$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Nộp bài ngay" }));
+
+    expect(await screen.findByText("Rà soát chi tiết bài làm")).toBeInTheDocument();
+    expect(screen.getByText("Câu đúng (1)")).toBeInTheDocument();
+    expect(screen.getByText("Câu sai / Bỏ trống (1)")).toBeInTheDocument();
+  });
 });

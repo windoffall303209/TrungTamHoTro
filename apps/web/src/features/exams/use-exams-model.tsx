@@ -610,6 +610,7 @@ export function useExamsModel() {
             attemptLimit: item.attemptLimit,
             shuffleQuestions: item.shuffleQuestions ?? false,
             aiTutorEnabled: item.aiTutorEnabled ?? false,
+            showAnswersAfterSubmit: item.showAnswersAfterSubmit ?? false,
             randomSeed: item.randomSeed ?? "wind-exam-2026",
             scoreAllocations:
               item.questionScores ??

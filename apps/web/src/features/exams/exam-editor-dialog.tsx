@@ -662,6 +662,24 @@ export function ExamEditorDialog({
               </span>
             </span>
           </label>
+          <label className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3.5 text-sm text-emerald-950 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100 cursor-pointer">
+            <input
+              checked={Boolean(form.showAnswersAfterSubmit)}
+              className="mt-0.5 size-5 accent-emerald-600"
+              onChange={(event) =>
+                setForm({ ...form, showAnswersAfterSubmit: event.target.checked })
+              }
+              type="checkbox"
+            />
+            <span>
+              <span className="block font-bold">
+                Cho phép học sinh xem đáp án sau khi làm xong bài
+              </span>
+              <span className="mt-0.5 block text-xs text-emerald-800/80 dark:text-emerald-200/80">
+                Mặc định tắt để tránh người làm xong trước chia sẻ đáp án cho các học sinh chưa làm bài.
+              </span>
+            </span>
+          </label>
           <div className="sticky -bottom-5 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-4 md:-bottom-7">
             <Button
               className="mr-auto"

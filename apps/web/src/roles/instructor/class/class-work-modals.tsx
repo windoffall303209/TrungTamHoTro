@@ -142,6 +142,15 @@ export function ClassExamPreviewModal({
               >
                 <span>{exam.aiTutorEnabled ? "Hỏi đáp AI: Đang bật" : "Hỏi đáp AI: Đang tắt"}</span>
               </span>
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                  exam.showAnswersAfterSubmit
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                    : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                }`}
+              >
+                <span>{exam.showAnswersAfterSubmit ? "Xem đáp án: Cho phép" : "Xem đáp án: Đang tắt"}</span>
+              </span>
             </div>
             <h2 id="class-exam-preview-title" className="mt-1.5 text-lg font-extrabold text-slate-900 dark:text-white">
               {exam.title}
@@ -808,6 +817,7 @@ export function ClassExamEditModal({
   const [attemptLimit, setAttemptLimit] = useState(1);
   const [shuffleQuestions, setShuffleQuestions] = useState(false);
   const [aiTutorEnabled, setAiTutorEnabled] = useState(false);
+  const [showAnswersAfterSubmit, setShowAnswersAfterSubmit] = useState(false);
   const [hidden, setHidden] = useState(false);
   const [balanceTargetScore, setBalanceTargetScore] = useState(10);
   const [questions, setQuestions] = useState<EditableExamQuestion[]>([]);
@@ -823,6 +833,7 @@ export function ClassExamEditModal({
     setAttemptLimit(exam.attemptLimit);
     setShuffleQuestions(Boolean(exam.shuffleQuestions));
     setAiTutorEnabled(Boolean(exam.aiTutorEnabled));
+    setShowAnswersAfterSubmit(Boolean(exam.showAnswersAfterSubmit));
     setHidden(Boolean(exam.hidden));
     setBalanceTargetScore(exam.totalScore >= 0.25 ? exam.totalScore : 10);
     setQuestions([]);
@@ -1108,6 +1119,7 @@ export function ClassExamEditModal({
           attemptLimit,
           shuffleQuestions,
           aiTutorEnabled,
+          showAnswersAfterSubmit,
           ...(exam.randomSeed ? { randomSeed: exam.randomSeed } : {}),
           scoreAllocations: finalScores,
           expectedVersion: currentVersion,
@@ -1270,6 +1282,16 @@ export function ClassExamEditModal({
                     className="size-4 accent-indigo-600"
                   />
                   <span>Cho phép hỏi đáp AI dẫn dắt theo từng câu</span>
+                </label>
+
+                <label className="inline-flex items-center gap-2 font-semibold text-emerald-700 dark:text-emerald-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAnswersAfterSubmit}
+                    onChange={(event) => setShowAnswersAfterSubmit(event.target.checked)}
+                    className="size-4 accent-emerald-600"
+                  />
+                  <span>Cho phép học sinh xem đáp án sau khi làm xong bài</span>
                 </label>
               </div>
 

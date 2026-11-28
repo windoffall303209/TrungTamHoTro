@@ -19,6 +19,7 @@ import { apiRequest } from "@/lib/api-client";
 import type {
   ExamAttemptTutorState,
   ExamTutorAskResult,
+  LearnerResult,
   Question,
 } from "@/lib/learning-types";
 import { RichText } from "@/shared/ui/ui";
@@ -43,6 +44,7 @@ export interface ExamTakingData {
   closeAt?: string;
   questionScores?: Record<string, number>;
   aiTutorEnabled?: boolean;
+  showAnswersAfterSubmit?: boolean;
 }
 
 interface QuestionItem {
@@ -615,7 +617,51 @@ export function ExamTakingModal({
         serverScore = submitted.status === "GRADED" ? submitted.score ?? null : null;
       }
 
-      const total = questions.length;
+      let resolvedQuestions = questions;
+      let canReviewAfterSubmit = isInstructorPreview;
+      if (!isInstructorPreview && attemptId && serverScore !== null && exam?.showAnswersAfterSubmit) {
+        try {
+          const detail = await apiRequest<LearnerResult>(
+            `/learner/attempts/${encodeURIComponent(attemptId)}/result`,
+          );
+          if (detail?.exam?.showAnswersAfterSubmit && Array.isArray(detail.answerBreakdown)) {
+            const breakdownById = new Map(
+              detail.answerBreakdown.map((item) => [String(item.questionId), item]),
+            );
+            resolvedQuestions = questions.map((question) => {
+              const breakdownItem = breakdownById.get(String(question.id));
+              const rawCorrect = breakdownItem?.correctAnswers ?? [];
+              const matchedCorrectKeys = question.options.length
+                ? rawCorrect
+                    .map((expected) => {
+                      const cleanExpected = expected.replace(/^[A-F][.:\s)]+/i, "").trim();
+                      const found =
+                        question.options.find((option) => option.value === expected) ??
+                        question.options.find(
+                          (option) =>
+                            option.key === expected ||
+                            option.text === expected ||
+                            option.text === cleanExpected,
+                        );
+                      return found?.key ?? expected;
+                    })
+                    .filter(Boolean)
+                : rawCorrect;
+              return {
+                ...question,
+                correctAnswer: matchedCorrectKeys[0],
+                correctAnswersList: matchedCorrectKeys,
+              };
+            });
+            setDbQuestions(resolvedQuestions);
+            canReviewAfterSubmit = true;
+          }
+        } catch (reviewErr) {
+          console.error("Không tải được chi tiết đáp án sau khi nộp bài.", reviewErr);
+        }
+      }
+
+      const total = resolvedQuestions.length;
       const totalScore = examTotalScore ?? 10;
       const customScores = exam?.questionScores;
       let correctCount = 0;
@@ -623,7 +669,7 @@ export function ExamTakingModal({
       let unanswered = 0;
       let earnedPreviewScore = 0;
       let hasManualQuestion = false;
-      questions.forEach((question, index) => {
+      resolvedQuestions.forEach((question, index) => {
         const verdict = evaluatePreviewQuestion(
           question,
           answersRef.current[index],
@@ -637,7 +683,7 @@ export function ExamTakingModal({
           earnedPreviewScore += weight;
         } else if (verdict === "manual") {
           hasManualQuestion = true;
-        } else if (isInstructorPreview) {
+        } else if (canReviewAfterSubmit) {
           wrongCount += 1;
         }
       });
@@ -652,7 +698,7 @@ export function ExamTakingModal({
         wrongCount,
         unansweredCount: unanswered,
         completedSeconds: Math.max(1, initialDurationSeconds - remainingNow()),
-        reviewAvailable: isInstructorPreview,
+        reviewAvailable: canReviewAfterSubmit,
       });
       setIsSubmitted(true);
       setConfirmSubmitModalOpen(false);
@@ -847,6 +893,11 @@ export function ExamTakingModal({
               </div>
 
               {/* BẢNG ĐỐI SOÁT ĐÁP ÁN VÀ XEM LẠI BÀI LÀM */}
+              {!scoreResult.reviewAvailable && !isInstructorPreview && (
+                <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/60 px-5 py-4 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+                  Giáo viên đang tắt chế độ xem đáp án chi tiết sau khi nộp bài để đảm bảo tính công bằng cho các học sinh chưa làm bài.
+                </div>
+              )}
               {scoreResult.reviewAvailable && <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                   <div>

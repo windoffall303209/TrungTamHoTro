@@ -355,6 +355,7 @@ export function InstructorClassWorkspace({
   const [manualExamQuestionScores, setManualExamQuestionScores] = useState<Record<string, number>>({});
   const [manualExamCustomScored, setManualExamCustomScored] = useState(false);
   const [manualExamTutorEnabled, setManualExamTutorEnabled] = useState(false);
+  const [manualExamShowAnswers, setManualExamShowAnswers] = useState(false);
   const [examSaving, setExamSaving] = useState(false);
   const [manualExamSelectedQuestions, setManualExamSelectedQuestions] = useState<string[]>([]);
   const [manualExamSearch, setManualExamSearch] = useState("");
@@ -1277,6 +1278,7 @@ export function InstructorClassWorkspace({
           attemptLimit: data.settings.maxAttempts,
           shuffleQuestions: data.settings.shuffleQuestions,
           aiTutorEnabled: Boolean(data.settings.aiTutorEnabled),
+          showAnswersAfterSubmit: Boolean(data.settings.showAnswersAfterSubmit),
           scoreAllocations: questionIds.map((questionId, index) => ({
             questionId,
             score: data.questions[index]!.score,
@@ -1736,6 +1738,7 @@ export function InstructorClassWorkspace({
         closeAt: selectedClassExam.closeAt,
         questionScores: selectedClassExam.questionScores,
         aiTutorEnabled: selectedClassExam.aiTutorEnabled,
+        showAnswersAfterSubmit: selectedClassExam.showAnswersAfterSubmit,
       });
       return;
     }
@@ -2071,6 +2074,7 @@ export function InstructorClassWorkspace({
           attemptLimit: 1,
           shuffleQuestions,
           aiTutorEnabled: manualExamTutorEnabled,
+          showAnswersAfterSubmit: manualExamShowAnswers,
           scoreAllocations: selectedQuestions.map((question, idx) => ({
             questionId: question.id,
             score: resolvedScores[idx]!,
@@ -3604,6 +3608,7 @@ export function InstructorClassWorkspace({
             closeAt: target.closeAt,
             questionScores: target.questionScores,
             aiTutorEnabled: target.aiTutorEnabled,
+            showAnswersAfterSubmit: target.showAnswersAfterSubmit,
           });
         }}
         onEditExam={(target) => setEditingClassExam(target)}
@@ -5038,22 +5043,41 @@ export function InstructorClassWorkspace({
               </div>
 
               {bankBuilderAssignmentType === "MULTIPLE_CHOICE" && (
-                <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={manualExamTutorEnabled}
-                    onChange={(event) => setManualExamTutorEnabled(event.target.checked)}
-                    className="mt-0.5 size-4 accent-indigo-600"
-                  />
-                  <span>
-                    <span className="block font-bold text-slate-900 dark:text-slate-100">
-                      Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+                <div className="space-y-2.5">
+                  <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manualExamTutorEnabled}
+                      onChange={(event) => setManualExamTutorEnabled(event.target.checked)}
+                      className="mt-0.5 size-4 accent-indigo-600"
+                    />
+                    <span>
+                      <span className="block font-bold text-slate-900 dark:text-slate-100">
+                        Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+                      </span>
+                      <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                        Mỗi câu hỏi có khung chat gợi ý riêng theo hạn mức hệ thống, không tiết lộ đáp án.
+                      </span>
                     </span>
-                    <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                      Mỗi câu hỏi có khung chat gợi ý riêng theo hạn mức hệ thống, không tiết lộ đáp án.
+                  </label>
+
+                  <label className="flex items-start gap-2.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={manualExamShowAnswers}
+                      onChange={(event) => setManualExamShowAnswers(event.target.checked)}
+                      className="mt-0.5 size-4 accent-emerald-600"
+                    />
+                    <span>
+                      <span className="block font-bold text-emerald-950 dark:text-emerald-100">
+                        Cho phép học sinh xem đáp án sau khi làm xong bài
+                      </span>
+                      <span className="block text-[11px] text-emerald-800/80 dark:text-emerald-200/80 mt-0.5">
+                        Mặc định tắt để học sinh làm trước không biết và chia sẻ đáp án cho các bạn khác.
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                </div>
               )}
 
               {/* BỘ CHỌN 3 KIỂU TẠO ĐỀ */}

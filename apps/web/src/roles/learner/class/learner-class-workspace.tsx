@@ -88,6 +88,7 @@ export interface AttemptRecord {
     questionId: string;
     questionTitle?: string;
     submittedAnswers?: string[];
+    correctAnswers?: string[];
     awardedScore?: number;
     maxScore?: number;
   }>;
@@ -111,6 +112,7 @@ interface AssignmentItem {
   scoringMethod?: string;
   createdAt?: string;
   aiTutorEnabled?: boolean;
+  showAnswersAfterSubmit?: boolean;
   latestAttempt?: AttemptRecord;
 }
 
@@ -453,6 +455,7 @@ export function LearnerClassWorkspace({
   // State quản lý xem lại bài làm & lịch sử nhiều lần nộp bài
   const [selectedAttemptForReview, setSelectedAttemptForReview] = useState<{
     examTitle: string;
+    showAnswersAfterSubmit?: boolean;
     attempt: AttemptRecord;
   } | null>(null);
 
@@ -578,6 +581,7 @@ export function LearnerClassWorkspace({
       totalScore: assignment.maxScore,
       closeAt: assignment.dueAt,
       aiTutorEnabled: assignment.aiTutorEnabled,
+      showAnswersAfterSubmit: assignment.showAnswersAfterSubmit,
     });
   };
 
@@ -671,6 +675,7 @@ export function LearnerClassWorkspace({
           questionId: ans.questionId,
           questionTitle: ans.content,
           submittedAnswers: ans.submittedAnswers,
+          correctAnswers: ans.correctAnswers,
           awardedScore: ans.awardedScore,
           maxScore: ans.maxScore,
         })),
@@ -691,6 +696,7 @@ export function LearnerClassWorkspace({
         attemptLimit: exam.attemptLimit,
         completedAttempts: Math.max(0, exam.attemptLimit - exam.remainingAttempts - (exam.availabilityStatus === "IN_PROGRESS" ? 1 : 0)),
         aiTutorEnabled: Boolean(exam.aiTutorEnabled),
+        showAnswersAfterSubmit: Boolean(exam.showAnswersAfterSubmit),
         latestAttempt,
         subtypeText: "Trắc nghiệm",
         scoringMethod: exam.attemptLimit && exam.attemptLimit > 1 ? "Điểm lần chấm mới nhất" : "Lần đầu tiên",
@@ -1800,6 +1806,7 @@ export function LearnerClassWorkspace({
                             if (attempt) {
                               setSelectedAttemptForReview({
                                 examTitle: activeAssignment.title,
+                                showAnswersAfterSubmit: activeAssignment.showAnswersAfterSubmit,
                                 attempt,
                               });
 
@@ -2442,6 +2449,7 @@ interface ReviewAttemptModalProps {
   onClose: () => void;
   data: {
     examTitle: string;
+    showAnswersAfterSubmit?: boolean;
     attempt: AttemptRecord;
   } | null;
 }
@@ -2449,8 +2457,9 @@ interface ReviewAttemptModalProps {
 // Hiển thị toàn bộ nội dung và kết quả chấm điểm của một lượt làm bài kiểm tra.
 function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
   if (!open || !data) return null;
-  const { examTitle, attempt } = data;
+  const { examTitle, showAnswersAfterSubmit, attempt } = data;
   const theme = getScoreTheme(attempt.score);
+  const canShowBreakdown = Boolean(showAnswersAfterSubmit) || Boolean(attempt.answers?.some((ans) => ans.awardedScore !== undefined));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
@@ -2498,7 +2507,12 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
         </div>
 
         {/* Danh sách câu hỏi và đáp án nộp */}
-        {attempt.answers && attempt.answers.length > 0 && (
+        {!canShowBreakdown && (
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            Chi tiết đúng/sai và đáp án từng câu hiện được ẩn theo thiết lập của giáo viên để đảm bảo công bằng cho cả lớp.
+          </div>
+        )}
+        {canShowBreakdown && attempt.answers && attempt.answers.length > 0 && (
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
               Chi tiết các câu hỏi ({attempt.answers.length})
@@ -2530,6 +2544,14 @@ function ReviewAttemptModal({ open, onClose, data }: ReviewAttemptModalProps) {
                       <span className="font-medium text-slate-700 dark:text-slate-200">Chưa có dữ liệu</span>
                     )}
                   </div>
+                  {showAnswersAfterSubmit && ans.correctAnswers && ans.correctAnswers.length > 0 && (
+                    <div className="text-emerald-700 dark:text-emerald-300 text-[11px] flex flex-wrap items-baseline gap-1">
+                      <span className="shrink-0 font-semibold">Đáp án đúng:</span>
+                      <RichText className="font-bold text-emerald-800 dark:text-emerald-200 [&>p]:my-0">
+                        {ans.correctAnswers.join(", ")}
+                      </RichText>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

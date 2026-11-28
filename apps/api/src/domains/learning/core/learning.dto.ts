@@ -298,6 +298,7 @@ export class CreateExamDto {
   @IsInt() @Min(1) @Max(10) attemptLimit!: number;
   @IsOptional() @IsBoolean() shuffleQuestions = false;
   @IsOptional() @IsBoolean() aiTutorEnabled = false;
+  @IsOptional() @IsBoolean() showAnswersAfterSubmit = false;
   @IsOptional() @IsString() @MinLength(3) @MaxLength(100) randomSeed?: string;
   @IsOptional()
   @IsArray()

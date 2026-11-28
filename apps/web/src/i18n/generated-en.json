@@ -5019,5 +5019,18 @@
   "Yêu cầu phúc khảo": "Request for review",
   "Yêu cầu phúc khảo đã được người khác nhận hoặc đã kết thúc.": "The appeal request has been received by someone else or has ended.",
   "Yêu cầu trình bày hoặc lưu ý nộp bài...": "Formatting requirements or submission notes...",
-  "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status."
+  "Yêu cầu vừa được người khác xử lý; hãy tải lại trạng thái.": "The request has just been processed by someone else; Please reload the status.",
+  "Chi tiết đúng/sai và đáp án từng câu hiện được ẩn theo thiết lập của giáo viên để đảm bảo công bằng cho cả lớp.": "Per-question right/wrong status and answers are currently hidden per instructor settings to ensure fairness across the class.",
+  "Cho phép": "Allowed",
+  "Cho phép học sinh xem đáp án sau khi làm xong bài": "Allow students to view answers after finishing",
+  "Đáp án đúng:": "Correct answer:",
+  "Giáo viên đang tắt chế độ xem đáp án chi tiết sau khi nộp bài để đảm bảo tính công bằng cho các học sinh chưa làm bài.": "Detailed answer review after submission is disabled by the instructor to ensure fairness for students who have not yet taken the exam.",
+  "Không tải được chi tiết đáp án sau khi nộp bài.": "Could not load detailed answers after submitting.",
+  "Mặc định tắt để học sinh làm trước không biết và chia sẻ đáp án cho các bạn khác.": "Off by default so early finishers cannot see and share answers with classmates.",
+  "Mặc định tắt để tránh người làm trước lộ đáp án cho học sinh khác; chỉ bật khi cho phép đối chiếu câu đúng/sai ngay sau khi nộp.": "Off by default to prevent early finishers from leaking answers to others; enable only when immediate right/wrong review after submission is desired.",
+  "Mặc định tắt để tránh người làm xong trước chia sẻ đáp án cho các học sinh chưa làm bài.": "Off by default to prevent early finishers from sharing answers with students who have not completed the exam.",
+  "Xem đáp án": "Answer review",
+  "Xem đáp án sau nộp": "Answers after submit",
+  "Xem đáp án: Cho phép": "Answer review: Allowed",
+  "Xem đáp án: Đang tắt": "Answer review: Off"
 }

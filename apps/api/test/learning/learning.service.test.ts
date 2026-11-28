@@ -2876,4 +2876,64 @@ describe("LearningService", () => {
       vi.useRealTimers();
     }
   });
+
+  it("chỉ trả đáp án và kết quả từng câu ngay sau khi nộp khi giảng viên bật showAnswersAfterSubmit", async () => {
+    const service = new LearningService();
+    const openAt = new Date(Date.now() - 60_000).toISOString();
+    const closeAt = new Date(Date.now() + 3_600_000).toISOString();
+
+    const hiddenReviewExam = await service.createExam(
+      {
+        classId: "class-web-01",
+        title: "Đề khóa đáp án khi còn mở",
+        questionIds: ["q-rest-01"],
+        durationMinutes: 30,
+        totalScore: 10,
+        openAt,
+        closeAt,
+        attemptLimit: 1,
+        shuffleQuestions: false,
+        showAnswersAfterSubmit: false,
+      },
+      "usr-instructor",
+    );
+    expect(hiddenReviewExam.showAnswersAfterSubmit).toBe(false);
+    const attemptHidden = await service.startAttempt(hiddenReviewExam.id, "usr-learner");
+    await service.submitAttemptWithAnswers(attemptHidden.id, "usr-learner", [
+      { questionId: "q-rest-01", answers: ["PATCH"] },
+    ]);
+    const hiddenResult = await service.getLearnerResult(attemptHidden.id, "usr-learner");
+    expect(hiddenResult.answerBreakdown[0]).not.toHaveProperty("awardedScore");
+    expect(hiddenResult.answerBreakdown[0]).not.toHaveProperty("correctAnswers");
+
+    const shownReviewExam = await service.createExam(
+      {
+        classId: "class-web-01",
+        title: "Đề cho xem đáp án ngay sau nộp",
+        questionIds: ["q-rest-01"],
+        durationMinutes: 30,
+        totalScore: 10,
+        openAt,
+        closeAt,
+        attemptLimit: 1,
+        shuffleQuestions: false,
+        showAnswersAfterSubmit: true,
+      },
+      "usr-instructor",
+    );
+    expect(shownReviewExam.showAnswersAfterSubmit).toBe(true);
+    const attemptShown = await service.startAttempt(shownReviewExam.id, "usr-learner");
+    // Khi đang làm bài, danh sách câu hỏi gửi cho học viên vẫn tuyệt đối không lộ correctAnswers
+    const takingQuestions = await service.getExamQuestions(shownReviewExam.id, "usr-learner");
+    expect(takingQuestions[0]?.correctAnswers).toEqual([]);
+
+    await service.submitAttemptWithAnswers(attemptShown.id, "usr-learner", [
+      { questionId: "q-rest-01", answers: ["PATCH"] },
+    ]);
+    const shownResult = await service.getLearnerResult(attemptShown.id, "usr-learner");
+    expect(shownResult.exam.showAnswersAfterSubmit).toBe(true);
+    expect(shownResult.breakdownVisibleAt).toBeUndefined();
+    expect(shownResult.answerBreakdown[0]?.awardedScore).toBe(10);
+    expect(shownResult.answerBreakdown[0]?.correctAnswers).toEqual(["PATCH"]);
+  });
 });
