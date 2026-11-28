@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   FileCheck2,
   ImagePlus,
@@ -79,6 +80,7 @@ export interface SmartExamScanModalProps {
   targetMode?: SmartScanTargetMode;
   targetClassEndAt?: string;
   onClose: () => void;
+  onBackToHub?: () => void;
   onImported: () => Promise<void> | void;
   onSaveAssignment?: AssignmentBuilderModalProps["onSaveAssignment"];
 }
@@ -213,7 +215,7 @@ function createBlankEditableQuestion(targetMode: SmartScanTargetMode): EditableS
   };
 }
 
-/** Modal quét đề thông minh hỗ trợ chọn tối đa 5 ảnh có preview, quét cộng dồn câu hỏi và đóng gói trực tiếp thành bài tập hoặc nhập vào ngân hàng. */
+/** Modal quét đề thông minh hỗ trợ chọn tối đa 5 ảnh có preview, quét cộng dồn câu hỏi, xác nhận hủy phiên dở dang và lưu tạo đề trực tiếp. */
 export function SmartExamScanModal({
   open,
   courseId,
@@ -221,13 +223,16 @@ export function SmartExamScanModal({
   targetMode = "BANK_ONLY",
   targetClassEndAt,
   onClose,
+  onBackToHub,
   onImported,
   onSaveAssignment,
 }: SmartExamScanModalProps) {
   const { notify } = useApp();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imagesRef = useRef<QueuedScanImage[]>([]);
+  const scanAbortRef = useRef<AbortController | null>(null);
   const openedRef = useRef(false);
+
   const [images, setImages] = useState<QueuedScanImage[]>([]);
   const [activeImageId, setActiveImageId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<EditableScannedQuestion[]>([]);
@@ -237,6 +242,9 @@ export function SmartExamScanModal({
   const [providerLabel, setProviderLabel] = useState("");
   const [saving, setSaving] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [confirmDiscardAction, setConfirmDiscardAction] = useState<"CLOSE" | "BACK_TO_HUB" | null>(
+    null,
+  );
 
   // Cấu hình bài tập khi mở từ luồng "+ Tạo bài tập"
   const [assignmentTitle, setAssignmentTitle] = useState("");
@@ -264,7 +272,7 @@ export function SmartExamScanModal({
     imagesRef.current = images;
   }, [images]);
 
-  // Đặt lại cấu hình bài tập mỗi khi mở mới modal từ luồng tạo đề.
+  // Làm mới toàn bộ phiên quét mỗi khi mở lại modal từ trạng thái đóng để không bao giờ sót ảnh cũ.
   useEffect(() => {
     if (!open) {
       openedRef.current = false;
@@ -272,13 +280,35 @@ export function SmartExamScanModal({
     }
     if (!openedRef.current) {
       openedRef.current = true;
-      setDueAt(defaultDueAt(targetClassEndAt));
+      for (const item of imagesRef.current) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+      imagesRef.current = [];
+      setImages([]);
+      setActiveImageId(null);
+      setQuestions([]);
       setCustomScoresEdited(false);
+      setScanning(false);
+      setScanProgressLabel("");
+      setProviderLabel("");
+      setSaving(false);
+      setDragActive(false);
+      setConfirmDiscardAction(null);
+      setAssignmentTitle("");
+      setAssignmentDescription("");
+      setDueAt(defaultDueAt(targetClassEndAt));
+      setDurationMinutes(45);
+      setMaxAttempts(1);
+      setShuffleQuestions(false);
+      setAiTutorEnabled(false);
+      setEssayMaxScore(10);
+      setAttachFirstImage(true);
     }
   }, [open, targetClassEndAt]);
 
   useEffect(() => {
     return () => {
+      scanAbortRef.current?.abort();
       for (const item of imagesRef.current) {
         URL.revokeObjectURL(item.previewUrl);
       }
@@ -289,18 +319,41 @@ export function SmartExamScanModal({
 
   const activeImage = images.find((img) => img.id === activeImageId) ?? images[0] ?? null;
   const unscannedCount = images.filter((img) => !img.scanned).length;
+  const hasUnsavedWork = scanning || images.length > 0 || questions.length > 0;
 
-  // Dọn sạch trạng thái tạm và giải phóng URL ảnh sau khi lưu xong.
-  const clearModalStateAndClose = () => {
-    for (const item of images) URL.revokeObjectURL(item.previewUrl);
+  // Dừng mọi luồng quét đang chạy, giải phóng toàn bộ ảnh/câu hỏi nháp và thực thi hành động thoát.
+  const wipeSessionAndExit = (destination: "CLOSE" | "BACK_TO_HUB") => {
+    scanAbortRef.current?.abort();
+    scanAbortRef.current = null;
+    for (const item of imagesRef.current) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+    imagesRef.current = [];
     setImages([]);
     setActiveImageId(null);
     setQuestions([]);
     setCustomScoresEdited(false);
+    setScanning(false);
+    setScanProgressLabel("");
     setProviderLabel("");
     setAssignmentTitle("");
     setAssignmentDescription("");
-    onClose();
+    setConfirmDiscardAction(null);
+    if (destination === "BACK_TO_HUB" && onBackToHub) {
+      onBackToHub();
+    } else {
+      onClose();
+    }
+  };
+
+  // Kiểm tra dữ liệu dở dang trước khi đóng hoặc quay lại chọn phương thức tạo khác.
+  const requestExit = (destination: "CLOSE" | "BACK_TO_HUB") => {
+    if (saving) return;
+    if (hasUnsavedWork) {
+      setConfirmDiscardAction(destination);
+      return;
+    }
+    wipeSessionAndExit(destination);
   };
 
   // Mở hộp thoại chọn tệp ảnh khi giáo viên bấm vào Vùng 1 hoặc nút thêm ảnh.
@@ -399,10 +452,13 @@ export function SmartExamScanModal({
     const queue = targets.length > 0 ? targets : activeImage ? [activeImage] : [];
     if (!queue.length) return;
 
+    const controller = new AbortController();
+    scanAbortRef.current = controller;
     setScanning(true);
     let totalAdded = 0;
     try {
       for (let idx = 0; idx < queue.length; idx += 1) {
+        if (controller.signal.aborted) return;
         const target = queue[idx]!;
         setActiveImageId(target.id);
         setScanProgressLabel(`Đang quét ảnh ${idx + 1}/${queue.length}: ${target.file.name}...`);
@@ -418,7 +474,9 @@ export function SmartExamScanModal({
           method: "POST",
           roleCode,
           body: form,
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
 
         const mapped = (result.questions ?? []).map((q) =>
           mapApiQuestionToEditable(q, targetMode),
@@ -437,14 +495,18 @@ export function SmartExamScanModal({
       }
 
       notify(
-        `Đã quét thêm ${totalAdded} câu hỏi từ ${queue.length} ảnh. Bạn có thể sửa hoặc xóa từng câu trước khi ${isAssignmentMode ? "phát hành bài tập" : "nhập"}.`,
+        `Đã quét thêm ${totalAdded} câu hỏi từ ${queue.length} ảnh. Bạn có thể sửa hoặc xóa từng câu trước khi ${isAssignmentMode ? "tạo đề" : "nhập"}.`,
         "success",
       );
     } catch (error) {
+      if (controller.signal.aborted) return;
       notify(error instanceof Error ? error.message : "Không quét được ảnh đề thi.", "error");
     } finally {
-      setScanning(false);
-      setScanProgressLabel("");
+      if (scanAbortRef.current === controller) {
+        scanAbortRef.current = null;
+        setScanning(false);
+        setScanProgressLabel("");
+      }
     }
   };
 
@@ -542,7 +604,7 @@ export function SmartExamScanModal({
     return true;
   };
 
-  // Kiểm tra dữ liệu toàn bộ câu hỏi và nhập vào ngân hàng câu hỏi của môn học.
+  // Nhập câu hỏi vào ngân hàng (chỉ dùng cho chế độ thêm câu hỏi từ Tab Ngân hàng câu hỏi).
   const handleImportQuestions = async () => {
     if (saving || scanning || !questions.length) return;
     if (!courseId) {
@@ -607,7 +669,7 @@ export function SmartExamScanModal({
 
       if (!failed.length) {
         notify(`Đã nhập thành công ${importedCount}/${results.length} câu hỏi vào ngân hàng.`, "success");
-        clearModalStateAndClose();
+        wipeSessionAndExit("CLOSE");
       } else {
         const failedRowSet = new Set(failed.map((r) => r.row));
         setQuestions((prev) => prev.filter((_, idx) => failedRowSet.has(idx + 1)));
@@ -625,7 +687,7 @@ export function SmartExamScanModal({
     }
   };
 
-  // Đóng gói danh sách câu hỏi đã quét và chỉnh sửa thành bài tập trắc nghiệm hoặc tự luận của lớp.
+  // Lưu và đóng gói danh sách câu hỏi đã quét trực tiếp thành bài tập trắc nghiệm hoặc tự luận của lớp.
   const handleCreateAssignmentFromScan = async () => {
     if (!onSaveAssignment || saving || scanning || !questions.length) return;
     const cleanTitle = assignmentTitle.trim();
@@ -734,7 +796,7 @@ export function SmartExamScanModal({
         },
       });
       await onImported();
-      clearModalStateAndClose();
+      wipeSessionAndExit("CLOSE");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể tạo bài tập từ câu hỏi đã quét.", "error");
     } finally {
@@ -751,10 +813,10 @@ export function SmartExamScanModal({
 
   const modalSubtitle =
     targetMode === "MULTIPLE_CHOICE"
-      ? "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi, tự động chia đều tổng 10 điểm và phát hành thành đề trắc nghiệm."
+      ? "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi, tự động chia đều tổng 10 điểm và lưu tạo đề trắc nghiệm."
       : targetMode === "ESSAY"
-        ? "Chọn tối đa 5 ảnh đề tự luận, quét cộng dồn câu hỏi, chỉnh sửa nội dung và phát hành trực tiếp thành bài tập tự luận."
-        : "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi và chỉnh sửa trực tiếp trước khi lưu vào ngân hàng.";
+        ? "Chọn tối đa 5 ảnh đề tự luận, quét cộng dồn câu hỏi, chỉnh sửa nội dung và lưu tạo bài tập tự luận."
+        : "Chọn tối đa 5 ảnh đề thi, quét cộng dồn câu hỏi và chỉnh sửa trực tiếp trước khi nhập vào ngân hàng.";
 
   return (
     <div
@@ -765,15 +827,15 @@ export function SmartExamScanModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="smart-exam-scan-title"
-        className="flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1160px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
+        className="relative flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1160px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
       >
         {/* Thanh tiêu đề */}
-        <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
               <Scan size={19} />
             </span>
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h3
                   id="smart-exam-scan-title"
@@ -790,15 +852,29 @@ export function SmartExamScanModal({
               <p className="text-xs text-slate-500 dark:text-slate-400">{modalSubtitle}</p>
             </div>
           </div>
-          <button
-            type="button"
-            aria-label="Đóng cửa sổ quét đề"
-            disabled={saving || scanning}
-            onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-slate-800 cursor-pointer"
-          >
-            <X size={20} />
-          </button>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {onBackToHub && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => requestExit("BACK_TO_HUB")}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              >
+                <ArrowLeft size={14} />
+                <span>{isAssignmentMode ? "Chọn cách tạo khác" : "Chọn cách thêm khác"}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="Đóng cửa sổ quét đề"
+              disabled={saving}
+              onClick={() => requestExit("CLOSE")}
+              className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50 dark:hover:bg-slate-800 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </header>
 
         {/* Thân modal 2 cột rộng rãi */}
@@ -1386,7 +1462,7 @@ export function SmartExamScanModal({
                       )}
                     </div>
 
-                    {/* Lưới phương án trắc nghiệm giống trình tách file Word */}
+                    {/* Lưới phương án trắc nghiệm */}
                     {OBJECTIVE_TYPES.has(question.type) ? (
                       <div className="space-y-2.5">
                         <div className="grid gap-2.5 sm:grid-cols-2">
@@ -1494,53 +1570,56 @@ export function SmartExamScanModal({
           </div>
         </div>
 
-        {/* Chân modal */}
+        {/* Chân modal — Tách riêng hoàn toàn luồng Tạo bài tập và luồng Nhập Ngân hàng */}
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/70">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Tổng cộng: <strong className="text-slate-900 dark:text-slate-100">{questions.length}</strong> câu hỏi sẵn sàng{" "}
-            {isAssignmentMode
-              ? `(${targetMode === "MULTIPLE_CHOICE" ? `${totalObjectiveScore} điểm` : `${essayMaxScore} điểm`})`
-              : "kiểm duyệt"}
-          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            {onBackToHub && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => requestExit("BACK_TO_HUB")}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 hover:underline disabled:opacity-50 dark:text-indigo-400 cursor-pointer"
+              >
+                <ArrowLeft size={14} />
+                <span>{isAssignmentMode ? "Quay lại chọn cách tạo khác" : "Quay lại"}</span>
+              </button>
+            )}
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Tổng cộng: <strong className="text-slate-900 dark:text-slate-100">{questions.length}</strong> câu hỏi sẵn sàng{" "}
+              {isAssignmentMode
+                ? `(${targetMode === "MULTIPLE_CHOICE" ? `${totalObjectiveScore} điểm` : `${essayMaxScore} điểm`})`
+                : "kiểm duyệt"}
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
-              disabled={saving || scanning}
-              onClick={onClose}
+              disabled={saving}
+              onClick={() => requestExit("CLOSE")}
               className="rounded-xl border border-slate-300 px-4 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
             >
-              Đóng
+              {isAssignmentMode ? "Hủy" : "Đóng"}
             </button>
             {isAssignmentMode ? (
-              <>
-                <button
-                  type="button"
-                  disabled={saving || scanning || questions.length === 0}
-                  onClick={() => void handleImportQuestions()}
-                  className="rounded-xl border border-indigo-300 bg-white px-4 py-2 text-xs sm:text-sm font-bold text-indigo-700 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-300 cursor-pointer"
-                >
-                  Chỉ lưu vào ngân hàng
-                </button>
-                <button
-                  type="button"
-                  disabled={saving || scanning || questions.length === 0}
-                  onClick={() => void handleCreateAssignmentFromScan()}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
-                >
-                  {saving ? (
-                    <>
-                      <LoaderCircle size={15} className="animate-spin" />
-                      <span>Đang phát hành...</span>
-                    </>
-                  ) : (
-                    <span>
-                      {targetMode === "ESSAY"
-                        ? `Tạo & Phát hành bài tự luận (${questions.length} câu)`
-                        : `Tạo & Phát hành đề trắc nghiệm (${questions.length} câu)`}
-                    </span>
-                  )}
-                </button>
-              </>
+              <button
+                type="button"
+                disabled={saving || scanning || questions.length === 0}
+                onClick={() => void handleCreateAssignmentFromScan()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+              >
+                {saving ? (
+                  <>
+                    <LoaderCircle size={15} className="animate-spin" />
+                    <span>Đang lưu & tạo đề...</span>
+                  </>
+                ) : (
+                  <span>
+                    {targetMode === "ESSAY"
+                      ? `Lưu & Tạo bài tự luận (${questions.length} câu)`
+                      : `Lưu & Tạo đề trắc nghiệm (${questions.length} câu)`}
+                  </span>
+                )}
+              </button>
             ) : (
               <button
                 type="button"
@@ -1560,6 +1639,58 @@ export function SmartExamScanModal({
             )}
           </div>
         </footer>
+
+        {/* Hộp thoại xác nhận khi có ảnh hoặc câu hỏi đang quét dở */}
+        {confirmDiscardAction && (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="scan-discard-confirm-title"
+            className="absolute inset-0 z-30 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+          >
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl space-y-4 dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-start gap-3">
+                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+                  <AlertTriangle size={20} />
+                </span>
+                <div className="space-y-1">
+                  <h4
+                    id="scan-discard-confirm-title"
+                    className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100"
+                  >
+                    {isAssignmentMode
+                      ? "Bạn đang có đề quét dở chưa hoàn tất"
+                      : "Bạn đang có câu hỏi quét dở chưa lưu"}
+                  </h4>
+                  <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+                    {scanning
+                      ? "Hệ thống đang nhận diện đề từ ảnh. Bạn có chắc chắn muốn dừng và hủy không? Mọi ảnh và câu hỏi hiện tại sẽ bị xóa sạch để lần mở sau bắt đầu phiên mới hoàn toàn."
+                      : isAssignmentMode
+                        ? "Bạn đang có ảnh đề hoặc câu hỏi nháp để tạo đề. Bạn có chắc chắn muốn hủy tạo đề không? Nếu hủy, toàn bộ dữ liệu hiện tại sẽ được xóa sạch để lần sau bắt đầu lượt mới hoàn toàn."
+                        : "Bạn đang có ảnh đề hoặc câu hỏi nháp chưa lưu vào ngân hàng. Bạn có chắc chắn muốn hủy phiên quét này không?"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmDiscardAction(null)}
+                  className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-xs font-bold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300 cursor-pointer"
+                >
+                  {isAssignmentMode ? "Tiếp tục tạo đề" : "Tiếp tục chỉnh sửa"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => wipeSessionAndExit(confirmDiscardAction)}
+                  className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700 shadow-xs cursor-pointer"
+                >
+                  {isAssignmentMode ? "Dừng & Hủy tạo đề" : "Dừng & Hủy phiên quét"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );

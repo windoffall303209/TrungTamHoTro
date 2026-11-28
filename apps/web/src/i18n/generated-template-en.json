@@ -247,5 +247,16 @@
   "Tạo & Phát hành bài tự luận ({{0}} câu)": "Create & Publish essay assignment ({{0}} questions)",
   "Tạo & Phát hành đề trắc nghiệm ({{0}} câu)": "Create & Publish multiple-choice exam ({{0}} questions)",
   "Tạo bài tự luận ({{0}} câu)": "Create essay assignment ({{0}} questions)",
-  "Tạo đề trắc nghiệm ({{0}} câu)": "Create multiple-choice exam ({{0}} questions)"
+  "Tạo đề trắc nghiệm ({{0}} câu)": "Create multiple-choice exam ({{0}} questions)",
+  "Bài tập tự luận lớp {{0}} - {{1}}": "Class {{0}} essay assignment - {{1}}",
+  "Chọn câu trắc nghiệm ({{0}}/{{1}} câu đã xuất bản):": "Select multiple-choice questions ({{0}}/{{1}} published):",
+  "Chọn câu tự luận ({{0}}/{{1}} câu đã xuất bản):": "Select essay questions ({{0}}/{{1}} published):",
+  "Lưu & Tạo bài tự luận ({{0}} câu)": "Save & Create essay assignment ({{0}} questions)",
+  "Lưu & Tạo đề trắc nghiệm ({{0}} câu)": "Save & Create multiple-choice exam ({{0}} questions)",
+  "Ngân hàng lớp hiện có {{0}} câu trắc nghiệm đã xuất bản · Thang 10 điểm": "Class bank currently has {{0}} published multiple-choice questions · 10-point scale",
+  "Ngân hàng lớp hiện có {{0}} câu tự luận đã xuất bản · Thang 10 điểm": "Class bank currently has {{0}} published essay questions · 10-point scale",
+  "Số lượng câu trắc nghiệm cần bốc ngẫu nhiên (tối đa {{0}} câu đã xuất bản):": "Number of multiple-choice questions to draw randomly (max {{0}} published):",
+  "Số lượng câu tự luận cần bốc ngẫu nhiên (tối đa {{0}} câu đã xuất bản):": "Number of essay questions to draw randomly (max {{0}} published):",
+  "Tổng số lượng câu trắc nghiệm trong đề (khả dụng {{0}} câu đã xuất bản):": "Total multiple-choice questions in exam ({{0}} published available):",
+  "Tổng số lượng câu tự luận trong bài (khả dụng {{0}} câu đã xuất bản):": "Total essay questions in assignment ({{0}} published available):"
 }

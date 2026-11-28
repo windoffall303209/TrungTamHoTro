@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   FileCheck2,
   LoaderCircle,
@@ -71,6 +72,7 @@ export interface AiExamBuilderModalProps {
   targetClassEndAt?: string;
   roleCode: RoleCode;
   onClose: () => void;
+  onBackToHub?: () => void;
   onSaveAssignment: AssignmentBuilderModalProps["onSaveAssignment"];
 }
 
@@ -184,7 +186,7 @@ function createBlankAiQuestion(mode: AiAssignmentMode): EditableAiDraftQuestion 
   };
 }
 
-/** Modal tạo đề bằng AI có bước sinh bản nháp, duyệt sửa từng câu hỏi và chia đều tổng 10 điểm trước khi phát hành. */
+/** Modal tạo đề bằng AI khóa chặt theo loại đề đã chọn (Trắc nghiệm hoặc Tự luận), hỗ trợ duyệt sửa câu hỏi và quay lại chọn cách tạo khác. */
 export function AiExamBuilderModal({
   open,
   initialMode,
@@ -193,15 +195,16 @@ export function AiExamBuilderModal({
   targetClassEndAt,
   roleCode,
   onClose,
+  onBackToHub,
   onSaveAssignment,
 }: AiExamBuilderModalProps) {
   const { notify } = useApp();
   const openedRef = useRef(false);
+  const mode: AiAssignmentMode = initialMode;
 
-  const [mode, setMode] = useState<AiAssignmentMode>(initialMode);
   const [subject, setSubject] = useState(defaultSubject || "Toán học");
   const [topic, setTopic] = useState("Hàm số & Khảo sát đồ thị");
-  const [questionCount, setQuestionCount] = useState(initialMode === "ESSAY" ? 3 : 5);
+  const [questionCount, setQuestionCount] = useState(mode === "ESSAY" ? 3 : 5);
   const [difficulty, setDifficulty] = useState<1 | 2 | 3>(2);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -233,7 +236,7 @@ export function AiExamBuilderModal({
     [questions],
   );
 
-  // Khởi tạo đúng loại đề (Trắc nghiệm hoặc Tự luận) theo lựa chọn từ Hub mỗi khi mở modal.
+  // Khởi tạo phiên mới hoàn toàn theo đúng loại đề (Trắc nghiệm hoặc Tự luận) mỗi khi mở modal.
   useEffect(() => {
     if (!open) {
       openedRef.current = false;
@@ -241,7 +244,6 @@ export function AiExamBuilderModal({
     }
     if (!openedRef.current) {
       openedRef.current = true;
-      setMode(initialMode);
       setSubject(defaultSubject || "Toán học");
       setQuestionCount(initialMode === "ESSAY" ? 3 : 5);
       setQuestions([]);
@@ -259,16 +261,6 @@ export function AiExamBuilderModal({
   }, [defaultSubject, initialMode, open, targetClassEndAt]);
 
   if (!open) return null;
-
-  // Chuyển đổi loại đề ngay trên thanh đầu trang và làm mới danh sách nháp cho khớp định dạng.
-  const handleSwitchMode = (nextMode: AiAssignmentMode) => {
-    if (nextMode === mode || generating || saving) return;
-    setMode(nextMode);
-    setQuestions([]);
-    setCustomScoresEdited(false);
-    setAiMeta(null);
-    setQuestionCount(nextMode === "ESSAY" ? 3 : 5);
-  };
 
   // Gọi API sinh bản nháp câu hỏi AI và đưa vào cột bên phải để giảng viên kiểm tra, chỉnh sửa.
   const handleGenerateDraftQuestions = async () => {
@@ -498,60 +490,44 @@ export function AiExamBuilderModal({
         aria-labelledby="ai-exam-builder-title"
         className="flex h-[92dvh] max-h-[92dvh] w-[96vw] max-w-[1160px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900"
       >
-        {/* Thanh tiêu đề kèm công tắc loại đề rõ ràng */}
+        {/* Thanh tiêu đề khóa đúng loại đề đã chọn ở bước trước */}
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
               <Wand2 size={19} />
             </span>
-            <div>
-              <h3
-                id="ai-exam-builder-title"
-                className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100"
-              >
-                {mode === "ESSAY"
-                  ? "Tạo đề tự luận bằng AI (Có duyệt & sửa câu hỏi)"
-                  : "Tạo đề trắc nghiệm bằng AI (Có duyệt & sửa câu hỏi)"}
-              </h3>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3
+                  id="ai-exam-builder-title"
+                  className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100"
+                >
+                  {mode === "ESSAY"
+                    ? "Tạo đề tự luận bằng AI (Có duyệt & sửa câu hỏi)"
+                    : "Tạo đề trắc nghiệm bằng AI (Có duyệt & sửa câu hỏi)"}
+                </h3>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300">
+                  {mode === "ESSAY" ? "Đề Tự luận · Thang 10 điểm" : "Đề Trắc nghiệm · Thang 10 điểm"}
+                </span>
+              </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Bước 1: Yêu cầu AI sinh câu hỏi nháp · Bước 2: Xem, chỉnh sửa nội dung/đáp án rồi mới duyệt phát hành.
+                Bước 1: Yêu cầu AI sinh câu hỏi nháp · Bước 2: Xem, chỉnh sửa nội dung rồi mới duyệt phát hành.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <div
-              role="group"
-              aria-label="Loại đề AI"
-              className="inline-flex rounded-xl border border-slate-200 bg-slate-100 p-1 text-xs dark:border-slate-700 dark:bg-slate-800"
-            >
+          <div className="flex shrink-0 items-center gap-2">
+            {onBackToHub && (
               <button
                 type="button"
-                aria-pressed={mode === "MULTIPLE_CHOICE"}
-                disabled={generating || saving}
-                onClick={() => handleSwitchMode("MULTIPLE_CHOICE")}
-                className={`rounded-lg px-3 py-1 font-bold transition cursor-pointer ${
-                  mode === "MULTIPLE_CHOICE"
-                    ? "bg-white text-emerald-700 shadow-2xs dark:bg-slate-900 dark:text-emerald-300"
-                    : "text-slate-600 dark:text-slate-400"
-                }`}
+                disabled={saving || generating}
+                onClick={onBackToHub}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 cursor-pointer"
               >
-                Đề Trắc nghiệm
+                <ArrowLeft size={14} />
+                <span>Chọn cách tạo khác</span>
               </button>
-              <button
-                type="button"
-                aria-pressed={mode === "ESSAY"}
-                disabled={generating || saving}
-                onClick={() => handleSwitchMode("ESSAY")}
-                className={`rounded-lg px-3 py-1 font-bold transition cursor-pointer ${
-                  mode === "ESSAY"
-                    ? "bg-white text-emerald-700 shadow-2xs dark:bg-slate-900 dark:text-emerald-300"
-                    : "text-slate-600 dark:text-slate-400"
-                }`}
-              >
-                Đề Tự luận
-              </button>
-            </div>
+            )}
 
             <button
               type="button"
@@ -1150,22 +1126,35 @@ export function AiExamBuilderModal({
 
         {/* Chân modal */}
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-6 py-3.5 dark:border-slate-800 dark:bg-slate-900/70">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            {questions.length > 0 ? (
-              <>
-                Đã sẵn sàng duyệt:{" "}
-                <strong className="text-slate-900 dark:text-slate-100">
-                  {questions.length} câu {mode === "ESSAY" ? "tự luận" : "trắc nghiệm"}
-                </strong>{" "}
-                · Tổng{" "}
-                <strong className="text-emerald-700 dark:text-emerald-400">
-                  {mode === "MULTIPLE_CHOICE" ? totalObjectiveScore : essayMaxScore} điểm
-                </strong>
-              </>
-            ) : (
-              "Hãy sinh câu hỏi nháp bằng AI và kiểm tra nội dung trước khi phát hành."
+          <div className="flex flex-wrap items-center gap-3">
+            {onBackToHub && (
+              <button
+                type="button"
+                disabled={saving || generating}
+                onClick={onBackToHub}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 hover:underline disabled:opacity-50 dark:text-emerald-400 cursor-pointer"
+              >
+                <ArrowLeft size={14} />
+                <span>Quay lại chọn cách tạo khác</span>
+              </button>
             )}
-          </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {questions.length > 0 ? (
+                <>
+                  Đã sẵn sàng duyệt:{" "}
+                  <strong className="text-slate-900 dark:text-slate-100">
+                    {questions.length} câu {mode === "ESSAY" ? "tự luận" : "trắc nghiệm"}
+                  </strong>{" "}
+                  · Tổng{" "}
+                  <strong className="text-emerald-700 dark:text-emerald-400">
+                    {mode === "MULTIPLE_CHOICE" ? totalObjectiveScore : essayMaxScore} điểm
+                  </strong>
+                </>
+              ) : (
+                "Hãy sinh câu hỏi nháp bằng AI và kiểm tra nội dung trước khi phát hành."
+              )}
+            </p>
+          </div>
 
           <div className="flex items-center gap-2.5">
             <button
@@ -1174,7 +1163,7 @@ export function AiExamBuilderModal({
               onClick={onClose}
               className="rounded-xl border border-slate-300 px-4 py-2 text-xs sm:text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer"
             >
-              Đóng
+              Hủy
             </button>
             <button
               type="button"

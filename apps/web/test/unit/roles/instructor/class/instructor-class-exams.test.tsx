@@ -327,4 +327,52 @@ describe("Tab Bài tập trong không gian lớp học giảng viên", () => {
       ),
     );
   });
+
+  it("cô lập tuyệt đối câu hỏi Tự luận với Trắc nghiệm ở Ngân hàng khi tạo bài tập và hỗ trợ nút Chọn cách tạo khác", async () => {
+    const essayBankQuestion = {
+      id: "q-essay-bank-1",
+      courseId: "course-1",
+      type: "ESSAY",
+      content: "Phân tích kiến trúc hướng sự kiện trong hệ thống phân tán.",
+      options: [],
+      correctAnswers: [],
+      difficulty: 2,
+      tags: ["Tự luận"],
+      status: "PUBLISHED",
+      version: 1,
+    };
+
+    request.mockImplementation(async (url: string) => {
+      if (url.includes("/folders")) return { assignments: [], materials: [], lectures: [] };
+      if (url.startsWith("/materials/search")) return { items: [], page: 1, pageSize: 50, total: 0, totalPages: 1 };
+      if (url.startsWith("/exams/page?")) return { items: [sampleExam], page: 1, pageSize: 100, total: 1 };
+      if (url === `/academic/assignments?classId=${classItem.id}`) return [];
+      if (url === `/instructor/classes/${classItem.id}/learners`) return [];
+      if (url.startsWith("/instructor/question-bank/questions")) {
+        return [quizQuestion, essayBankQuestion];
+      }
+      return [];
+    });
+
+    render(<InstructorClassWorkspace item={classItem} course={null} />);
+    await screen.findByRole("button", { name: /Đề kiểm tra chương một/ });
+
+    // Mở Hub tạo bài tập -> Chọn Đề Tự luận -> Chọn Cách 4 (Ngân hàng)
+    fireEvent.click(screen.getByRole("button", { name: /Tạo bài tập/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Đề Tự luận/ }));
+    expect(screen.getByText(/Loại bài đang chọn: Đề Tự luận/)).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: /4\. Chọn câu tự luận từ Ngân hàng/ }));
+
+    // Chỉ hiển thị câu tự luận, tuyệt đối không hiển thị câu trắc nghiệm hay bộ lọc chéo loại
+    expect(await screen.findByText("Phân tích kiến trúc hướng sự kiện trong hệ thống phân tán.")).toBeVisible();
+    expect(screen.queryByText("Câu hỏi kiểm tra trắc nghiệm?")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tất cả" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Ngân hàng lớp hiện có 1 câu tự luận đã xuất bản/)).toBeVisible();
+
+    // Bấm "Chọn cách tạo khác" quay thẳng về Hub với loại đề "Đề Tự luận" được giữ nguyên để chọn sang Cách 3
+    fireEvent.click(screen.getAllByRole("button", { name: /Chọn cách tạo khác/ })[0]!);
+    expect(await screen.findByText(/Loại bài đang chọn: Đề Tự luận/)).toBeVisible();
+    expect(screen.getByRole("button", { name: /3\. Tạo đề tự luận bằng AI/ })).toBeVisible();
+  });
 });

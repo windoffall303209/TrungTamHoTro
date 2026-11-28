@@ -125,6 +125,7 @@ describe("AiExamBuilderModal", () => {
 
     const onSaveAssignment = vi.fn().mockResolvedValue(undefined);
     const onClose = vi.fn();
+    const onBackToHub = vi.fn();
 
     render(
       <AiExamBuilderModal
@@ -134,11 +135,15 @@ describe("AiExamBuilderModal", () => {
         defaultSubject="Toán học"
         roleCode="INSTRUCTOR"
         onClose={onClose}
+        onBackToHub={onBackToHub}
         onSaveAssignment={onSaveAssignment}
       />,
     );
 
     expect(screen.getByText(/Tạo đề tự luận bằng AI/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Đề Trắc nghiệm" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /Chọn cách tạo khác/ })[0]!);
+    expect(onBackToHub).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "2 câu" }));
     fireEvent.click(screen.getByRole("button", { name: /AI sinh 2 câu tự luận nháp/ }));
 

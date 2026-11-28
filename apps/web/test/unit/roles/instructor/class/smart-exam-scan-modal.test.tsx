@@ -182,7 +182,8 @@ describe("SmartExamScanModal", () => {
     expect(await screen.findByDisplayValue("Câu hỏi trắc nghiệm OCR 4")).toBeInTheDocument();
     expect(screen.getByText(/4 câu · Tổng 10 điểm/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Tạo & Phát hành đề trắc nghiệm (4 câu)" }));
+    expect(screen.queryByRole("button", { name: /Chỉ lưu vào ngân hàng/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Lưu & Tạo đề trắc nghiệm (4 câu)" }));
     await waitFor(() => expect(onSaveAssignment).toHaveBeenCalledTimes(1));
 
     const payload = onSaveAssignment.mock.calls[0]?.[0] as {
@@ -194,5 +195,93 @@ describe("SmartExamScanModal", () => {
     expect(payload.title).toContain("de-toan-4-cau");
     expect(payload.questions.map((q) => q.score)).toEqual([2.5, 2.5, 2.5, 2.5]);
     expect(payload.questions.every((q) => q.correctAnswer === "B")).toBe(true);
+  });
+
+  it("hiển thị cảnh báo xác nhận hủy khi tắt modal lúc đang có ảnh/câu hỏi và làm mới 100% ở phiên mở lại", async () => {
+    apiMock.mockResolvedValue({
+      provider: "GEMINI",
+      model: "gemini-2.5-flash",
+      questions: [
+        {
+          type: "SINGLE_CHOICE",
+          content: "Câu hỏi đang quét dở cần xác nhận hủy",
+          options: ["A. Một", "B. Hai", "C. Ba", "D. Bốn"],
+          correctAnswers: ["A"],
+          difficulty: 2,
+          confidence: 0.9,
+        },
+      ],
+    });
+
+    const onClose = vi.fn();
+    const onBackToHub = vi.fn();
+    const { container, rerender } = render(
+      <SmartExamScanModal
+        open
+        courseId="course-math"
+        roleCode="INSTRUCTOR"
+        targetMode="MULTIPLE_CHOICE"
+        onClose={onClose}
+        onBackToHub={onBackToHub}
+        onImported={vi.fn()}
+        onSaveAssignment={vi.fn()}
+      />,
+    );
+
+    const fileInput = container.querySelector("#smart-scan-image-input") as HTMLInputElement;
+    fireEvent.change(fileInput, {
+      target: { files: [new File(["img"], "anh-cu.png", { type: "image/png" })] },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Bắt đầu quét AI \(1 ảnh\)/ }));
+    expect(await screen.findByDisplayValue("Câu hỏi đang quét dở cần xác nhận hủy")).toBeInTheDocument();
+
+    // Bấm X đóng cửa sổ -> hiện hộp thoại xác nhận, chưa đóng ngay
+    fireEvent.click(screen.getByRole("button", { name: "Đóng cửa sổ quét đề" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText(/Bạn đang có đề quét dở chưa hoàn tất/)).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Chọn "Tiếp tục tạo đề" -> giữ nguyên màn hình và câu hỏi đang sửa
+    fireEvent.click(screen.getByRole("button", { name: "Tiếp tục tạo đề" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Câu hỏi đang quét dở cần xác nhận hủy")).toBeInTheDocument();
+
+    // Bấm lại X và chọn "Dừng & Hủy tạo đề" -> xóa sạch trạng thái và đóng
+    fireEvent.click(screen.getByRole("button", { name: "Đóng cửa sổ quét đề" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dừng & Hủy tạo đề" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // Giả lập đóng hẳn rồi mở lại phiên mới -> hoàn toàn sạch sẽ (0 ảnh, 0 câu hỏi)
+    rerender(
+      <SmartExamScanModal
+        open={false}
+        courseId="course-math"
+        roleCode="INSTRUCTOR"
+        targetMode="MULTIPLE_CHOICE"
+        onClose={onClose}
+        onBackToHub={onBackToHub}
+        onImported={vi.fn()}
+        onSaveAssignment={vi.fn()}
+      />,
+    );
+    rerender(
+      <SmartExamScanModal
+        open
+        courseId="course-math"
+        roleCode="INSTRUCTOR"
+        targetMode="MULTIPLE_CHOICE"
+        onClose={onClose}
+        onBackToHub={onBackToHub}
+        onImported={vi.fn()}
+        onSaveAssignment={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Vùng 1: Ảnh chụp đề thi gốc \(0\/5\)/)).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Câu hỏi đang quét dở cần xác nhận hủy")).not.toBeInTheDocument();
+
+    // Khi phiên đang trống, bấm "Chọn cách tạo khác" quay lại ngay không cần cảnh báo
+    fireEvent.click(screen.getAllByRole("button", { name: /Chọn cách tạo khác/ })[0]!);
+    expect(onBackToHub).toHaveBeenCalledTimes(1);
   });
 });

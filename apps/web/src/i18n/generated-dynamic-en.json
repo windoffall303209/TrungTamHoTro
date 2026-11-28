@@ -286,5 +286,16 @@
   "Xác nhận & Tạo bài tự luận theo ma trận": "Confirm & Create essay assignment by matrix",
   "Xác nhận & Tạo đề trắc nghiệm theo ma trận": "Confirm & Create multiple-choice exam by matrix",
   "Xem & Chỉnh sửa câu hỏi trước khi duyệt (": "Review & Edit questions before approval (",
-  "Yêu cầu trình bày hoặc lưu ý nộp bài...": "Formatting requirements or submission notes..."
+  "Yêu cầu trình bày hoặc lưu ý nộp bài...": "Formatting requirements or submission notes...",
+  "Bài tập tự luận lớp": "Class essay assignment",
+  "câu trắc nghiệm đã xuất bản · Thang 10 điểm": "published multiple-choice questions · 10-point scale",
+  "câu tự luận đã xuất bản · Thang 10 điểm": "published essay questions · 10-point scale",
+  "Chọn câu trắc nghiệm (": "Select multiple-choice questions (",
+  "Chọn câu tự luận (": "Select essay questions (",
+  "Lưu & Tạo bài tự luận (": "Save & Create essay assignment (",
+  "Lưu & Tạo đề trắc nghiệm (": "Save & Create multiple-choice exam (",
+  "Số lượng câu trắc nghiệm cần bốc ngẫu nhiên (tối đa": "Number of multiple-choice questions to draw randomly (max",
+  "Số lượng câu tự luận cần bốc ngẫu nhiên (tối đa": "Number of essay questions to draw randomly (max",
+  "Tổng số lượng câu trắc nghiệm trong đề (khả dụng": "Total multiple-choice questions in exam (available",
+  "Tổng số lượng câu tự luận trong bài (khả dụng": "Total essay questions in assignment (available"
 }
