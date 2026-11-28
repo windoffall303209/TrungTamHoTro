@@ -94,6 +94,93 @@ describe("ExamTakingModal instructor preview", () => {
     expect(container.querySelectorAll(".katex").length).toBeGreaterThanOrEqual(4);
     expect(screen.queryByText(/\$\\frac\{16\}\{24\}\$/)).not.toBeInTheDocument();
   });
+
+  it("cho phép giảng viên dùng đầy đủ hỏi đáp AI dẫn dắt ở chế độ Làm thử mà không gọi endpoint học viên", async () => {
+    mockApiRequest.mockImplementation((path: string, init?: { method?: string; body?: string; roleCode?: string }) => {
+      if (path === "/instructor/exams/exam-preview-tutor/preview") {
+        return Promise.resolve([
+          {
+            id: "q-prev-1",
+            type: "SINGLE_CHOICE",
+            content: "Tìm tập xác định của hàm số $y = \\frac{1}{x - 2}$.",
+            options: ["$x \\neq 2$", "$x > 2$"],
+            correctAnswers: ["$x \\neq 2$"],
+          },
+        ]);
+      }
+      if (path === "/instructor/exams/exam-preview-tutor/ai-tutor") {
+        return Promise.resolve({
+          enabled: true,
+          presets: [
+            {
+              key: "FIRST_STEP",
+              label: "Gợi ý bước đầu tiên",
+              prompt: "Em chưa biết bắt đầu từ đâu, hãy gợi ý cho em bước phân tích đầu tiên để làm câu này.",
+            },
+          ],
+          quota: {
+            maxPerQuestion: 3,
+            maxPerExam: 10,
+            examUsed: 0,
+            examRemaining: 10,
+            questionUsedById: {},
+          },
+          threads: {},
+        });
+      }
+      if (path === "/instructor/exams/exam-preview-tutor/questions/q-prev-1/ai-tutor" && init?.method === "POST") {
+        expect(init.roleCode).toBe("INSTRUCTOR");
+        return Promise.resolve({
+          turn: {
+            id: "preview-turn-1",
+            questionId: "q-prev-1",
+            presetKey: "FIRST_STEP",
+            userPrompt: "Em chưa biết bắt đầu từ đâu, hãy gợi ý cho em bước phân tích đầu tiên để làm câu này.",
+            aiReply: "Biểu thức phân thức xác định khi mẫu số thỏa mãn điều kiện gì nhỉ?",
+            fromCache: true,
+            createdAt: new Date().toISOString(),
+          },
+          quota: {
+            maxPerQuestion: 3,
+            maxPerExam: 10,
+            examUsed: 1,
+            examRemaining: 9,
+            questionUsedById: { "q-prev-1": 1 },
+          },
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    render(
+      <ExamTakingModal
+        open
+        exam={{
+          id: "exam-preview-tutor",
+          title: "Đề làm thử có AI",
+          durationMinutes: 20,
+          totalScore: 10,
+          aiTutorEnabled: true,
+        }}
+        isInstructorPreview
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(/Gia sư AI dẫn dắt · Câu 1/)).toBeInTheDocument();
+    expect(screen.getAllByText("Làm thử").length).toBeGreaterThanOrEqual(2);
+    const presetButton = await screen.findByRole("button", { name: /Gợi ý bước đầu tiên/ });
+    expect(presetButton).not.toBeDisabled();
+    fireEvent.click(presetButton);
+
+    expect(
+      await screen.findByText(/Biểu thức phân thức xác định khi mẫu số thỏa mãn điều kiện gì nhỉ\?/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/Câu này: 2\/3/)).toBeInTheDocument();
+    expect(
+      mockApiRequest.mock.calls.some(([url]) => typeof url === "string" && url.includes("/learner/")),
+    ).toBe(false);
+  });
 });
 
 describe("ExamTakingModal learner attempt lifecycle", () => {

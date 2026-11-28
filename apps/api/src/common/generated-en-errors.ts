@@ -867,5 +867,7 @@ export const apiEnglishErrors: Readonly<Record<string, string>> = Object.freeze(
   "Quản trị viên chưa cấu hình nhà cung cấp AI cho tính năng hỏi đáp dẫn dắt.": "No AI provider has been configured by the administrator for Socratic tutor guidance.",
   "Trợ lý AI đang phản hồi câu hỏi trước của bạn. Vui lòng đợi giây lát.": "The AI tutor is still answering your previous question. Please wait a moment.",
   "Trợ lý AI trả về định dạng gợi ý không hợp lệ.": "The AI tutor returned an invalid guidance format.",
-  "Không tìm thấy khóa học của lớp.": "Course for this class could not be found."
+  "Không tìm thấy khóa học của lớp.": "Course for this class could not be found.",
+  "Đề kiểm tra này chưa bật tính năng hỏi đáp AI dẫn dắt.": "Guided AI tutoring is not enabled for this exam.",
+  "Không tìm thấy đề kiểm tra thuộc lớp giảng dạy của bạn.": "No exam belonging to your assigned classes was found."
 });

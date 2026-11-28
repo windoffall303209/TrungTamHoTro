@@ -11,12 +11,12 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { AskExamTutorDto, ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, DraftAiExamDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { AskExamTutorDto, AskInstructorPreviewTutorDto, ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, DraftAiExamDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
 import type { MaterialAccessAction, MaterialSearchResult, MaterialSummaryBucket, QuestionSummary, UploadedMaterialFile } from "../core/learning.shared.js";
 import { ContentMaterialService } from "./content-material.service.js";
 import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
-import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, ExamAttemptTutorState, ExamTutorAskResult, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
+import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, ExamAttemptTutorState, ExamTutorAskResult, ExamTutorTurn, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
 import { AiProviderService, type GeneratedExamDraft, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
@@ -601,6 +601,32 @@ export class ContentController {
   @Post("instructor/exams/:examId/publish") @RequirePermissions("exam:manage")
   /** Công bố đề sau khi kiểm tra câu hỏi và lịch học. */
   publishExam(@Param("examId") examId: string, @CurrentSession() session: AuthenticatedSession, @Body() input: SubmitExamDto = {}): Promise<LearningExam> { this.assertInstructorMutation(session); return this.exams.submitExamForReview(examId, session.user.id, input.confirmQuestions, input.expectedVersion, input.forcePublish); }
+
+  @Get("instructor/exams/:examId/ai-tutor") @RequirePermissions("exam:manage")
+  @Header("Cache-Control", "no-store")
+  /** Nạp cấu hình gợi ý mẫu và hạn mức gia sư AI cho chế độ làm thử của giảng viên. */
+  getInstructorPreviewTutorState(
+    @Param("examId") examId: string,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<ExamAttemptTutorState> {
+    this.assertInstructorMutation(session);
+    if (!this.examTutor) throw new BadRequestException("Dịch vụ gia sư AI chưa được khởi tạo.");
+    return this.examTutor.getInstructorPreviewTutorState(examId, session.user.id);
+  }
+
+  @Post("instructor/exams/:examId/questions/:questionId/ai-tutor") @RequirePermissions("exam:manage")
+  @Header("Cache-Control", "no-store")
+  /** Trả lời dẫn dắt Socratic theo từng câu hỏi khi giảng viên làm thử đề có bật hỏi đáp AI. */
+  askInstructorPreviewQuestionTutor(
+    @Param("examId") examId: string,
+    @Param("questionId") questionId: string,
+    @Body() input: AskInstructorPreviewTutorDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<{ turn: ExamTutorTurn; maxPerQuestion: number; maxPerExam: number }> {
+    this.assertInstructorMutation(session);
+    if (!this.examTutor) throw new BadRequestException("Dịch vụ gia sư AI chưa được khởi tạo.");
+    return this.examTutor.askInstructorPreviewTutor(examId, questionId, session.user.id, input);
+  }
 
   @Post("learner/exams/:examId/attempts") @RequirePermissions("exam:view")
   /** Mở hoặc tiếp tục lượt thi hợp lệ cho học viên. */

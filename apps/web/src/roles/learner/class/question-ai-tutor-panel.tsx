@@ -16,6 +16,7 @@ import type {
   AiTutorPresetPrompt,
   ExamAttemptTutorState,
   ExamTutorAskResult,
+  ExamTutorTurn,
 } from "@/lib/learning-types";
 import { useI18n } from "@/providers/i18n-provider";
 import { RichText } from "@/shared/ui/ui";
@@ -44,6 +45,7 @@ const PREVIEW_PRESETS: readonly AiTutorPresetPrompt[] = [
 ];
 
 export interface QuestionAiTutorPanelProps {
+  examId?: string;
   attemptId: string | null;
   questionId: string;
   questionNumber: number;
@@ -57,8 +59,9 @@ export interface QuestionAiTutorPanelProps {
   onTurnCompleted: (result: ExamTutorAskResult) => void;
 }
 
-/** Khung chat gia sư AI Socratic độc lập cho từng câu hỏi, hỗ trợ nút câu hỏi mẫu có cache và kiểm soát quota 2 tầng. */
+/** Khung chat gia sư AI Socratic độc lập cho từng câu hỏi, hỗ trợ cả học viên làm bài thật và giảng viên làm thử. */
 export function QuestionAiTutorPanel({
+  examId,
   attemptId,
   questionId,
   questionNumber,
@@ -82,7 +85,7 @@ export function QuestionAiTutorPanel({
   const presets = tutorState?.presets.length ? tutorState.presets : PREVIEW_PRESETS;
   const maxPerQuestion = tutorState?.quota.maxPerQuestion ?? 3;
   const maxPerExam = tutorState?.quota.maxPerExam ?? 15;
-  const questionUsed = tutorState?.quota.questionUsedById[questionId] ?? 0;
+  const questionUsed = tutorState?.quota.questionUsedById[questionId] ?? turns.length;
   const examUsed = tutorState?.quota.examUsed ?? 0;
   const questionRemaining = Math.max(0, maxPerQuestion - questionUsed);
   const examRemaining = tutorState ? tutorState.quota.examRemaining : Math.max(0, maxPerExam - examUsed);
@@ -90,7 +93,7 @@ export function QuestionAiTutorPanel({
   const currentInput = draftByQuestion[questionId] ?? "";
   const apiLanguage = locale.startsWith("en") ? "EN" : "VI";
 
-  // Xóa thông báo lỗi tạm thời khi học viên chuyển sang câu hỏi khác.
+  // Xóa thông báo lỗi tạm thời khi người dùng chuyển sang câu hỏi khác.
   useEffect(() => {
     setAskError(null);
   }, [questionId]);
@@ -110,9 +113,11 @@ export function QuestionAiTutorPanel({
     if (askError) setAskError(null);
   };
 
-  // Gửi câu hỏi gợi ý mẫu hoặc câu hỏi tự gõ của học viên lên API gia sư AI.
+  // Gửi câu hỏi gợi ý mẫu hoặc câu hỏi tự gõ lên API gia sư AI (tự chọn nhánh học viên hoặc làm thử giảng viên).
   const sendInquiry = async (options: { presetKey?: AiTutorPresetKey; message?: string }) => {
-    if (isInstructorPreview || !attemptId || asking) return;
+    if (asking) return;
+    if (isInstructorPreview ? !examId : !attemptId) return;
+
     if (!options.presetKey) {
       const trimmed = (options.message ?? "").trim();
       if (trimmed.length < 2) {
@@ -125,12 +130,75 @@ export function QuestionAiTutorPanel({
       }
     }
 
+    if (isInstructorPreview && options.presetKey) {
+      const existingPresetTurn = turns.find((item) => item.presetKey === options.presetKey);
+      if (existingPresetTurn && tutorState) {
+        onTurnCompleted({ turn: existingPresetTurn, quota: tutorState.quota });
+        return;
+      }
+    }
+
+    if (effectiveRemaining <= 0) {
+      setAskError(
+        questionRemaining <= 0
+          ? "Bạn đã sử dụng hết số lượt hỏi AI cho câu hỏi này."
+          : "Bạn đã sử dụng hết tổng số lượt hỏi AI cho bài làm này.",
+      );
+      return;
+    }
+
     setAsking(true);
     setPendingPresetKey(options.presetKey ?? null);
     setAskError(null);
     try {
+      if (isInstructorPreview && examId) {
+        const previewResult = await apiRequest<{
+          turn: ExamTutorTurn;
+          maxPerQuestion: number;
+          maxPerExam: number;
+        }>(
+          `/instructor/exams/${encodeURIComponent(examId)}/questions/${encodeURIComponent(questionId)}/ai-tutor`,
+          {
+            method: "POST",
+            roleCode: "INSTRUCTOR",
+            body: JSON.stringify({
+              ...(options.presetKey
+                ? { presetKey: options.presetKey }
+                : { message: options.message?.trim() }),
+              ...(draftAnswer?.trim() ? { draftAnswer: draftAnswer.trim().slice(0, 1000) } : {}),
+              priorTurns: turns.slice(-6).map((turn) => ({
+                userPrompt: turn.userPrompt,
+                aiReply: turn.aiReply,
+              })),
+              language: apiLanguage,
+            }),
+          },
+        );
+
+        const nextQuestionUsedById: Record<string, number> = {
+          ...(tutorState?.quota.questionUsedById ?? {}),
+          [questionId]: questionUsed + 1,
+        };
+        const nextExamUsed = Object.values(nextQuestionUsedById).reduce((sum, n) => sum + n, 0);
+
+        if (!options.presetKey) {
+          setDraftByQuestion((prev) => ({ ...prev, [questionId]: "" }));
+        }
+        onTurnCompleted({
+          turn: previewResult.turn,
+          quota: {
+            maxPerQuestion: previewResult.maxPerQuestion,
+            maxPerExam: previewResult.maxPerExam,
+            examUsed: nextExamUsed,
+            examRemaining: Math.max(0, previewResult.maxPerExam - nextExamUsed),
+            questionUsedById: nextQuestionUsedById,
+          },
+        });
+        return;
+      }
+
       const result = await apiRequest<ExamTutorAskResult>(
-        `/learner/exam-attempts/${encodeURIComponent(attemptId)}/questions/${encodeURIComponent(questionId)}/ai-tutor`,
+        `/learner/exam-attempts/${encodeURIComponent(attemptId!)}/questions/${encodeURIComponent(questionId)}/ai-tutor`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -186,67 +254,47 @@ export function QuestionAiTutorPanel({
               <Sparkles size={14} />
             </span>
             <div className="min-w-0">
-              <h4 className="truncate text-xs font-extrabold text-slate-900 dark:text-slate-100">
-                Gia sư AI dẫn dắt · Câu {questionNumber}
-              </h4>
+              <div className="flex items-center gap-1.5">
+                <h4 className="truncate text-xs font-extrabold text-slate-900 dark:text-slate-100">
+                  Gia sư AI dẫn dắt · Câu {questionNumber}
+                </h4>
+                {isInstructorPreview && (
+                  <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300">
+                    Làm thử
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400">
                 Gợi mở cách tư duy, không tiết lộ đáp án
               </p>
             </div>
           </div>
 
-          {!isInstructorPreview && tutorState && (
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold tabular-nums">
-              <span
-                className={`rounded-lg px-2 py-0.5 border ${
-                  questionRemaining > 0
-                    ? "border-indigo-200 bg-white text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
-                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300"
-                }`}
-              >
-                Câu này: {questionRemaining}/{maxPerQuestion}
-              </span>
-              <span
-                className={`rounded-lg px-2 py-0.5 border ${
-                  examRemaining > 0
-                    ? "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-                    : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300"
-                }`}
-              >
-                Toàn đề: {examRemaining}/{maxPerExam}
-              </span>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold tabular-nums">
+            <span
+              className={`rounded-lg px-2 py-0.5 border ${
+                questionRemaining > 0
+                  ? "border-indigo-200 bg-white text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-300"
+                  : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300"
+              }`}
+            >
+              Câu này: {questionRemaining}/{maxPerQuestion}
+            </span>
+            <span
+              className={`rounded-lg px-2 py-0.5 border ${
+                examRemaining > 0
+                  ? "border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/50 dark:text-rose-300"
+              }`}
+            >
+              Toàn đề: {examRemaining}/{maxPerExam}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Thân khung hỏi đáp theo từng câu */}
-      {isInstructorPreview ? (
-        <div className="flex-1 space-y-3 overflow-y-auto p-3.5 text-xs">
-          <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/60 p-3 text-indigo-900 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-200">
-            <p className="font-bold">Chế độ xem thử của giảng viên</p>
-            <p className="mt-1 leading-relaxed text-[11px]">
-              Đề này đang bật hỏi đáp AI. Khi học viên làm bài thật, mỗi câu hỏi có luồng hội thoại độc lập kèm bộ câu hỏi mẫu lưu đệm dùng chung theo hạn mức hệ thống.
-            </p>
-          </div>
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-              Các câu hỏi dẫn dắt mẫu hiển thị cho học viên:
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {presets.map((preset) => (
-                <span
-                  key={preset.key}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300"
-                >
-                  <Lightbulb size={12} className="text-amber-500 shrink-0" />
-                  <span>{preset.label}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : loadingState ? (
+      {loadingState ? (
         <div className="flex flex-1 items-center justify-center gap-2 p-6 text-xs font-semibold text-slate-500">
           <LoaderCircle size={16} className="animate-spin text-indigo-600" />
           <span>Đang tải khung gia sư AI...</span>

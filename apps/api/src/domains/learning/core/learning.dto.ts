@@ -328,6 +328,22 @@ export class AskExamTutorDto {
   language: "VI" | "EN" | "BILINGUAL" = "VI";
 }
 
+/** Một lượt hội thoại trước đó của phiên làm thử giảng viên gửi kèm để giữ mạch gợi mở Socratic. */
+export class TutorPriorTurnDto {
+  @IsString() @IsNotEmpty() @MaxLength(1_000) userPrompt!: string;
+  @IsString() @IsNotEmpty() @MaxLength(4_000) aiReply!: string;
+}
+
+/** Yêu cầu hỏi đáp gia sư AI trong chế độ làm thử của giảng viên (không lưu vào lịch sử thi học viên). */
+export class AskInstructorPreviewTutorDto extends AskExamTutorDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @ValidateNested({ each: true })
+  @Type(() => TutorPriorTurnDto)
+  priorTurns?: TutorPriorTurnDto[];
+}
+
 /** Đáp án tạm thời của một câu trong lượt thi đang làm. */
 export class SaveAnswerDto {
   @IsString() @IsNotEmpty() @MaxLength(191) questionId!: string;

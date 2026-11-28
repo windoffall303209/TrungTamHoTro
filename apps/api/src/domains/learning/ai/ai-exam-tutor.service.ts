@@ -163,6 +163,94 @@ export class AiExamTutorService {
     };
   }
 
+  /** Trả về cấu hình gia sư AI và hạn mức khởi tạo cho phiên làm thử của giảng viên phụ trách lớp. */
+  async getInstructorPreviewTutorState(
+    examId: string,
+    instructorId: string,
+  ): Promise<ExamAttemptTutorState> {
+    const context = await this.resolveInstructorExamContext(examId, instructorId);
+    const settings = await this.system.getSettings();
+    const maxPerQuestion = settings.aiTutorMaxPerQuestion;
+    const maxPerExam = settings.aiTutorMaxPerExam;
+    return {
+      enabled: context.aiTutorEnabled,
+      presets: context.aiTutorEnabled ? [...AI_TUTOR_PRESETS] : [],
+      quota: buildQuotaSnapshot([], maxPerQuestion, maxPerExam),
+      threads: {},
+    };
+  }
+
+  /** Phản hồi hỏi đáp Socratic trong chế độ làm thử của giảng viên, dùng chung cache câu mẫu nhưng không ghi lượt thi học viên. */
+  async askInstructorPreviewTutor(
+    examId: string,
+    questionId: string,
+    instructorId: string,
+    input: {
+      presetKey?: AiTutorPresetKey;
+      message?: string;
+      draftAnswer?: string;
+      language?: ExamLanguage;
+      priorTurns?: Array<{ userPrompt: string; aiReply: string }>;
+    },
+  ): Promise<{ turn: ExamTutorTurn; maxPerQuestion: number; maxPerExam: number }> {
+    const preset = input.presetKey
+      ? AI_TUTOR_PRESETS.find((item) => item.key === input.presetKey)
+      : undefined;
+    if (input.presetKey && !preset) {
+      throw new BadRequestException("Câu hỏi gợi ý mẫu không hợp lệ.");
+    }
+    const customMessage = input.message?.trim() ?? "";
+    if (!preset && (customMessage.length < 2 || customMessage.length > 1_000)) {
+      throw new BadRequestException("Nội dung câu hỏi cần từ 2 đến 1.000 ký tự.");
+    }
+
+    const context = await this.resolveInstructorExamContext(examId, instructorId, questionId);
+    if (!context.aiTutorEnabled) {
+      throw new ForbiddenException("Đề kiểm tra này chưa bật tính năng hỏi đáp AI dẫn dắt.");
+    }
+    if (!context.question) {
+      throw new BadRequestException("Câu hỏi không thuộc đề kiểm tra này.");
+    }
+
+    const settings = await this.system.getSettings();
+    const language: ExamLanguage = input.language ?? "VI";
+    const optionTexts = context.question.options.map(stripOptionLabel).filter(Boolean);
+    const effectivePrompt = preset ? preset.prompt : customMessage;
+
+    const guidance = preset
+      ? await this.resolveOrGeneratePresetGuidance(context.question, optionTexts, preset, language)
+      : {
+          ...(await this.aiProviders.guideExamQuestion({
+            questionType: context.question.type,
+            questionContent: context.question.content,
+            optionTexts,
+            history: (input.priorTurns ?? []).slice(-6).map((turn) => ({
+              userPrompt: turn.userPrompt,
+              aiReply: turn.aiReply,
+            })),
+            studentPrompt: effectivePrompt,
+            studentDraftAnswer: input.draftAnswer,
+            isPresetSharedCache: false,
+            language,
+          })),
+          fromCache: false,
+        };
+
+    return {
+      turn: {
+        id: id("tutor_preview"),
+        questionId,
+        presetKey: preset?.key ?? null,
+        userPrompt: effectivePrompt,
+        aiReply: guidance.reply,
+        fromCache: guidance.fromCache,
+        createdAt: new Date().toISOString(),
+      },
+      maxPerQuestion: settings.aiTutorMaxPerQuestion,
+      maxPerExam: settings.aiTutorMaxPerExam,
+    };
+  }
+
   /** Xử lý một lượt hỏi đáp dẫn dắt cho câu hỏi cụ thể, ưu tiên cache câu hỏi mẫu và khóa nguyên tử hạn mức hỏi. */
   async askQuestionTutor(
     attemptId: string,
@@ -511,6 +599,76 @@ export class AiExamTutorService {
     return {
       turn: publicTurn,
       quota: buildQuotaSnapshot(allTurns, params.maxPerQuestion, params.maxPerExam),
+    };
+  }
+
+  /** Xác minh giảng viên phụ trách lớp của đề kiểm tra và nạp nội dung câu hỏi phục vụ chế độ làm thử. */
+  private async resolveInstructorExamContext(
+    examId: string,
+    instructorId: string,
+    questionId?: string,
+  ): Promise<{
+    examId: string;
+    aiTutorEnabled: boolean;
+    question?: NonNullable<ResolvedAttemptQuestionContext["question"]>;
+  }> {
+    const db = this.database();
+    if (db) {
+      const exam = await db.exam.findFirst({
+        where: {
+          id: examId,
+          class: {
+            instructors: { some: { instructorId } },
+          },
+        },
+        include: {
+          questions: {
+            where: { questionId: questionId ?? "" },
+            include: { question: true },
+            take: questionId ? 1 : 0,
+          },
+        },
+      });
+      if (!exam) {
+        throw new NotFoundException("Không tìm thấy đề kiểm tra thuộc lớp giảng dạy của bạn.");
+      }
+      const linkedQuestion = questionId ? exam.questions[0]?.question : undefined;
+      return {
+        examId: exam.id,
+        aiTutorEnabled: exam.aiTutorEnabled,
+        question: linkedQuestion
+          ? {
+              id: linkedQuestion.id,
+              type: linkedQuestion.type,
+              content: linkedQuestion.content,
+              contentHash: linkedQuestion.contentHash,
+              options: this.runtime.context.toStringArray(linkedQuestion.options),
+            }
+          : undefined,
+      };
+    }
+
+    const exam = this.runtime.context.findExam(examId);
+    const classItem = this.runtime.context.findClass(exam.classId);
+    if (!classItem.instructorIds.includes(instructorId)) {
+      throw new NotFoundException("Không tìm thấy đề kiểm tra thuộc lớp giảng dạy của bạn.");
+    }
+    const question =
+      questionId && exam.questionIds.includes(questionId)
+        ? this.runtime.context.questions.find((item) => item.id === questionId)
+        : undefined;
+    return {
+      examId: exam.id,
+      aiTutorEnabled: Boolean(exam.aiTutorEnabled),
+      question: question
+        ? {
+            id: question.id,
+            type: question.type,
+            content: question.content,
+            contentHash: this.runtime.context.questionContentHash(question.content),
+            options: [...question.options],
+          }
+        : undefined,
     };
   }
 

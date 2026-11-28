@@ -1,4 +1,4 @@
-import { ForbiddenException, ServiceUnavailableException } from "@nestjs/common";
+import { ForbiddenException, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment } from "../../src/config/environment.js";
@@ -571,5 +571,64 @@ describe("Gia sư AI dẫn dắt theo câu hỏi (AiExamTutorService & SystemSer
     expect(essayDraft.questions).toHaveLength(2);
     expect(essayDraft.questions[0]?.type).toBe("ESSAY");
     expect(runtime.context.exams).toHaveLength(initialExamCount);
+  });
+
+  it("hỗ trợ giảng viên phụ trách lớp dùng hỏi đáp AI dẫn dắt ở chế độ Làm thử mà không ghi nhận lượt thi học viên", async () => {
+    const { system, exams, tutor, aiProviders, runtime } = createMemoryTutorHarness();
+    await system.updateSettings({ aiTutorMaxPerQuestion: 2, aiTutorMaxPerExam: 5 }, "usr-admin");
+
+    const guideSpy = vi.spyOn(aiProviders, "guideExamQuestion").mockResolvedValue({
+      reply: "Hãy xem xét tính bất biến của từng phương thức HTTP.\n\n**Câu hỏi gợi mở:** Phương thức nào an toàn khi gọi lặp lại?",
+      model: "gemini-2.5-flash",
+    });
+
+    const enabledExam = await exams.createExam(
+      {
+        classId: "class-web-01",
+        title: "Đề kiểm tra làm thử cho giảng viên",
+        durationMinutes: 30,
+        openAt: new Date(Date.now() - 60_000).toISOString(),
+        closeAt: new Date(Date.now() + 3_600_000).toISOString(),
+        totalScore: 10,
+        attemptLimit: 2,
+        shuffleQuestions: false,
+        aiTutorEnabled: true,
+        questionIds: ["q-rest-01", "q-db-01"],
+      },
+      "usr-instructor",
+    );
+
+    const previewState = await tutor.getInstructorPreviewTutorState(enabledExam.id, "usr-instructor");
+    expect(previewState.enabled).toBe(true);
+    expect(previewState.presets.length).toBeGreaterThan(0);
+    expect(previewState.quota).toMatchObject({ maxPerQuestion: 2, maxPerExam: 5, examRemaining: 5 });
+
+    // Giảng viên không thuộc lớp bị chặn truy cập (trả NotFoundException chống dò ID)
+    await expect(
+      tutor.getInstructorPreviewTutorState(enabledExam.id, "usr-other-instructor"),
+    ).rejects.toThrow(NotFoundException);
+
+    const initialAttemptsCount = runtime.context.attempts.length;
+    const presetTurn = await tutor.askInstructorPreviewTutor(
+      enabledExam.id,
+      "q-rest-01",
+      "usr-instructor",
+      { presetKey: "FIRST_STEP" },
+    );
+    expect(presetTurn.turn.aiReply).toContain("**Câu hỏi gợi mở:**");
+    expect(guideSpy).toHaveBeenCalledTimes(1);
+
+    // Gọi lại cùng câu mẫu khi làm thử lấy trực tiếp từ cache dùng chung
+    const cachedPresetTurn = await tutor.askInstructorPreviewTutor(
+      enabledExam.id,
+      "q-rest-01",
+      "usr-instructor",
+      { presetKey: "FIRST_STEP" },
+    );
+    expect(cachedPresetTurn.turn.fromCache).toBe(true);
+    expect(guideSpy).toHaveBeenCalledTimes(1);
+
+    // Không tạo bất kỳ bản ghi attempts nào của học viên
+    expect(runtime.context.attempts).toHaveLength(initialAttemptsCount);
   });
 });

@@ -392,28 +392,47 @@ export function ExamTakingModal({
     setTutorLoadError(null);
   }, [open, examId, examDurationMinutes, isInstructorPreview]);
 
-  /** Tải cấu hình gợi ý mẫu, hạn mức và lịch sử hỏi đáp AI của lượt làm bài đang mở khi đề cho phép. */
-  const loadAttemptTutorState = useCallback(async (activeAttemptId: string) => {
-    setTutorLoading(true);
-    setTutorLoadError(null);
-    try {
-      const state = await apiRequest<ExamAttemptTutorState>(
-        `/learner/exam-attempts/${encodeURIComponent(activeAttemptId)}/ai-tutor`,
-      );
-      setTutorState(state);
-    } catch (error) {
-      setTutorLoadError(
-        error instanceof Error ? error.message : "Không tải được khung gia sư AI.",
-      );
-    } finally {
-      setTutorLoading(false);
-    }
-  }, []);
+  /** Tải cấu hình gợi ý mẫu, hạn mức và lịch sử hỏi đáp AI của lượt làm bài đang mở hoặc phiên làm thử giảng viên. */
+  const loadTutorStateForSession = useCallback(
+    async (params: { preview: boolean; activeExamId?: string; activeAttemptId?: string | null }) => {
+      setTutorLoading(true);
+      setTutorLoadError(null);
+      try {
+        if (params.preview) {
+          if (!params.activeExamId) return;
+          const state = await apiRequest<ExamAttemptTutorState>(
+            `/instructor/exams/${encodeURIComponent(params.activeExamId)}/ai-tutor`,
+            { roleCode: "INSTRUCTOR" },
+          );
+          setTutorState(state);
+          return;
+        }
+        if (!params.activeAttemptId) return;
+        const state = await apiRequest<ExamAttemptTutorState>(
+          `/learner/exam-attempts/${encodeURIComponent(params.activeAttemptId)}/ai-tutor`,
+        );
+        setTutorState(state);
+      } catch (error) {
+        setTutorLoadError(
+          error instanceof Error ? error.message : "Không tải được khung gia sư AI.",
+        );
+      } finally {
+        setTutorLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    if (!open || isInstructorPreview || !examAiTutorEnabled || !attemptId || isSubmitted) return;
-    void loadAttemptTutorState(attemptId);
-  }, [attemptId, examAiTutorEnabled, isInstructorPreview, isSubmitted, loadAttemptTutorState, open]);
+    if (!open || !examAiTutorEnabled || isSubmitted) return;
+    if (isInstructorPreview) {
+      if (!examId) return;
+      void loadTutorStateForSession({ preview: true, activeExamId: examId });
+      return;
+    }
+    if (!attemptId) return;
+    void loadTutorStateForSession({ preview: false, activeAttemptId: attemptId });
+  }, [attemptId, examAiTutorEnabled, examId, isInstructorPreview, isSubmitted, loadTutorStateForSession, open]);
 
   /** Đồng bộ lượt trả lời mới của gia sư AI và cập nhật hạn mức còn lại ngay trên giao diện. */
   const handleTutorTurnCompleted = useCallback((result: ExamTutorAskResult) => {
@@ -1288,10 +1307,11 @@ export function ExamTakingModal({
 
                 {examAiTutorEnabled && (
                   <QuestionAiTutorPanel
+                    examId={examId}
                     attemptId={attemptId}
                     questionId={String(currentQ.id)}
                     questionNumber={currentIdx + 1}
-                    enabled={examAiTutorEnabled && (isInstructorPreview || tutorState?.enabled !== false)}
+                    enabled={examAiTutorEnabled && tutorState?.enabled !== false}
                     isInstructorPreview={isInstructorPreview}
                     draftAnswer={
                       currentQ.options.length > 0
@@ -1306,7 +1326,15 @@ export function ExamTakingModal({
                     tutorState={tutorState}
                     loadingState={tutorLoading}
                     loadStateError={tutorLoadError}
-                    onRetryLoadState={attemptId ? () => void loadAttemptTutorState(attemptId) : undefined}
+                    onRetryLoadState={
+                      isInstructorPreview
+                        ? examId
+                          ? () => void loadTutorStateForSession({ preview: true, activeExamId: examId })
+                          : undefined
+                        : attemptId
+                          ? () => void loadTutorStateForSession({ preview: false, activeAttemptId: attemptId })
+                          : undefined
+                    }
                     onTurnCompleted={handleTutorTurnCompleted}
                   />
                 )}
