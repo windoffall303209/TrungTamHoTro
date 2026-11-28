@@ -4,6 +4,7 @@ import {
   resolveAiModelVisual,
   resolveAiProviderVisual,
 } from "../../../../src/features/settings/ai-model-icons";
+import SettingsScreen from "../../../../src/features/settings/settings-screen";
 import type {
   AiProvider,
   ModelCatalog,
@@ -13,6 +14,13 @@ import { AiAdminWorkspace } from "../../../../src/roles/admin/ai-admin-workspace
 
 const apiRequest = vi.fn();
 const notify = vi.fn();
+const push = vi.fn();
+let currentSearchParams = new URLSearchParams();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push }),
+  useSearchParams: () => currentSearchParams,
+}));
 
 vi.mock("@/lib/api-client", () => ({
   apiRequest: (...args: unknown[]) => apiRequest(...args),
@@ -136,15 +144,16 @@ describe("AI model & provider visual recognition", () => {
   });
 });
 
-describe("AiAdminWorkspace redesigned UI", () => {
+describe("AiAdminWorkspace compact UI without AI operations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentSearchParams = new URLSearchParams();
     apiRequest.mockResolvedValue({});
   });
 
   afterEach(cleanup);
 
-  it("hiển thị tổng quan điều phối, kệ chọn nhanh model có icon và chuyển đổi mượt qua 4 phân khu", async () => {
+  it("ẩn hoàn toàn khối Trung tâm điều phối và Đối soát AI, chỉ giữ 3 phân khu gọn nhẹ kèm kệ chọn nhanh model có icon", async () => {
     const openAiEditor = vi.fn();
     const testAiProvider = vi.fn().mockResolvedValue(undefined);
     const removeAiProvider = vi.fn().mockResolvedValue(undefined);
@@ -165,10 +174,9 @@ describe("AiAdminWorkspace redesigned UI", () => {
       />,
     );
 
-    expect(screen.getByText("Trung tâm điều phối AI & Quét đề")).toBeInTheDocument();
-    expect(screen.getByText("2/3 đang bật")).toBeInTheDocument();
-    expect(screen.getByText("4 model tích hợp")).toBeInTheDocument();
-    expect(screen.getByText("3 lượt/câu · 15 lượt/đề")).toBeInTheDocument();
+    expect(screen.queryByText("Trung tâm điều phối AI & Quét đề")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Đối soát/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
 
     // Bấm vào một chip model gợi ý (Gemini 2.5 Pro) mở ngay editor với đúng model đó
     fireEvent.click(screen.getByRole("button", { name: /Gemini 2\.5 Pro/ }));
@@ -188,7 +196,6 @@ describe("AiAdminWorkspace redesigned UI", () => {
     // Chuyển sang tab Phân công tác vụ & Quét đề
     fireEvent.click(screen.getByRole("tab", { name: /Phân công tác vụ & Quét đề/ }));
     expect(await screen.findByText("AI theo chức năng")).toBeInTheDocument();
-    expect(screen.getByText("Khảo thí, Quét đề & Gia sư dẫn dắt")).toBeInTheDocument();
 
     // Chuyển sang tab Hạn mức hỏi đáp AI và chọn mức thiết lập nhanh "Ôn luyện sâu"
     fireEvent.click(screen.getByRole("tab", { name: "Hạn mức hỏi đáp AI" }));
@@ -202,9 +209,30 @@ describe("AiAdminWorkspace redesigned UI", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Lưu hạn mức hỏi đáp" }));
     expect(saveAiTutorQuota).toHaveBeenCalledOnce();
+  });
 
-    // Chuyển sang tab Đối soát vận hành AI
-    fireEvent.click(screen.getByRole("tab", { name: "Đối soát vận hành AI" }));
-    expect(screen.getByRole("combobox", { name: "Loại tác vụ đối soát" })).toBeInTheDocument();
+  it("chỉ hiển thị nút mũi tên quay lại cạnh tên chức năng và ẩn toàn bộ dòng mô tả trên trang Cấu hình", () => {
+    currentSearchParams = new URLSearchParams();
+    const { unmount } = render(<SettingsScreen />);
+    expect(screen.getByRole("heading", { level: 1, name: "Cấu hình hệ thống" })).toBeInTheDocument();
+    expect(screen.getByText("AI và quét đề")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Quản lý API key, model và nhà cung cấp dùng để đọc ảnh đề thi."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Cấu hình, kiểm tra và chọn nhà cung cấp phòng học trực tuyến."),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    currentSearchParams = new URLSearchParams("section=ai-providers");
+    render(<SettingsScreen />);
+    const backBtn = screen.getByRole("button", { name: "Quay lại Cấu hình" });
+    expect(backBtn).toHaveTextContent("");
+    expect(screen.getByRole("heading", { level: 1, name: "AI và quét đề" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("Quản lý API key, model và nhà cung cấp dùng để đọc ảnh đề thi."),
+    ).not.toBeInTheDocument();
+    fireEvent.click(backBtn);
+    expect(push).toHaveBeenCalledWith("/admin/settings");
   });
 });

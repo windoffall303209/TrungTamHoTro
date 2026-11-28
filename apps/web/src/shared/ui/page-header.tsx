@@ -11,7 +11,7 @@ export function PageHeader({
 }: {
   eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   actions?: React.ReactNode;
 }) {
   const { t } = useI18n();
@@ -27,9 +27,11 @@ export function PageHeader({
         <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           {t(title)}
         </h1>
-        <p className="mt-0.5 text-xs sm:text-[13px] leading-normal text-slate-500 dark:text-slate-400">
-          {t(description)}
-        </p>
+        {description ? (
+          <p className="mt-0.5 text-xs sm:text-[13px] leading-normal text-slate-500 dark:text-slate-400">
+            {t(description)}
+          </p>
+        ) : null}
       </div>
       {actions ? (
         <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>

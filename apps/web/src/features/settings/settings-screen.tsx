@@ -86,22 +86,22 @@ export default function SettingsScreen() {
       className="w-full space-y-4"
     >
       {activeSection ? (
-        <button
-          className="mb-4 inline-flex min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-extrabold text-[var(--ink-soft)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--ink)]"
-          onClick={() => router.push("/admin/settings")}
-          type="button"
-        >
-          <ArrowLeft size={18} />
-          Quay lại Cấu hình
-        </button>
-      ) : null}
-      <PageHeader
-        title={activeMeta?.title ?? "Cấu hình hệ thống"}
-        description={
-          activeMeta?.description ??
-          "Chọn chức năng cần quản trị. Mỗi nhóm cấu hình được tách thành một màn hình để thao tác tập trung hơn."
-        }
-      />
+        <div className="flex items-center gap-2.5 border-b border-slate-200/90 dark:border-slate-800/80 pb-3">
+          <button
+            aria-label="Quay lại Cấu hình"
+            className="inline-grid size-9 shrink-0 place-items-center rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-slate-600 dark:text-slate-300 transition-colors hover:border-sky-300 dark:hover:border-sky-700 hover:bg-slate-100/80 dark:hover:bg-slate-800 hover:text-sky-700 dark:hover:text-sky-300 cursor-pointer"
+            onClick={() => router.push("/admin/settings")}
+            type="button"
+          >
+            <ArrowLeft aria-hidden="true" size={18} />
+          </button>
+          <h1 className="font-heading text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            {activeMeta?.title ?? "Cấu hình hệ thống"}
+          </h1>
+        </div>
+      ) : (
+        <PageHeader title="Cấu hình hệ thống" />
+      )}
       {!activeSection ? (
         <div
           aria-label="Danh sách chức năng cấu hình"
@@ -142,14 +142,9 @@ export default function SettingsScreen() {
                     <Icon size={20} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="font-heading text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
-                        {item.title}
-                      </h3>
-                    </div>
-                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-1 sm:line-clamp-2">
-                      {item.description}
-                    </p>
+                    <h3 className="font-heading text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100 group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors truncate">
+                      {item.title}
+                    </h3>
                   </div>
                 </div>
 

@@ -25,10 +25,9 @@ import {
   Zap,
 } from "lucide-react";
 import { useState } from "react";
-import { AiGradingOperations } from "./ai-grading-operations";
 import { AiTaskSettings } from "./ai-task-settings";
 
-type AiWorkspaceTab = "providers" | "routing" | "quota" | "operations";
+type AiWorkspaceTab = "providers" | "routing" | "quota";
 
 const QUOTA_PRESETS = [
   {
@@ -54,7 +53,7 @@ const QUOTA_PRESETS = [
   },
 ] as const;
 
-/** Không gian quản trị tập trung cho kết nối AI, nhận diện model, quét đề OCR, hạn mức gia sư và đối soát. */
+/** Không gian quản trị gọn nhẹ cho kết nối AI, nhận diện model, định tuyến quét đề và hạn mức gia sư. */
 export function AiAdminWorkspace({
   settings,
   setSettings,
@@ -78,28 +77,32 @@ export function AiAdminWorkspace({
 }) {
   const [activeTab, setActiveTab] = useState<AiWorkspaceTab>("providers");
 
-  const enabledProviders = aiProviders.filter((item) => item.enabled);
-  const defaultScanner =
-    aiProviders.find((item) => item.isDefault && item.enabled) ??
-    enabledProviders[0] ??
-    null;
-  const totalCatalogModels =
-    modelCatalog.GEMINI.length +
-    modelCatalog.NVIDIA_NIM.length +
-    modelCatalog.OPENAI.length;
-
   return (
-    <div className="space-y-5">
-      <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
-        <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-5 md:px-6">
-          <div className="max-w-2xl">
-            <h2 className="font-heading text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">
-              Trung tâm điều phối AI & Quét đề
-            </h2>
-            <p className="mt-1 text-xs sm:text-sm leading-6 text-slate-600 dark:text-slate-400">
-              API key được mã hóa một chiều và không hiển thị lại trên giao diện. Thiết lập nhà cung cấp, chọn model theo biểu tượng nhận diện và phân luồng riêng cho quét ảnh đề thi, sinh đề, chấm bài cùng gia sư Socratic.
-            </p>
-          </div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800">
+        <Tabs<AiWorkspaceTab>
+          label="Phân khu quản trị AI và quét đề"
+          value={activeTab}
+          onChange={setActiveTab}
+          className="border-b-0"
+          items={[
+            {
+              value: "providers",
+              label: "Nhà cung cấp & Model",
+              count: aiProviders.length,
+            },
+            {
+              value: "routing",
+              label: "Phân công tác vụ & Quét đề",
+              count: 6,
+            },
+            {
+              value: "quota",
+              label: "Hạn mức hỏi đáp AI",
+            },
+          ]}
+        />
+        <div className="pb-2">
           <Button
             type="button"
             variant="primary"
@@ -109,111 +112,18 @@ export function AiAdminWorkspace({
             Thêm custom
           </Button>
         </div>
-
-        <div className="grid border-t border-slate-100 dark:border-slate-800 divide-y sm:divide-y-0 sm:grid-cols-2 lg:grid-cols-4 sm:divide-x divide-slate-100 dark:divide-slate-800">
-          <div className="px-5 py-4 md:px-6 space-y-1.5">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Nhà cung cấp sẵn sàng
-            </p>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 tabular-nums">
-                {enabledProviders.length}/{aiProviders.length || 0} đang bật
-              </p>
-              <div className="flex items-center -space-x-1">
-                {enabledProviders.slice(0, 4).map((item) => (
-                  <AiProviderGlyph
-                    key={item.id}
-                    provider={item.provider}
-                    size="xs"
-                    className="ring-2 ring-white dark:ring-slate-900"
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="px-5 py-4 md:px-6 space-y-1.5 min-w-0">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Model quét đề mặc định
-            </p>
-            {defaultScanner ? (
-              <div className="min-w-0">
-                <AiModelIdentityBadge
-                  model={defaultScanner.model}
-                  provider={defaultScanner.provider}
-                  showTier={false}
-                />
-              </div>
-            ) : (
-              <p className="text-sm font-semibold text-slate-400 dark:text-slate-500">
-                Chưa đặt mặc định
-              </p>
-            )}
-          </div>
-
-          <div className="px-5 py-4 md:px-6 space-y-1.5">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Danh mục model nhận diện
-            </p>
-            <p className="text-base font-extrabold text-sky-700 dark:text-sky-300 tabular-nums">
-              {totalCatalogModels} model tích hợp
-            </p>
-          </div>
-
-          <div className="px-5 py-4 md:px-6 space-y-1.5">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              Hạn mức Gia sư AI
-            </p>
-            <p className="text-base font-extrabold text-slate-900 dark:text-slate-100 tabular-nums">
-              {settings
-                ? `${settings.aiTutorMaxPerQuestion} lượt/câu · ${settings.aiTutorMaxPerExam} lượt/đề`
-                : "Đang tải…"}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <Tabs<AiWorkspaceTab>
-        label="Phân khu quản trị AI và quét đề"
-        value={activeTab}
-        onChange={setActiveTab}
-        items={[
-          {
-            value: "providers",
-            label: "Nhà cung cấp & Model",
-            count: aiProviders.length,
-          },
-          {
-            value: "routing",
-            label: "Phân công tác vụ & Quét đề",
-            count: 6,
-          },
-          {
-            value: "quota",
-            label: "Hạn mức hỏi đáp AI",
-          },
-          {
-            value: "operations",
-            label: "Đối soát vận hành AI",
-          },
-        ]}
-      />
+      </div>
 
       {activeTab === "providers" ? (
         <section className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 shadow-2xs">
           <div className="border-b border-slate-100 dark:border-slate-800 px-5 py-4 md:px-6 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-heading text-base font-bold text-slate-900 dark:text-slate-100">
-                Danh sách nhà cung cấp & Model mặc định
-              </h3>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Bấm trực tiếp vào một model gợi ý bên dưới từng nhà cung cấp để mở hộp thoại chuyển nhanh model đó.
-              </p>
-            </div>
+            <h3 className="font-heading text-base font-bold text-slate-900 dark:text-slate-100">
+              Danh sách nhà cung cấp & Model mặc định
+            </h3>
           </div>
 
           {aiProviders.length === 0 ? (
-            <div className="p-8 text-center space-y-3">
+            <div className="p-8 text-center space-y-2">
               <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Chưa có nhà cung cấp AI nào được tải.
               </p>
@@ -265,11 +175,6 @@ export function AiAdminWorkspace({
                               {item.enabled ? "Đang bật" : "Đang tắt"}
                             </span>
                           </div>
-
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            {providerMeta.protocolLabel}
-                            {item.baseUrl ? ` · ${item.baseUrl}` : ""}
-                          </p>
 
                           <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
                             <AiModelIdentityBadge
@@ -400,9 +305,6 @@ export function AiAdminWorkspace({
             <h3 className="font-heading text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
               Hạn mức hỏi đáp AI khi làm bài
             </h3>
-            <p className="mt-1 text-xs sm:text-sm leading-6 text-slate-600 dark:text-slate-400">
-              Giới hạn số lần học viên được hỏi trợ lý AI dẫn dắt trên từng câu hỏi và tổng thể một đề (chỉ áp dụng cho các đề được giảng viên bật cho phép hỏi đáp AI). Các câu hỏi gợi ý mẫu dùng bộ nhớ đệm chung để tiết kiệm chi phí suy luận.
-            </p>
           </div>
 
           {settings ? (
@@ -517,8 +419,6 @@ export function AiAdminWorkspace({
           )}
         </section>
       ) : null}
-
-      {activeTab === "operations" ? <AiGradingOperations /> : null}
     </div>
   );
 }
