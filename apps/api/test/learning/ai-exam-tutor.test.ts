@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment } from "../../src/config/environment.js";
 import type { PrismaService } from "../../src/database/prisma.service.js";
 import { AiExamTutorService } from "../../src/domains/learning/ai/ai-exam-tutor.service.js";
+import { ContentController } from "../../src/domains/learning/content/content.controller.js";
 import { createLearningTestRuntime } from "../../src/domains/learning/core/learning-runtime.service.js";
 import { ExamAssessmentService } from "../../src/domains/learning/exams/exam-assessment.service.js";
 import { AiProviderService } from "../../src/domains/system/ai/ai-provider.service.js";
@@ -503,5 +504,72 @@ describe("Gia sư AI dẫn dắt theo câu hỏi (AiExamTutorService & SystemSer
       courseId: "course-web",
       courseName: "Phát triển Web Full-stack",
     });
+  });
+
+  it("sinh bản nháp câu hỏi AI cho cả đề trắc nghiệm và tự luận qua draftAiExam mà không tự động phát hành đề chưa duyệt", async () => {
+    const { exams, aiProviders, runtime, tutor } = createMemoryTutorHarness();
+    await aiProviders.configure(
+      {
+        provider: "GEMINI",
+        name: "Gemini Draft",
+        model: "gemini-2.5-flash",
+        apiKey: "test-gemini-key",
+        enabled: true,
+        isDefault: true,
+      },
+      "usr-admin",
+    );
+
+    const draftSpy = vi.spyOn(aiProviders, "generateExamDraft").mockImplementation((input) =>
+      Promise.resolve({
+        providerId: "gemini",
+        provider: "GEMINI",
+        model: "gemini-2.5-flash",
+        questions: input.distribution.flatMap((dist) =>
+          Array.from({ length: dist.count }, (_, idx) => ({
+            type: dist.type,
+            content: `Câu hỏi ${dist.type} nháp số ${idx + 1}`,
+            options: dist.type === "ESSAY" ? [] : ["A. Ý 1", "B. Ý 2", "C. Ý 3", "D. Ý 4"],
+            correctAnswers: dist.type === "ESSAY" ? ["Dàn ý chấm tham khảo"] : ["A. Ý 1"],
+            difficulty: input.difficulty,
+            tags: ["AI"],
+            confidence: 0.9,
+            warnings: [],
+          })),
+        ),
+        context: { mode: "WEB_SEARCH", materialIds: [], materialNames: [], sources: [] },
+        warnings: [],
+      }),
+    );
+
+    const controller = new ContentController(
+      {} as never,
+      exams,
+      aiProviders,
+      {} as never,
+      {} as never,
+      tutor,
+    );
+    const instructorSession = {
+      user: { id: "usr-instructor" },
+      roleCode: "INSTRUCTOR",
+    } as never;
+    const initialExamCount = runtime.context.exams.length;
+
+    const essayDraft = await controller.draftAiExam(
+      {
+        classId: "class-web-01",
+        focus: "Thiết kế kiến trúc RESTful",
+        difficulty: 2,
+        distribution: [{ type: "ESSAY", count: 2 }],
+        contextMode: "AUTO",
+      },
+      instructorSession,
+    );
+
+    expect(draftSpy).toHaveBeenCalledTimes(1);
+    expect(essayDraft.questions).toHaveLength(2);
+    expect(essayDraft.questions[0]?.type).toBe("ESSAY");
+    expect(runtime.context.exams).toHaveLength(initialExamCount);
   });
 });

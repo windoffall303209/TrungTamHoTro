@@ -376,7 +376,7 @@ export class GenerateAiExamDto extends OmitType(CreateExamDto, [
   "questionIds",
   "scoreAllocations",
 ] as const) {
-  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language?: "VI" | "EN" | "BILINGUAL" = "VI";
   @IsUUID() clientRequestId!: string;
   @IsString() @MinLength(5) @MaxLength(5_000) focus!: string;
   @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
@@ -391,6 +391,29 @@ export class GenerateAiExamDto extends OmitType(CreateExamDto, [
   contextMode: "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH" = "AUTO";
   @IsOptional() @IsString() @MaxLength(191) providerId?: string;
   @IsOptional() @IsString() @MaxLength(200) model?: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @IsString({ each: true })
+  @MaxLength(191, { each: true })
+  materialIds?: string[];
+}
+
+/** Yêu cầu sinh bản nháp câu hỏi AI theo chủ đề và loại đề để giảng viên xem và chỉnh sửa trước khi tạo bài tập. */
+export class DraftAiExamDto {
+  @IsString() @IsNotEmpty() @MaxLength(191) classId!: string;
+  @IsOptional() @IsIn(["VI", "EN", "BILINGUAL"]) language?: "VI" | "EN" | "BILINGUAL" = "VI";
+  @IsString() @MinLength(5) @MaxLength(5_000) focus!: string;
+  @IsInt() @Min(1) @Max(3) difficulty!: 1 | 2 | 3;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => AiQuestionDistributionDto)
+  distribution!: AiQuestionDistributionDto[];
+  @IsOptional()
+  @IsIn(["AUTO", "COURSE_MATERIALS", "WEB_SEARCH"])
+  contextMode: "AUTO" | "COURSE_MATERIALS" | "WEB_SEARCH" = "AUTO";
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(6)

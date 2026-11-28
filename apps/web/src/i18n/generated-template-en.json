@@ -230,5 +230,22 @@
   "Tệp \"{{0}}\" không hợp lệ. Chỉ nhận ảnh dung lượng tối đa 12 MB.": "File \"{{0}}\" is invalid. Only images up to 12 MB are accepted.",
   "Xóa ảnh {{0}}": "Delete image {{0}}",
   "Xóa câu hỏi {{0}}": "Delete question {{0}}",
-  "Xóa phương án {{0}} câu {{1}}": "Remove option {{0}} on question {{1}}"
+  "Xóa phương án {{0}} câu {{1}}": "Remove option {{0}} on question {{1}}",
+  "· Tổng {{0}} điểm": "· Total {{0}} points",
+  "AI đã sinh {{0}} câu {{1}} nháp. Hãy xem và chỉnh sửa ở khung bên phải trước khi duyệt phát hành.": "AI generated {{0}} draft {{1}} questions. Review and edit them on the right before approving and publishing.",
+  "AI sinh {{0}} câu {{1}} nháp": "Generate {{0}} draft {{1}} questions with AI",
+  "AI sinh thêm {{0}} câu (cộng dồn)": "Generate {{0}} more questions with AI (append)",
+  "Bài tập tự luận từ ngân hàng câu hỏi: {{0}}": "Essay assignment from question bank: {{0}}",
+  "Câu {{0}}: Đề trắc nghiệm chỉ nhận câu trắc nghiệm hoặc đúng/sai.": "Question {{0}}: Multiple-choice exams only accept choice or true/false questions.",
+  "Câu {{0}}: Điểm câu hỏi phải từ 0,01 và tối đa 2 chữ số thập phân.": "Question {{0}}: Question score must be at least 0.01 with at most 2 decimal places.",
+  "Câu {{0}}: Phương án được chọn làm đáp án đúng đang trống.": "Question {{0}}: The option selected as the correct answer is empty.",
+  "Câu {{0}}: Vui lòng tích chọn đáp án đúng trước khi lưu.": "Question {{0}}: Please select the correct answer before saving.",
+  "Duyệt & Phát hành bài tự luận ({{0}} câu)": "Approve & Publish essay assignment ({{0}} questions)",
+  "Duyệt & Phát hành đề trắc nghiệm ({{0}} câu)": "Approve & Publish multiple-choice exam ({{0}} questions)",
+  "Đã quét thêm {{0}} câu hỏi từ {{1}} ảnh. Bạn có thể sửa hoặc xóa từng câu trước khi {{2}}.": "Scanned {{0}} additional questions from {{1}} images. You can edit or delete any question before {{2}}.",
+  "Đã tạo và phát hành bài tập tự luận '{{0}}' gồm {{1}} câu (tổng 10 điểm).": "Created and published essay assignment '{{0}}' with {{1}} questions (10 points total).",
+  "Tạo & Phát hành bài tự luận ({{0}} câu)": "Create & Publish essay assignment ({{0}} questions)",
+  "Tạo & Phát hành đề trắc nghiệm ({{0}} câu)": "Create & Publish multiple-choice exam ({{0}} questions)",
+  "Tạo bài tự luận ({{0}} câu)": "Create essay assignment ({{0}} questions)",
+  "Tạo đề trắc nghiệm ({{0}} câu)": "Create multiple-choice exam ({{0}} questions)"
 }

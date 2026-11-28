@@ -11,13 +11,13 @@ import type { AuthenticatedSession } from "../../../auth/auth.service.js";
 import { CurrentSession } from "../../../auth/current-session.decorator.js";
 import { RequirePermissions } from "../../../auth/require-permissions.decorator.js";
 import { fileContentDisposition, normalizeMultipartFileName } from "../../../infrastructure/file-transfer.js";
-import { AskExamTutorDto, ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
+import { AskExamTutorDto, ClassFolderDto, CreateExamDto, CreateMaterialDto, CreateQuestionDto, DraftAiExamDto, GenerateAiExamDto, GradeAttemptDto, ImportQuestionsDto, RequestRegradeDto, ResolveRegradeDto, SaveAnswerDto, SubmitAttemptDto, UpdateExamDto, UpdateMaterialDto, UpdateQuestionDto, UploadMaterialDto } from "../core/learning.dto.js";
 import type { MaterialAccessAction, MaterialSearchResult, MaterialSummaryBucket, QuestionSummary, UploadedMaterialFile } from "../core/learning.shared.js";
 import { ContentMaterialService } from "./content-material.service.js";
 import { ExamAssessmentService } from "../exams/exam-assessment.service.js";
 import type { AttachmentDocumentPreview } from "../academic/academic.shared.js";
 import type { AiGeneratedExamResult, ExamAttempt, ExamAttemptReview, ExamAttemptTutorState, ExamTutorAskResult, LearnerExamSummary, LearnerResult, LearningExam, LearningMaterial, LearningQuestion, QuestionImportResult, RegradeRequest } from "../core/learning.types.js";
-import { AiProviderService, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
+import { AiProviderService, type GeneratedExamDraft, type QuestionScanResult } from "../../system/ai/ai-provider.service.js";
 import { AiGenerationRequestService } from "../ai/ai-generation-request.service.js";
 import { AiMaterialContextService } from "../ai/ai-material-context.service.js";
 import { AiExamTutorService } from "../ai/ai-exam-tutor.service.js";
@@ -528,6 +528,70 @@ export class ContentController {
 
       return undefined;
     }, { idempotentSave: true });
+  }
+
+  @Post("instructor/exams/ai-draft") @RequirePermissions("exam:manage")
+  /** Sinh bản nháp danh sách câu hỏi bằng AI để giảng viên xem, chỉnh sửa nội dung và đáp án trước khi tạo bài tập. */
+  async draftAiExam(
+    @Body() input: DraftAiExamDto,
+    @CurrentSession() session: AuthenticatedSession,
+  ): Promise<{
+    courseId: string;
+    providerId: string;
+    provider: string;
+    model: string;
+    questions: GeneratedExamDraft["questions"];
+    context: GeneratedExamDraft["context"];
+    warnings: string[];
+  }> {
+    this.assertInstructorMutation(session);
+    const seenTypes = new Set(input.distribution.map((item) => item.type));
+    if (seenTypes.size !== input.distribution.length) {
+      throw new BadRequestException("Mỗi loại câu hỏi chỉ được xuất hiện một lần trong ma trận.");
+    }
+    const totalQuestions = input.distribution.reduce((sum, item) => sum + item.count, 0);
+    if (totalQuestions < 1 || totalQuestions > 50) {
+      throw new BadRequestException("Tổng số câu hỏi AI phải từ 1 đến 50.");
+    }
+    const context = await this.exams.getExamGenerationContext(
+      input.classId,
+      session.user.id,
+      input.materialIds,
+      input.contextMode === "WEB_SEARCH",
+    );
+    const taskConfigs = await this.aiProviders.getTaskConfigs();
+    let aiTask = taskConfigs["GENERATE_EXAM"];
+    if (!aiTask) {
+      const activeProviders = (await this.aiProviders.list()).filter(
+        (item) =>
+          item.enabled &&
+          item.hasApiKey &&
+          (item.provider === "GEMINI" || item.provider === "OPENAI" || item.provider === "CUSTOM"),
+      );
+      const fallback = activeProviders.find((item) => item.isDefault) ?? activeProviders[0];
+      if (fallback) aiTask = { providerId: fallback.id, model: fallback.model };
+      else aiTask = await this.aiProviders.resolveTask("GENERATE_EXAM");
+    }
+    const generated = await this.aiProviders.generateExamDraft({
+      ...aiTask,
+      courseName: context.courseName,
+      courseDescription: context.courseDescription,
+      focus: input.focus.trim(),
+      difficulty: input.difficulty,
+      language: input.language,
+      distribution: input.distribution,
+      contextMode: input.contextMode,
+      sourceFiles: context.sourceFiles,
+    });
+    return {
+      courseId: context.courseId,
+      providerId: generated.providerId,
+      provider: generated.provider,
+      model: generated.model,
+      questions: generated.questions,
+      context: generated.context,
+      warnings: generated.warnings,
+    };
   }
 
   @Patch("instructor/exams/:examId/questions/:questionId") @RequirePermissions("exam:manage")

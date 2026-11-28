@@ -51,7 +51,6 @@ import {
   X,
 } from "lucide-react";
 import type {
-  AiGeneratedExamResult,
   Assignment,
   AssignmentSubmission,
   Course,
@@ -64,7 +63,8 @@ import type {
   Material,
   Question,
 } from "@/lib/learning-types";
-import { SmartExamScanModal } from "./smart-exam-scan-modal";
+import { AiExamBuilderModal, type AiAssignmentMode } from "./ai-exam-builder-modal";
+import { SmartExamScanModal, type SmartScanTargetMode } from "./smart-exam-scan-modal";
 import { useClassExamPage } from "@/lib/class-exams";
 import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -304,6 +304,7 @@ export function InstructorClassWorkspace({
 
   // Modal tạo Bài tập mới
   const [addAssignmentModalOpen, setAddAssignmentModalOpen] = useState(false);
+  const [builderInitialMethod, setBuilderInitialMethod] = useState<"MANUAL" | "AI" | undefined>(undefined);
 
   // Modal Chỉnh sửa Bài tập tự luận
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
@@ -330,20 +331,15 @@ export function InstructorClassWorkspace({
 
   // Cách 2: Quét đề bằng AI OCR
   const [scanModalOpen, setScanModalOpen] = useState(false);
+  const [scanTargetMode, setScanTargetMode] = useState<SmartScanTargetMode>("BANK_ONLY");
 
-  // Cách 3: Tạo đề thi bằng AI
+  // Cách 3: Tạo đề thi / tự luận bằng AI (có duyệt & sửa câu hỏi)
   const [aiExamModalOpen, setAiExamModalOpen] = useState(false);
-  const [aiSubject, setAiSubject] = useState("Toán học");
-  const [aiTopic, setAiTopic] = useState("Hàm số & Khảo sát đồ thị");
-  const [aiQuestionCount, setAiQuestionCount] = useState(5);
-  const [aiDifficulty, setAiDifficulty] = useState<"EASY" | "MEDIUM" | "HARD">("MEDIUM");
-  const [aiExamTutorEnabled, setAiExamTutorEnabled] = useState(false);
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const aiRequestRef = useRef<{ signature: string; id: string } | null>(null);
-  const [aiGeneratedExam, setAiGeneratedExam] = useState<AiGeneratedExamResult | null>(null);
+  const [aiBuilderMode, setAiBuilderMode] = useState<AiAssignmentMode>("MULTIPLE_CHOICE");
 
-  // Cách 4: Tạo đề thi từ ngân hàng câu hỏi (3 kiểu: 1. Thủ công, 2. Chọn mốc để AI chọn, 3. Ngẫu nhiên)
+  // Cách 4: Tạo đề thi / bài tập từ ngân hàng câu hỏi (3 kiểu: 1. Thủ công, 2. Chọn mốc, 3. Ngẫu nhiên)
   const [manualExamModalOpen, setManualExamModalOpen] = useState(false);
+  const [bankBuilderAssignmentType, setBankBuilderAssignmentType] = useState<"MULTIPLE_CHOICE" | "ESSAY">("MULTIPLE_CHOICE");
   const [examCreationMode, setExamCreationMode] = useState<"MANUAL" | "AI_CRITERIA" | "RANDOM">("MANUAL");
   const [manualExamTitle, setManualExamTitle] = useState("");
   const [manualExamDuration, setManualExamDuration] = useState(45);
@@ -1149,16 +1145,32 @@ export function InstructorClassWorkspace({
       }
 
       const questions = data.questions.map((question, index) => {
+        const resolvedType = question.questionType ?? "SINGLE_CHOICE";
         const validOptions = question.options
           .filter((option) => option.text.trim())
-          .map((option) => ({ key: option.key.trim().toUpperCase(), value: option.key.trim().toUpperCase() + ". " + option.text.trim() }));
-        const answer = validOptions.find((option) => option.key === question.correctAnswer.trim().toUpperCase());
+          .map((option) => {
+            const key = option.key.trim().toUpperCase();
+            const text = option.text.trim();
+            return {
+              key,
+              text,
+              value: resolvedType === "TRUE_FALSE" ? text : `${key}. ${text}`,
+            };
+          });
+        const requestedKeys = (
+          question.correctAnswers && question.correctAnswers.length > 0
+            ? question.correctAnswers
+            : [question.correctAnswer]
+        )
+          .map((entry) => entry.trim().toUpperCase())
+          .filter(Boolean);
+        const matchedAnswers = validOptions.filter((option) => requestedKeys.includes(option.key));
         if (question.type !== "Trắc nghiệm một đáp án" ||
           question.content.trim().length < 5 ||
           validOptions.length < 2 ||
           new Set(validOptions.map((option) => option.key)).size !== validOptions.length ||
-          new Set(validOptions.map((option) => option.value.slice(option.value.indexOf(".") + 1).trim())).size !== validOptions.length ||
-          !answer) {
+          new Set(validOptions.map((option) => option.text.toLocaleLowerCase())).size !== validOptions.length ||
+          matchedAnswers.length === 0) {
           throw new Error("Câu " + (index + 1) + ": cần nội dung hợp lệ, phương án khác nhau và đáp án đúng.");
         }
         if (!Number.isFinite(question.score) || question.score < 0.01 ||
@@ -1168,14 +1180,14 @@ export function InstructorClassWorkspace({
         return {
           courseId: item.courseId,
           content: question.content.trim(),
-          type: "SINGLE_CHOICE" as const,
+          type: resolvedType,
           options: validOptions.map((option) => option.value),
-          correctAnswers: [answer.value],
+          correctAnswers: matchedAnswers.map((option) => option.value),
           difficulty: 2,
           tags: ["Trắc nghiệm", "Tạo đề trong lớp"],
         };
       });
-      const totalScore = data.questions.reduce((sum, question) => sum + question.score, 0);
+      const totalScore = Math.round(data.questions.reduce((sum, question) => sum + question.score, 0) * 100) / 100;
       if (!Number.isFinite(totalScore) || totalScore < 1) {
         throw new Error("Tổng điểm đề thi phải ít nhất 1 điểm.");
       }
@@ -1775,52 +1787,6 @@ export function InstructorClassWorkspace({
     }
   };
 
-  /** Sinh đề AI bằng API thật; dùng cùng request ID khi người dùng thử lại cùng cấu hình. */
-  const handleTriggerAiExamGen = async () => {
-    if (aiGenerating) return;
-    const topic = aiTopic.trim();
-    if (topic.length < 5 || !Number.isInteger(aiQuestionCount) || aiQuestionCount < 1 || aiQuestionCount > 50) {
-      notify("Chuyên đề phải có ít nhất 5 ký tự và số câu trong khoảng 1–50.", "error");
-      return;
-    }
-    const signature = JSON.stringify([item.id, aiSubject, topic, aiQuestionCount, aiDifficulty, aiExamTutorEnabled]);
-    if (aiRequestRef.current?.signature !== signature) {
-      aiRequestRef.current = { signature, id: crypto.randomUUID() };
-    }
-    const openAt = new Date();
-    setAiGeneratedExam(null);
-    setAiGenerating(true);
-    try {
-      const result = await apiRequest<AiGeneratedExamResult>("/instructor/exams/ai-generate", {
-        method: "POST",
-        roleCode: session.roleCode,
-        body: JSON.stringify({
-          classId: item.id,
-          title: `Đề AI: ${topic} (${aiSubject})`,
-          focus: `${aiSubject}: ${topic}`,
-          difficulty: aiDifficulty === "EASY" ? 1 : aiDifficulty === "MEDIUM" ? 2 : 3,
-          distribution: [{ type: "SINGLE_CHOICE", count: aiQuestionCount }],
-          durationMinutes: 45,
-          totalScore: 10,
-          openAt: openAt.toISOString(),
-          closeAt: new Date(openAt.getTime() + 7 * 86400000).toISOString(),
-          attemptLimit: 1,
-          aiTutorEnabled: aiExamTutorEnabled,
-          clientRequestId: aiRequestRef.current.id,
-        }),
-      });
-      const publishedExam = result.exam;
-      selectCreatedExam(publishedExam);
-      setAiGeneratedExam({ ...result, exam: publishedExam });
-      await loadClassData();
-      notify(`Đã tạo và phát hành đề AI ${publishedExam.title} gồm ${result.generatedQuestionCount} câu.`, "success");
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tạo được đề thi AI.", "error");
-    } finally {
-      setAiGenerating(false);
-    }
-  };
-
   // Mở modal chỉnh sửa câu hỏi trong ngân hàng lớp
   const handleOpenEditQuestion = (q: ClassQuestion) => {
     setEditingQuestionPreview(false);
@@ -1894,7 +1860,7 @@ export function InstructorClassWorkspace({
     return result;
   };
 
-  /** Tạo đề thi đã phát hành; chỉ chấp nhận câu hỏi đã xuất bản và thông báo lỗi từ API. */
+  /** Tạo đề trắc nghiệm hoặc bài tập tự luận đã phát hành từ câu hỏi ngân hàng đúng theo loại bài đã chọn. */
   const persistAndCacheExam = async (
     title: string,
     selectedQuestions: ClassQuestion[],
@@ -1903,21 +1869,85 @@ export function InstructorClassWorkspace({
     if (examSaving) return false;
     const trimmedTitle = title.trim();
     if (trimmedTitle.length < 3) {
-      notify("Tiêu đề đề thi cần ít nhất 3 ký tự.", "error");
-      return false;
-    }
-    if (!Number.isInteger(manualExamDuration) || manualExamDuration < 1) {
-      notify("Thời lượng đề thi phải là số phút nguyên dương.", "error");
+      notify("Tiêu đề bài tập cần ít nhất 3 ký tự.", "error");
       return false;
     }
     if (!selectedQuestions.length || selectedQuestions.some((question) => question.status !== "PUBLISHED")) {
-      notify("Chỉ được tạo đề từ câu hỏi đã xuất bản.", "error");
+      notify("Chỉ được đóng gói từ câu hỏi đã xuất bản trong ngân hàng.", "error");
       return false;
     }
     const openAt = new Date();
     const closeAt = manualExamDueAt ? parseLocalDateTimeInput(manualExamDueAt) : new Date(openAt.getTime() + 7 * 86400000);
     if (!closeAt || closeAt <= openAt) {
-      notify("Hạn đóng đề thi phải hợp lệ và muộn hơn thời điểm mở đề.", "error");
+      notify("Hạn nộp phải hợp lệ và muộn hơn thời điểm hiện tại.", "error");
+      return false;
+    }
+
+    if (bankBuilderAssignmentType === "ESSAY") {
+      if (selectedQuestions.some((question) => question.type !== "Tự luận")) {
+        notify("Bài tập tự luận chỉ nhận câu hỏi dạng Tự luận. Hãy bỏ chọn các câu trắc nghiệm.", "error");
+        return false;
+      }
+      setExamSaving(true);
+      try {
+        const instructions = [
+          ...selectedQuestions.map((question, idx) => `Câu ${idx + 1}: ${question.content.trim()}`),
+          "Nhập nội dung bài làm hoặc tải lên tệp câu trả lời.",
+        ].join("\n\n");
+        let created = await apiRequest<Assignment>(
+          `/instructor/classes/${encodeURIComponent(item.id)}/assignments`,
+          {
+            method: "POST",
+            roleCode: session.roleCode,
+            body: JSON.stringify({
+              title: trimmedTitle,
+              description: `Bài tập tự luận từ ngân hàng câu hỏi: ${trimmedTitle}`,
+              instructions,
+              hidden: false,
+              dueAt: closeAt.toISOString(),
+              maxScore: 10,
+              rubric: [
+                {
+                  title: "Phần tự luận",
+                  description: "Điểm phần tự luận.",
+                  maxPoints: 10,
+                },
+              ],
+            }),
+          },
+        );
+        if (created.status !== "PUBLISHED") {
+          created = await apiRequest<Assignment>(
+            `/instructor/assignments/${encodeURIComponent(created.id)}/publish`,
+            {
+              method: "POST",
+              roleCode: session.roleCode,
+            },
+          );
+        }
+        setSelectedExamId("");
+        setSearchQuery("");
+        setSelectedAssignment(created);
+        await loadClassData();
+        notify(
+          `Đã tạo và phát hành bài tập tự luận '${created.title}' gồm ${selectedQuestions.length} câu (tổng 10 điểm).`,
+          "success",
+        );
+        return true;
+      } catch (error) {
+        notify(error instanceof Error ? error.message : "Không thể tạo bài tập tự luận.", "error");
+        return false;
+      } finally {
+        setExamSaving(false);
+      }
+    }
+
+    if (!Number.isInteger(manualExamDuration) || manualExamDuration < 1) {
+      notify("Thời lượng đề thi phải là số phút nguyên dương.", "error");
+      return false;
+    }
+    if (selectedQuestions.some((question) => question.type === "Tự luận")) {
+      notify("Đề trắc nghiệm chỉ sử dụng câu hỏi trắc nghiệm. Hãy bỏ chọn câu tự luận.", "error");
       return false;
     }
 
@@ -1943,7 +1973,7 @@ export function InstructorClassWorkspace({
       const published = created;
       selectCreatedExam(published);
       await loadClassData();
-      notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu.", "success");
+      notify("Đã tạo và phát hành đề thi '" + published.title + "' gồm " + selectedQuestions.length + " câu (tổng 10 điểm).", "success");
       return true;
     } catch (error) {
       notify(error instanceof Error ? error.message : "Không thể tạo đề thi.", "error");
@@ -2980,6 +3010,10 @@ export function InstructorClassWorkspace({
             onPageSizeChange={setQuestionPageSize}
             onRetry={() => void loadClassQuestionBank()}
             onOpenCreateExam={() => {
+              setBankBuilderAssignmentType("MULTIPLE_CHOICE");
+              setManualExamFilterScope("MULTIPLE_CHOICE");
+              setAiCriteriaScope("MULTIPLE_CHOICE");
+              setRandomTypeScope("MULTIPLE_CHOICE");
               setExamCreationMode("MANUAL");
               setManualExamTitle(t(`Đề kiểm tra lớp ${item.name} - ${new Date().toLocaleDateString(locale)}`));
               setManualExamModalOpen(true);
@@ -3242,10 +3276,14 @@ export function InstructorClassWorkspace({
       {addAssignmentModalOpen && (
         <AssignmentBuilderModal
           open
-          onClose={() => setAddAssignmentModalOpen(false)}
+          onClose={() => {
+            setAddAssignmentModalOpen(false);
+            setBuilderInitialMethod(undefined);
+          }}
           targetClassName={item.name || item.code}
           targetClassEndAt={item.endAt}
           initialType={assignmentHubType ?? undefined}
+          initialMethod={builderInitialMethod}
           onSaveAssignment={handleSaveFromBuilder}
         />
       )}
@@ -3963,119 +4001,214 @@ export function InstructorClassWorkspace({
               </button>
             </div>
 
-            {creationTarget === "ASSIGNMENT" && !assignmentHubType ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><button type="button" onClick={() => setAssignmentHubType("MULTIPLE_CHOICE")} className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30"><strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">Trắc nghiệm</strong><span className="mt-1 block text-xs leading-relaxed text-slate-500">Chấm tự động, có phương án và đáp án đúng.</span></button><button type="button" onClick={() => setAssignmentHubType("ESSAY")} className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30"><strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">Tự luận</strong><span className="mt-1 block text-xs leading-relaxed text-slate-500">Học viên viết câu trả lời hoặc nộp tệp để giáo viên chấm.</span></button></div> : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Danh sách 5 phương thức */}
-              {/* Cách 1: Tạo đề thủ công */}
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationHubOpen(false);
-                  // Ở ngân hàng câu hỏi, cách 1 là soạn câu hỏi thủ công; ở bài tập là ghép đề từ ngân hàng.
-                  if (creationTarget === "QUESTION") setAuthoringModalOpen(true);
-                  else setManualExamModalOpen(true);
-                }}
-                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-slate-800/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
-              >
-                <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                  <Edit3 size={18} />
-                </div>
-                <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                    {creationTarget === "QUESTION" ? "1. Soạn câu hỏi thủ công" : "1. Tạo đề thủ công"}
-                </strong>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                    {creationTarget === "QUESTION"
-                      ? "Nhập nội dung, phương án, đáp án và lời giải cho từng câu hỏi mới của ngân hàng."
-                      : "Chọn câu hỏi trong ngân hàng, sắp xếp thành đề thi và cấu hình thời lượng, hạn nộp."}
-                </p>
-              </button>
-
-              {/* Cách 2: Quét đề bằng AI OCR */}
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationHubOpen(false);
-                  setScanModalOpen(true);
-                }}
-                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
-              >
-                <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                  <Scan size={18} />
-                </div>
-                <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                  2. Quét đề thông minh (AI OCR)
-                </strong>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Tải ảnh đề thi chụp thực tế, AI tự động quét nhận diện và bóc tách toàn bộ câu hỏi đối chiếu với ảnh gốc.
-                </p>
-              </button>
-
-              {/* Cách 3: Tạo đề bằng AI */}
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationHubOpen(false);
-                  setAiExamModalOpen(true);
-                }}
-                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-600 bg-white dark:bg-slate-800/60 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
-              >
-                <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                  <Wand2 size={18} />
-                </div>
-                <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                  3. Tạo đề bằng AI
-                </strong>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Chỉ cần nhập môn học và chủ đề bài học, AI tự động sinh đề trắc nghiệm chuẩn kiến thức kèm lời giải đầy đủ.
-                </p>
-              </button>
-
-              {/* Cách 4: Soạn đề thi từ ngân hàng câu hỏi */}
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationHubOpen(false);
-                  setManualExamModalOpen(true);
-                }}
-                className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-amber-400 dark:hover:border-amber-600 bg-white dark:bg-slate-800/60 hover:bg-amber-50/50 dark:hover:bg-amber-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
-              >
-                <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                  <Layers size={18} />
-                </div>
-                <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
-                  4. Soạn đề từ Ngân hàng câu hỏi
-                </strong>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Chọn lọc từ các câu hỏi có sẵn trong ngân hàng để đóng gói thành bài kiểm tra 15p, 45p hoặc giữa kỳ.
-                </p>
-              </button>
-
-              {/* Cách 5: Tạo bài tập đa năng (AssignmentBuilderModal) */}
-              <button
-                type="button"
-                onClick={() => {
-                  setCreationHubOpen(false);
-                  setAddAssignmentModalOpen(true);
-                }}
-                className="p-4 rounded-2xl border border-blue-300 dark:border-blue-700 hover:border-blue-500 bg-linear-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-950/40 dark:to-indigo-950/40 text-left transition space-y-2 cursor-pointer group shadow-sm sm:col-span-2"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
-                    <FileCheck2 size={18} />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-blue-900 dark:text-blue-100">
-                      5. Tạo bài tập đa năng (AI tách câu Word/PDF & Tự luận)
-                    </strong>
-                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
-                      Khuyến nghị cho bài tập tổng hợp và tự luận
+            {creationTarget === "ASSIGNMENT" && !assignmentHubType ? (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setAssignmentHubType("MULTIPLE_CHOICE")}
+                  className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30 cursor-pointer"
+                >
+                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
+                    Đề Trắc nghiệm
+                  </strong>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                    Có phương án lựa chọn, chấm điểm tự động trên thang 10 điểm và hỗ trợ hỏi đáp AI dẫn dắt.
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAssignmentHubType("ESSAY")}
+                  className="rounded-2xl border-2 border-slate-200 p-5 text-left transition hover:border-blue-500 hover:bg-blue-50/50 dark:border-slate-800 dark:hover:bg-blue-950/30 cursor-pointer"
+                >
+                  <strong className="block text-sm font-bold text-slate-900 dark:text-slate-100">
+                    Đề Tự luận
+                  </strong>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                    Học viên trình bày lời giải hoặc nộp tệp bài làm trên thang 10 điểm để giảng viên chấm.
+                  </span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {creationTarget === "ASSIGNMENT" && assignmentHubType && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50/70 px-3.5 py-2 text-xs dark:border-blue-900/60 dark:bg-blue-950/30">
+                    <span className="font-bold text-blue-800 dark:text-blue-200">
+                      Loại bài đang chọn:{" "}
+                      {assignmentHubType === "ESSAY" ? "Đề Tự luận" : "Đề Trắc nghiệm"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setAssignmentHubType(null)}
+                      className="inline-flex items-center gap-1 font-bold text-blue-600 hover:underline dark:text-blue-400 cursor-pointer"
+                    >
+                      <ArrowLeft size={13} />
+                      <span>Đổi loại đề</span>
+                    </button>
                   </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* Cách 1: Soạn thủ công đúng theo loại đề */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreationHubOpen(false);
+                      if (creationTarget === "QUESTION") {
+                        setAuthoringModalOpen(true);
+                      } else {
+                        setBuilderInitialMethod("MANUAL");
+                        setAddAssignmentModalOpen(true);
+                      }
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600 bg-white dark:bg-slate-800/60 hover:bg-blue-50/50 dark:hover:bg-blue-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/60 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                      <Edit3 size={18} />
+                    </div>
+                    <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {creationTarget === "QUESTION"
+                        ? "1. Soạn câu hỏi thủ công"
+                        : assignmentHubType === "ESSAY"
+                          ? "1. Soạn đề tự luận thủ công"
+                          : "1. Soạn đề trắc nghiệm thủ công"}
+                    </strong>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {creationTarget === "QUESTION"
+                        ? "Nhập nội dung, phương án, đáp án cho từng câu hỏi mới lưu vào ngân hàng."
+                        : assignmentHubType === "ESSAY"
+                          ? "Tự nhập từng câu hỏi tự luận, đính kèm tệp đề (nếu có) và thiết lập hạn nộp."
+                          : "Tự nhập từng câu trắc nghiệm, phương án A–D, đáp án đúng và tự động chia đều 10 điểm."}
+                    </p>
+                  </button>
+
+                  {/* Cách 2: Quét ảnh bằng AI OCR */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreationHubOpen(false);
+                      setScanTargetMode(
+                        creationTarget === "ASSIGNMENT" && assignmentHubType
+                          ? assignmentHubType
+                          : "BANK_ONLY",
+                      );
+                      setScanModalOpen(true);
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 bg-white dark:bg-slate-800/60 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                      <Scan size={18} />
+                    </div>
+                    <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {creationTarget === "QUESTION"
+                        ? "2. Quét câu hỏi từ ảnh (AI OCR)"
+                        : assignmentHubType === "ESSAY"
+                          ? "2. Quét ảnh đề tự luận (AI OCR)"
+                          : "2. Quét ảnh đề trắc nghiệm (AI OCR)"}
+                    </strong>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {creationTarget === "QUESTION"
+                        ? "Chọn tối đa 5 ảnh đề chụp thực tế, quét cộng dồn câu hỏi và sửa trước khi nhập vào ngân hàng."
+                        : assignmentHubType === "ESSAY"
+                          ? "Quét cộng dồn tối đa 5 ảnh đề tự luận, sửa từng câu hỏi và phát hành trực tiếp thành bài tập."
+                          : "Quét cộng dồn tối đa 5 ảnh đề thi, sửa câu hỏi/đáp án, chia đều 10 điểm và phát hành thành bài tập."}
+                    </p>
+                  </button>
+
+                  {/* Cách 3: Tạo đề bằng AI có duyệt sửa */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreationHubOpen(false);
+                      setAiBuilderMode(assignmentHubType === "ESSAY" ? "ESSAY" : "MULTIPLE_CHOICE");
+                      setAiExamModalOpen(true);
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-emerald-400 dark:hover:border-emerald-600 bg-white dark:bg-slate-800/60 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                      <Wand2 size={18} />
+                    </div>
+                    <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {assignmentHubType === "ESSAY"
+                        ? "3. Tạo đề tự luận bằng AI"
+                        : "3. Tạo đề trắc nghiệm bằng AI"}
+                    </strong>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {assignmentHubType === "ESSAY"
+                        ? "Nhập môn học & chuyên đề để AI sinh câu tự luận nháp, xem & sửa từng câu trước khi phát hành."
+                        : "Nhập môn học & chuyên đề để AI sinh câu trắc nghiệm nháp, xem & sửa câu hỏi/đáp án trước khi phát hành."}
+                    </p>
+                  </button>
+
+                  {/* Cách 4: Đóng gói từ Ngân hàng câu hỏi */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetScope =
+                        assignmentHubType === "ESSAY" ? "ESSAY" : "MULTIPLE_CHOICE";
+                      setBankBuilderAssignmentType(targetScope);
+                      setManualExamFilterScope(targetScope);
+                      setAiCriteriaScope(targetScope);
+                      setRandomTypeScope(targetScope);
+                      setManualExamSelectedQuestions([]);
+                      setAiCriteriaPreviewList([]);
+                      setCreationHubOpen(false);
+                      setManualExamModalOpen(true);
+                    }}
+                    className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-amber-400 dark:hover:border-amber-600 bg-white dark:bg-slate-800/60 hover:bg-amber-50/50 dark:hover:bg-amber-950/30 text-left transition space-y-2 cursor-pointer group shadow-2xs"
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/60 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                      <Layers size={18} />
+                    </div>
+                    <strong className="block text-xs font-bold text-slate-900 dark:text-slate-100">
+                      {assignmentHubType === "ESSAY"
+                        ? "4. Chọn câu tự luận từ Ngân hàng"
+                        : "4. Chọn câu trắc nghiệm từ Ngân hàng"}
+                    </strong>
+                    <p className="text-[11px] text-slate-500 leading-relaxed">
+                      {assignmentHubType === "ESSAY"
+                        ? "Chọn thủ công, theo ma trận độ khó hoặc ngẫu nhiên các câu tự luận có sẵn để giao bài tập."
+                        : "Chọn thủ công, theo ma trận độ khó hoặc ngẫu nhiên câu trắc nghiệm có sẵn thành đề 10 điểm."}
+                    </p>
+                  </button>
+
+                  {/* Cách 5: Tách đề từ tệp Word / PDF / TXT */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreationHubOpen(false);
+                      setBuilderInitialMethod(
+                        creationTarget === "ASSIGNMENT" && assignmentHubType ? "AI" : undefined,
+                      );
+                      setAddAssignmentModalOpen(true);
+                    }}
+                    className="p-4 rounded-2xl border border-blue-300 dark:border-blue-700 hover:border-blue-500 bg-linear-to-r from-blue-50/80 to-indigo-50/80 dark:from-blue-950/40 dark:to-indigo-950/40 text-left transition space-y-2 cursor-pointer group shadow-sm sm:col-span-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold group-hover:scale-105 transition-transform">
+                        <FileCheck2 size={18} />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-blue-900 dark:text-blue-100">
+                          {assignmentHubType === "ESSAY"
+                            ? "5. Tách đề tự luận từ tệp Word / PDF / TXT"
+                            : assignmentHubType === "MULTIPLE_CHOICE"
+                              ? "5. Tách đề trắc nghiệm từ tệp Word / PDF / TXT"
+                              : "5. Tạo bài tập đa năng từ tệp Word / PDF"}
+                        </strong>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold">
+                          Hỗ trợ nhận diện bảng phương án, bảng đáp án cuối đề và tự động chia đều 10 điểm
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                      {assignmentHubType === "ESSAY"
+                        ? "Tải tệp Word, PDF hoặc TXT có sẵn để bóc tách câu hỏi tự luận, chỉnh sửa nội dung và đính kèm tệp đề gốc."
+                        : "Tải tệp Word, PDF hoặc TXT có sẵn để tự tách câu hỏi, phương án, ghép đáp án và kiểm duyệt trước khi lưu."}
+                    </p>
+                  </button>
                 </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Tải tệp Word/PDF có sẵn để AI tự tách câu hỏi, hoặc tạo bài tập tự luận với rubric chấm điểm và cấu hình nộp bài nâng cao.
-                </p>
-              </button>
-            </div>}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -4291,153 +4424,26 @@ export function InstructorClassWorkspace({
         open={scanModalOpen}
         courseId={item.courseId}
         roleCode={session.roleCode}
+        targetMode={scanTargetMode}
+        targetClassEndAt={item.endAt}
         onClose={() => setScanModalOpen(false)}
         onImported={refreshQuestionData}
+        onSaveAssignment={handleSaveFromBuilder}
       />
 
       {/* =========================================================================
-          CÁCH 3: MODAL TẠO ĐỀ THÔNG MINH BẰNG AI
+          CÁCH 3: MODAL TẠO ĐỀ BẰNG AI CÓ DUYỆT & CHỈNH SỬA CÂU HỎI
           ========================================================================= */}
-      {aiExamModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Wand2 size={18} className="text-emerald-600" />
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                  Tạo đề thi trắc nghiệm bằng AI
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAiExamModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Môn học:
-                  </label>
-                  <select
-                    value={aiSubject}
-                    onChange={(e) => setAiSubject(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-semibold"
-                  >
-                    <option value="Toán học">Toán học</option>
-                    <option value="Vật lý">Vật lý</option>
-                    <option value="Hóa học">Hóa học</option>
-                    <option value="Sinh học">Sinh học</option>
-                    <option value="Tiếng Anh">Tiếng Anh</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Chuyên đề / Bài học:
-                  </label>
-                  <input
-                    type="text"
-                    value={aiTopic}
-                    onChange={(e) => setAiTopic(e.target.value)}
-                    placeholder="Ví dụ: Hàm số, Hình học không gian..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Số lượng câu hỏi:
-                  </label>
-                  <select
-                    value={aiQuestionCount}
-                    onChange={(e) => setAiQuestionCount(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  >
-                    <option value={5}>5 câu hỏi nhanh</option>
-                    <option value={10}>10 câu hỏi chuẩn</option>
-                    <option value={20}>20 câu hỏi kiểm tra</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Độ khó:
-                  </label>
-                  <select
-                    value={aiDifficulty}
-                    onChange={(e) => setAiDifficulty(e.target.value as typeof aiDifficulty)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100"
-                  >
-                    <option value="EASY">Cơ bản (Nhận biết)</option>
-                    <option value="MEDIUM">Thông hiểu</option>
-                    <option value="HARD">Vận dụng & Phân hóa</option>
-                  </select>
-                </div>
-              </div>
-
-              <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={aiExamTutorEnabled}
-                  onChange={(e) => setAiExamTutorEnabled(e.target.checked)}
-                  className="mt-0.5 size-4 accent-indigo-600"
-                />
-                <span>
-                  <span className="block font-bold text-slate-900 dark:text-slate-100">
-                    Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
-                  </span>
-                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                    AI chỉ gợi mở phương pháp giải theo từng câu hỏi, không đưa ra đáp án đúng.
-                  </span>
-                </span>
-              </label>
-
-              <button
-                type="button"
-                onClick={handleTriggerAiExamGen}
-                disabled={aiGenerating}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-              >
-                <Sparkles size={15} />
-                <span>{aiGenerating ? "AI đang suy nghĩ và sinh câu hỏi..." : "Bắt đầu tạo đề AI"}</span>
-              </button>
-
-              {aiGeneratedExam && (
-                <div className="space-y-2 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/30 dark:bg-emerald-950/20 p-4" role="status">
-                  <strong className="block text-emerald-700 dark:text-emerald-300">
-                    Đã tạo đề: {aiGeneratedExam.exam.title}
-                  </strong>
-                  <p>{aiGeneratedExam.generatedQuestionCount} câu hỏi đã được lưu và đề đã phát hành cho học viên.</p>
-                  <p>Trạng thái: {aiGeneratedExam.exam.status} · Nguồn AI: {aiGeneratedExam.provider} / {aiGeneratedExam.model}</p>
-                  {aiGeneratedExam.context.materialNames.length > 0 && (
-                    <p>Tài liệu tham chiếu: {aiGeneratedExam.context.materialNames.join(", ")}</p>
-                  )}
-                  {aiGeneratedExam.warnings.map((warning, index) => (
-                    <p key={index} className="text-amber-700 dark:text-amber-300">{warning}</p>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
-              <button
-                type="button"
-                onClick={() => setAiExamModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AiExamBuilderModal
+        open={aiExamModalOpen}
+        initialMode={aiBuilderMode}
+        classId={item.id}
+        defaultSubject={item.subject || course?.subject || course?.name || undefined}
+        targetClassEndAt={item.endAt}
+        roleCode={session.roleCode}
+        onClose={() => setAiExamModalOpen(false)}
+        onSaveAssignment={handleSaveFromBuilder}
+      />
 
       {/* =========================================================================
           MODAL: CHỈNH SỬA CÂU HỎI TRONG NGÂN HÀNG CÂU HỎI LỚP
@@ -4722,10 +4728,12 @@ export function InstructorClassWorkspace({
                 <FileCheck2 size={20} className="text-indigo-600 dark:text-indigo-400" />
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                    Tạo đề thi / bài tập từ Ngân hàng câu hỏi
+                    {bankBuilderAssignmentType === "ESSAY"
+                      ? "Tạo bài tập tự luận từ Ngân hàng câu hỏi"
+                      : "Tạo đề trắc nghiệm từ Ngân hàng câu hỏi"}
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Ngân hàng lớp hiện có {questionSummary.total} câu ({questionSummary.multipleChoice} trắc nghiệm, {questionSummary.essay} tự luận)
+                    Ngân hàng lớp hiện có {questionSummary.total} câu ({questionSummary.multipleChoice} trắc nghiệm, {questionSummary.essay} tự luận) · Thang 10 điểm
                   </p>
                 </div>
               </div>
@@ -4741,37 +4749,43 @@ export function InstructorClassWorkspace({
             <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
               {/* Thông tin chung */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
+                <div className={bankBuilderAssignmentType === "ESSAY" ? "sm:col-span-3" : "sm:col-span-2"}>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Tiêu đề bài kiểm tra / bài tập <span className="text-rose-500">*</span>:
                   </label>
                   <input
                     type="text"
-                    placeholder="Ví dụ: Kiểm tra 15 phút Toán học số 1..."
+                    placeholder={
+                      bankBuilderAssignmentType === "ESSAY"
+                        ? "Ví dụ: Bài tập tự luận chương 1..."
+                        : "Ví dụ: Kiểm tra 15 phút Toán học số 1..."
+                    }
                     value={manualExamTitle}
                     onChange={(e) => setManualExamTitle(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-medium"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Thời lượng (phút):
-                  </label>
-                  <input
-                    type="number"
-                    min={5}
-                    max={180}
-                    value={manualExamDuration}
-                    onChange={(e) => setManualExamDuration(Number(e.target.value))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-bold"
-                  />
-                </div>
+                {bankBuilderAssignmentType === "MULTIPLE_CHOICE" && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Thời lượng (phút):
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={180}
+                      value={manualExamDuration}
+                      onChange={(e) => setManualExamDuration(Number(e.target.value))}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-bold"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
                 <label htmlFor="manual-exam-due-at" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Hạn đóng đề (để trống: sau 7 ngày):
+                  Hạn nộp (để trống: sau 7 ngày):
                 </label>
                 <input
                   id="manual-exam-due-at"
@@ -4782,22 +4796,24 @@ export function InstructorClassWorkspace({
                 />
               </div>
 
-              <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={manualExamTutorEnabled}
-                  onChange={(event) => setManualExamTutorEnabled(event.target.checked)}
-                  className="mt-0.5 size-4 accent-indigo-600"
-                />
-                <span>
-                  <span className="block font-bold text-slate-900 dark:text-slate-100">
-                    Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+              {bankBuilderAssignmentType === "MULTIPLE_CHOICE" && (
+                <label className="flex items-start gap-2.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={manualExamTutorEnabled}
+                    onChange={(event) => setManualExamTutorEnabled(event.target.checked)}
+                    className="mt-0.5 size-4 accent-indigo-600"
+                  />
+                  <span>
+                    <span className="block font-bold text-slate-900 dark:text-slate-100">
+                      Cho phép học sinh hỏi đáp AI dẫn dắt khi làm bài
+                    </span>
+                    <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      Mỗi câu hỏi có khung chat gợi ý riêng theo hạn mức hệ thống, không tiết lộ đáp án.
+                    </span>
                   </span>
-                  <span className="block text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                    Mỗi câu hỏi có khung chat gợi ý riêng theo hạn mức hệ thống, không tiết lộ đáp án.
-                  </span>
-                </span>
-              </label>
+                </label>
+              )}
 
               {/* BỘ CHỌN 3 KIỂU TẠO ĐỀ */}
               <div className="space-y-2">
@@ -5234,7 +5250,11 @@ export function InstructorClassWorkspace({
                    disabled={examSaving || manualExamSelectedQuestions.length === 0}
                   className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer disabled:opacity-40"
                 >
-                   {examSaving ? "Đang tạo đề..." : `Tạo đề thi thủ công (${manualExamSelectedQuestions.length} câu)`}
+                   {examSaving
+                     ? "Đang phát hành..."
+                     : bankBuilderAssignmentType === "ESSAY"
+                       ? `Tạo bài tự luận (${manualExamSelectedQuestions.length} câu)`
+                       : `Tạo đề trắc nghiệm (${manualExamSelectedQuestions.length} câu)`}
                 </button>
               )}
 
@@ -5245,7 +5265,11 @@ export function InstructorClassWorkspace({
                    disabled={examSaving || !aiCriteriaPreviewIsCurrent}
                   className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-xs cursor-pointer"
                 >
-                   {examSaving ? "Đang tạo đề..." : "Xác nhận & Tạo đề thi theo ma trận"}
+                   {examSaving
+                     ? "Đang phát hành..."
+                     : bankBuilderAssignmentType === "ESSAY"
+                       ? "Xác nhận & Tạo bài tự luận theo ma trận"
+                       : "Xác nhận & Tạo đề trắc nghiệm theo ma trận"}
                 </button>
               )}
 
@@ -5256,7 +5280,11 @@ export function InstructorClassWorkspace({
                    disabled={examSaving}
                   className="px-5 py-2 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-700 shadow-xs cursor-pointer"
                 >
-                   {examSaving ? "Đang tạo đề..." : "Bốc ngẫu nhiên & Tạo đề thi"}
+                   {examSaving
+                     ? "Đang phát hành..."
+                     : bankBuilderAssignmentType === "ESSAY"
+                       ? "Bốc ngẫu nhiên & Tạo bài tự luận"
+                       : "Bốc ngẫu nhiên & Tạo đề trắc nghiệm"}
                 </button>
               )}
             </div>
