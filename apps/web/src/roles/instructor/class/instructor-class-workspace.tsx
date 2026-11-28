@@ -48,7 +48,6 @@ import {
   Video,
   Wand2,
   Scan,
-  Image as ImageIcon,
   X,
 } from "lucide-react";
 import type {
@@ -64,8 +63,8 @@ import type {
   LearningClass,
   Material,
   Question,
-  QuestionImportResult,
 } from "@/lib/learning-types";
+import { SmartExamScanModal } from "./smart-exam-scan-modal";
 import { useClassExamPage } from "@/lib/class-exams";
 import { apiRequest, downloadApiFile } from "@/lib/api-client";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -331,21 +330,6 @@ export function InstructorClassWorkspace({
 
   // Cách 2: Quét đề bằng AI OCR
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [scanFile, setScanFile] = useState<File | null>(null);
-  const [scanStatus, setScanStatus] = useState<"IDLE" | "SCANNING" | "DONE">("IDLE");
-  const [scanSaving, setScanSaving] = useState(false);
-  const [scannedExamQuestions, setScannedExamQuestions] = useState<Array<{
-    type: Question["type"];
-    content: string;
-    options: string[];
-    correctAnswers: string[];
-    difficulty: Question["difficulty"];
-    tags: string[];
-    confidence: number;
-    answerSource?: string;
-    warnings: string[];
-  }>>([]);
-  const [scanProviderLabel, setScanProviderLabel] = useState("");
 
   // Cách 3: Tạo đề thi bằng AI
   const [aiExamModalOpen, setAiExamModalOpen] = useState(false);
@@ -1788,77 +1772,6 @@ export function InstructorClassWorkspace({
       notify(error instanceof Error ? error.message : "Không lưu được câu hỏi.", "error");
     } finally {
       setAuthoringSaving(false);
-    }
-  };
-
-  /** Đọc tệp ảnh thực tế bằng API OCR; giữ kết quả nguyên vẹn để kiểm tra trước khi nhập. */
-  const handleTriggerScanExam = async () => {
-    if (scanStatus === "SCANNING") return;
-    if (!scanFile || !scanFile.type.startsWith("image/") || scanFile.size > 12 * 1024 * 1024) {
-      notify("Chọn một ảnh đề thi hợp lệ, dung lượng tối đa 12 MB.", "error");
-      return;
-    }
-    setScanStatus("SCANNING");
-    setScannedExamQuestions([]);
-    try {
-      const data = new FormData();
-      data.append("file", scanFile);
-      const result = await apiRequest<{
-        questions: typeof scannedExamQuestions;
-        provider: string;
-        model: string;
-        warnings: string[];
-      }>("/instructor/question-bank/scan-image", {
-        method: "POST", roleCode: session.roleCode, body: data,
-      });
-      setScannedExamQuestions(result.questions);
-      setScanProviderLabel(`${result.provider} / ${result.model}`);
-      setScanStatus("DONE");
-      notify(`Đã bóc tách ${result.questions.length} câu. Hãy kiểm tra đáp án trước khi nhập.`, "success");
-      if (result.warnings.length) console.warn("Cảnh báo OCR:", result.warnings);
-    } catch (error) {
-      setScanStatus("IDLE");
-      notify(error instanceof Error ? error.message : "Không quét được ảnh đề thi.", "error");
-    }
-  };
-
-  /** Nhập bản nháp OCR vào ngân hàng thật và báo rõ các dòng không nhập được. */
-  const handleSaveScannedExam = async () => {
-    if (scanSaving || scanStatus !== "DONE" || !scannedExamQuestions.length) return;
-    if (!item.courseId) {
-      notify("Lớp chưa gắn môn học để nhập câu hỏi.", "error");
-      return;
-    }
-    setScanSaving(true);
-    try {
-      const results = await apiRequest<QuestionImportResult[]>("/instructor/question-bank/questions/import", {
-        method: "POST", roleCode: session.roleCode,
-        body: JSON.stringify({ questions: scannedExamQuestions.map((q) => ({
-          courseId: item.courseId,
-          type: q.type,
-          content: q.content,
-          options: q.options,
-          correctAnswers: q.correctAnswers,
-          difficulty: q.difficulty,
-          tags: q.tags,
-        })) }),
-      });
-      const imported = results.filter((r) => r.status === "IMPORTED").length;
-      const failed = results.filter((r) => r.status === "FAILED");
-      await refreshQuestionData();
-      notify(`Đã nhập ${imported}/${results.length} câu hỏi nháp.${failed.length ? ` Lỗi: ${failed.map((r) => `dòng ${r.row}: ${r.message}`).join("; ")}` : ""}`, failed.length ? "error" : "success");
-      if (!failed.length) {
-        setScanModalOpen(false);
-        setScannedExamQuestions([]);
-        setScanStatus("IDLE");
-      } else {
-        const failedRows = new Set(failed.map((r) => r.row));
-        setScannedExamQuestions((current) => current.filter((_, i) => failedRows.has(i + 1)));
-      }
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "Không nhập được câu hỏi OCR.", "error");
-    } finally {
-      setScanSaving(false);
     }
   };
 
@@ -4372,152 +4285,15 @@ export function InstructorClassWorkspace({
       )}
 
       {/* =========================================================================
-          CÁCH 2: MODAL QUÉT ĐỀ THÔNG MINH BẰNG AI (OCR)
+          CÁCH 2: MODAL QUÉT ĐỀ THÔNG MINH BẰNG AI (OCR ĐA ẢNH & CHỈNH SỬA TRỰC QUAN)
           ========================================================================= */}
-      {scanModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs">
-          <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Scan size={18} className="text-indigo-600" />
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
-                  Quét đề thi thông minh (AI OCR & Đối chiếu)
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setScanModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-6 grid md:grid-cols-2 gap-6">
-              {/* Cột trái: Tệp ảnh đề thi gốc */}
-              <div className="space-y-4 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-6 text-xs">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-600 block">
-                  Vùng 1: Ảnh chụp hoặc Tệp đề thi gốc
-                </span>
-
-                <div className="border-2 border-dashed border-indigo-200 dark:border-indigo-900/60 rounded-2xl p-6 text-center space-y-2 bg-indigo-50/20 dark:bg-indigo-950/20">
-                  <ImageIcon size={32} className="mx-auto text-indigo-500" />
-                  <p className="font-bold text-slate-700 dark:text-slate-200">
-                    {scanFile?.name ?? "Chưa chọn ảnh đề thi"}
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    {scanFile ? (scanFile.size / 1024 / 1024).toFixed(2) + " MB" : "Chọn một ảnh đề thi để quét."}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="scan-exam-file" className="block text-xs font-bold text-slate-700 dark:text-slate-300">Ảnh đề thi (tối đa 12 MB):</label>
-                  <input id="scan-exam-file" type="file" accept="image/*"
-                    disabled={scanSaving || scanStatus === "SCANNING"}
-                    onChange={(event) => {
-                      setScanFile(event.target.files?.[0] ?? null);
-                      setScanStatus("IDLE");
-                      setScannedExamQuestions([]);
-                      setScanProviderLabel("");
-                    }}
-                    className="w-full rounded-xl border border-slate-200 dark:border-slate-700 p-2" />
-                  {scanProviderLabel && <p className="text-slate-500">Đã nhận diện bằng: {scanProviderLabel}</p>}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleTriggerScanExam}
-                  disabled={scanStatus === "SCANNING" || scanSaving || !scanFile}
-                  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-50"
-                >
-                  <Scan size={15} />
-                  <span>
-                    {scanStatus === "SCANNING" ? "Đang quét và bóc tách..." : "Bắt đầu quét AI"}
-                  </span>
-                </button>
-              </div>
-
-              {/* Cột phải: Kết quả bóc tách câu hỏi & đáp án */}
-              <div className="space-y-3 text-xs overflow-y-auto max-h-[460px]">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 block">
-                    Vùng 2: Kết quả bóc tách ({scannedExamQuestions.length} câu)
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
-                    {scanStatus === "DONE" ? "Cần kiểm tra đáp án" : "Chưa có kết quả"}
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {scannedExamQuestions.map((q, index) => (
-                    <div
-                      key={index}
-                      className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 space-y-2"
-                    >
-                      <RichText className="font-bold text-slate-800 dark:text-slate-200 [&>p:first-child]:mt-0 [&>p:last-child]:mb-0">
-                        {q.content}
-                      </RichText>
-                      <div className="grid grid-cols-2 gap-1.5 pt-1">
-                        {q.options.map((opt, optIdx) => {
-                          const prefix = String.fromCharCode(65 + optIdx);
-                          const isCorrect = q.correctAnswers.includes(opt);
-                          return (
-                            <button
-                              type="button"
-                              disabled={scanSaving}
-                              aria-pressed={isCorrect}
-                              onClick={() => setScannedExamQuestions((rows) => rows.map((row, position) => {
-                                if (position !== index) return row;
-                                const answers = row.type === "MULTIPLE_CHOICE"
-                                  ? (isCorrect ? row.correctAnswers.filter((value) => value !== opt) : [...row.correctAnswers, opt])
-                                  : [opt];
-                                return { ...row, correctAnswers: answers, answerSource: "Giảng viên đã chọn đáp án", warnings: row.warnings.filter((message) => !/đáp án/iu.test(message)) };
-                              }))}
-                              key={optIdx}
-                              className={`p-1.5 rounded-lg text-[11px] flex items-center gap-1.5 border ${
-                                isCorrect
-                                  ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-200 font-bold"
-                                  : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
-                              }`}
-                            >
-                              <span className="font-bold shrink-0">{prefix}.</span>
-                              <RichText className="min-w-0 flex-1 text-left leading-relaxed [&>p]:my-0 [&_*]:text-inherit">
-                                {opt}
-                              </RichText>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {q.answerSource && <p className="text-xs">{q.answerSource}</p>}
-                      {q.correctAnswers.length > 0 && <p className="text-[11px] text-emerald-700">Đáp án nhận diện: {q.correctAnswers.join("; ")}</p>}
-                      <p className="text-[11px] text-slate-500">Độ tin cậy: {Math.round(q.confidence * 100)}%</p>
-                      {q.warnings.map((warning, warningIndex) => <p key={warningIndex} className="text-[11px] text-amber-700">{warning}</p>)}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 flex justify-end gap-2 bg-slate-50/50 dark:bg-slate-900/50">
-              <button
-                type="button"
-                onClick={() => setScanModalOpen(false)}
-                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Đóng
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveScannedExam}
-                disabled={scanSaving || scanStatus !== "DONE" || !scannedExamQuestions.length}
-                className="px-4 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-100 transition cursor-pointer"
-              >
-                {scanSaving ? "Đang nhập..." : "Nhập câu hỏi vào ngân hàng"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SmartExamScanModal
+        open={scanModalOpen}
+        courseId={item.courseId}
+        roleCode={session.roleCode}
+        onClose={() => setScanModalOpen(false)}
+        onImported={refreshQuestionData}
+      />
 
       {/* =========================================================================
           CÁCH 3: MODAL TẠO ĐỀ THÔNG MINH BẰNG AI
