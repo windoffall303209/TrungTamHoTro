@@ -134,9 +134,25 @@ function newChoiceQuestion(order: number): ParsedQuestionItem {
   };
 }
 
-// Chuẩn hóa chuỗi đáp án do OCR hoặc AI trả về để so khớp an toàn.
+// Chuẩn hóa chuỗi phương án và đáp án do OCR, Word hoặc AI trả về để so khớp chính xác.
 function normalizeAnswer(value: string): string {
-  return value.trim().replace(/<\/?strong>/giu, "").replace(/\*\*/g, "").replace(/__([^_]+)__/gu, "$1").replace(/^(?:đáp\s*án(?:\s+đúng)?|answer)(?:\s+là)?\s*[:.]?\s*/iu, "").trim();
+  return value
+    .trim()
+    .replace(/<\/?strong>/giu, "")
+    .replace(/\*\*/g, "")
+    .replace(/__([^_]+)__/gu, "$1")
+    .replace(/^(?:đáp\s*án(?:\s+đúng)?|answer)(?:\s+là)?\s*[:.]?\s*/iu, "")
+    .trim();
+}
+
+// Loại bỏ nhãn đầu dòng A., B), C: dư thừa trên nội dung phương án nếu có.
+function stripLeadingOptionKey(value: string, expectedKey: string): string {
+  const cleaned = normalizeAnswer(value);
+  const match = cleaned.match(/^([A-F])[.:)]\s+(.+)$/iu);
+  if (match && match[1]!.toUpperCase() === expectedKey.toUpperCase()) {
+    return match[2]!.trim();
+  }
+  return cleaned;
 }
 
 // Đọc từng câu tự luận từ TXT theo tiêu đề câu, giữ nguyên nội dung cho giáo viên sửa.
@@ -169,10 +185,26 @@ function normalizeScannedQuestions(scanned: ScannedQuestion[], type: AssignmentT
     return { questions: [], essayQuestions, warnings };
   }
 
-  const questions = scanned.filter((item) => item.type === "SINGLE_CHOICE").map((item, index) => {
-    const options = (item.options ?? []).map((text, position) => ({ key: String.fromCharCode(65 + position), text: normalizeAnswer(text ?? "") }));
+  const choiceItems = scanned.filter(
+    (item) => item.type === "SINGLE_CHOICE" || (item.options && item.options.length >= 2 && item.type !== "MULTIPLE_CHOICE"),
+  );
+  const questions = choiceItems.map((item, index) => {
+    const rawOptions = item.options ?? [];
+    const options = (rawOptions.length >= 2 ? rawOptions : ["", "", "", ""]).map((text, position) => {
+      const key = String.fromCharCode(65 + position);
+      return { key, text: stripLeadingOptionKey(text ?? "", key) };
+    });
     const answers = item.correctAnswers ?? [];
-    const correctAnswer = answers.length === 1 ? options.find((option) => option.text === normalizeAnswer(answers[0]!))?.key ?? "" : "";
+    let correctAnswer = "";
+    if (answers.length === 1) {
+      const normAns = normalizeAnswer(answers[0]!);
+      const letterOnly = normAns.match(/^([A-F])(?:[.:)]\s*(.*))?$/iu);
+      correctAnswer =
+        options.find((option) => option.text.toLocaleLowerCase() === normAns.toLocaleLowerCase())?.key ??
+        (letterOnly
+          ? options.find((option) => option.key === letterOnly[1]!.toUpperCase())?.key ?? ""
+          : "");
+    }
     const itemWarnings = [...(item.warnings ?? [])];
     if (!correctAnswer) itemWarnings.push("AI chưa xác định được đáp án đúng. Hãy chọn đáp án trước khi lưu.");
     const question: ParsedQuestionItem = {
@@ -360,7 +392,7 @@ export function AssignmentBuilderModal({ open, onClose, targetClassName, targetC
   const questionEditor = type === "MULTIPLE_CHOICE" ? <div className="space-y-5"><div className="flex items-center justify-between rounded-xl bg-blue-50 p-4 dark:bg-blue-950/30"><div><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu hỏi trắc nghiệm một đáp án</h3><p className="text-xs text-slate-600 dark:text-slate-400">{t(`${questions.length} câu · Tổng ${totalScore.toLocaleString(locale)} điểm`)}</p></div>{method === "MANUAL" && <CircleHelp size={20} className="text-blue-600" />}</div>{questions.map((question, index) => <div key={question.id} className="rounded-2xl border border-slate-200 p-4 sm:p-5 dark:border-slate-700"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-bold text-slate-900 dark:text-white">Câu {index + 1}</h3><button type="button" aria-label={`Xóa câu trắc nghiệm ${index + 1}`} onClick={() => setQuestions((current) => current.filter((entry) => entry.id !== question.id).map((entry, position) => ({ ...entry, order: position + 1 })))} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"><Trash2 size={17} /></button></div>{question.answerSource && <p className="mb-2 text-xs text-slate-600">{question.answerSource}</p>}{question.warnings?.length ? <div className="mb-3 space-y-1 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{question.warnings.map((warning, warningIndex) => <p key={`${warning}-${warningIndex}`} className="flex gap-2"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{warning}</p>)}</div> : null}<textarea aria-label={`Nội dung câu ${index + 1}`} value={question.content} maxLength={3000} rows={2} onChange={(event) => updateQuestion(question.id, { content: event.target.value })} placeholder="Nhập nội dung câu hỏi…" className={`${fieldClass} resize-y`} /><div className="mt-4 grid gap-3 sm:grid-cols-2">{question.options.map((option) => <label key={option.key} className="flex min-w-0 items-center gap-2"><input aria-label={`Đáp án đúng ${option.key} câu ${index + 1}`} type="radio" name={`answer-${question.id}`} checked={question.correctAnswer === option.key} onChange={() => updateQuestion(question.id, { correctAnswer: option.key, answerSource: "Giảng viên đã chọn đáp án", warnings: question.warnings?.filter((warning) => !/đáp án|phương án/iu.test(warning)) })} className="h-4 w-4 accent-blue-600" /><span className="w-4 shrink-0 text-xs font-bold text-slate-500">{option.key}</span><input aria-label={`Phương án ${option.key} câu ${index + 1}`} value={option.text} onChange={(event) => updateQuestion(question.id, { options: question.options.map((entry) => entry.key === option.key ? { ...entry, text: event.target.value } : entry) })} placeholder="Nội dung phương án" className={fieldClass} /></label>)}</div><div className="mt-4 flex items-center gap-3"><label htmlFor={`score-${question.id}`} className="text-xs font-semibold text-slate-600 dark:text-slate-300">Điểm câu hỏi</label><input id={`score-${question.id}`} type="number" min="0.01" step="0.01" value={question.score} onChange={(event) => updateQuestion(question.id, { score: Number(event.target.value) })} className={`${fieldClass} max-w-28`} /></div></div>)}<button type="button" onClick={() => setQuestions((current) => [...current, newChoiceQuestion(current.length + 1)])} className={secondaryButton}><Plus size={17} /> Thêm câu hỏi</button></div> : null;
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/65 p-3 backdrop-blur-sm sm:p-6" role="presentation">
-      <section role="dialog" aria-modal="true" aria-labelledby="assignment-builder-heading" className="my-auto flex max-h-[94dvh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+      <section role="dialog" aria-modal="true" aria-labelledby="assignment-builder-heading" className="my-auto flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-200 px-5 py-4 dark:border-slate-800 sm:px-7"><div className="min-w-0"><p className="mb-1 text-xs font-semibold text-blue-600 dark:text-blue-400">{targetClassName || t("Lớp học")} · {t(`Bước ${stepIndex + 1}/5`)}</p><h2 id="assignment-builder-heading" className="text-lg font-bold text-slate-900 dark:text-white sm:text-xl">{step === "TYPE" ? "Bạn muốn tạo bài tập dạng nào?" : step === "METHOD" ? `Cách tạo bài ${typeLabel.toLocaleLowerCase()}` : step === "CONTENT" ? `Nội dung bài ${typeLabel.toLocaleLowerCase()}` : step === "SETTINGS" ? "Thông tin và thời hạn" : "Xác nhận trước khi lưu"}</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{step === "TYPE" ? "Chọn loại trước để hiển thị đúng công cụ tạo bài." : step === "METHOD" ? "Mỗi loại đều có thể soạn thủ công hoặc nhờ AI đọc tệp." : step === "CONTENT" ? "AI chỉ đề xuất; giáo viên vẫn duyệt và sửa toàn bộ nội dung trước khi lưu." : step === "SETTINGS" ? "Điền các thông tin học viên sẽ nhìn thấy." : "Rà soát lại nội dung, thời hạn và cách tạo rồi xác nhận."}</p></div><button type="button" aria-label="Đóng trình tạo bài tập" disabled={saving} onClick={onClose} className="shrink-0 rounded-xl p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800"><X size={20} /></button></header>
         <div className="flex gap-1.5 px-5 pt-4 sm:px-7" aria-label="Tiến trình tạo bài tập">{steps.map((name, index) => <div key={name} className={`h-1.5 flex-1 rounded-full ${index <= stepIndex ? "bg-blue-600" : "bg-slate-200 dark:bg-slate-700"}`} />)}</div>
         <main className="min-h-0 flex-1 overflow-y-auto p-5 sm:p-7">

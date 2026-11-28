@@ -58,4 +58,129 @@ describe("nhận diện đáp án từ tài liệu", () => {
       expect(parseQuestionDocument(source)[0]).toMatchObject({ correctAnswers: [], confidence: 0.5, warnings: [expect.any(String)] });
     }
   });
+
+  it("đọc chuẩn đề Toán có tiêu đề ĐÁP ÁN TRẮC NGHIỆM và bảng đáp án dọc 3 cột (Câu hỏi | Đáp án đúng | Kết quả)", async () => {
+    const body = [
+      para(run("Câu 1. ", "<w:b/>") + run("12 + 8 = ?")),
+      para(run("A. 18")),
+      para(run("B. 20")),
+      para(run("C. 22")),
+      para(run("D. 19")),
+      para(run("Câu 2. ", "<w:b/>") + run("35 - 9 = ?")),
+      para(run("A. 24")),
+      para(run("B. 25")),
+      para(run("C. 26")),
+      para(run("D. 27")),
+      para(run("Câu 3. ", "<w:b/>") + run("6 x 7 = ?")),
+      para(run("A. 42")),
+      para(run("B. 36")),
+      para(run("C. 48")),
+      para(run("D. 40")),
+      para(run("Câu 4. ", "<w:b/>") + run("Một hình chữ nhật có chiều dài 8 cm và chiều rộng 5 cm. Chu vi là bao nhiêu?")),
+      para(run("A. 20 cm")),
+      para(run("B. 24 cm")),
+      para(run("C. 28 cm")),
+      para(run("D. 26 cm")),
+      para(run("Trang")),
+      para(run("ĐÁP ÁN TRẮC NGHIỆM", "<w:b/>")),
+      para(run("Mỗi câu trả lời đúng được 2,5 điểm. Tổng điểm: 10 điểm.")),
+      "<w:tbl>" +
+        [
+          ["Câu hỏi", "Đáp án đúng", "Kết quả"],
+          ["1", "B", "20"],
+          ["2", "C", "26"],
+          ["3", "A", "42"],
+          ["4", "D", "26 cm"],
+        ]
+          .map((row) => "<w:tr>" + row.map((cell) => "<w:tc>" + para(run(cell)) + "</w:tc>").join("") + "</w:tr>")
+          .join("") +
+        "</w:tbl>",
+      para(run("Giải thích câu 4: (8 + 5) x 2 = 26 cm.")),
+    ].join("");
+
+    const result = await scan(body);
+    expect(result.questions).toHaveLength(4);
+    expect(result.questions.map((q) => q.correctAnswers)).toEqual([["20"], ["26"], ["42"], ["26 cm"]]);
+    expect(result.questions.every((q) => q.warnings.length === 0)).toBe(true);
+  });
+
+  it("tách đúng phương án nằm trong bảng 2x2 hoặc sát nhau trên cùng dòng và ghép bảng ĐÁP ÁN ngang cuối đề", async () => {
+    /** Tạo bảng Word 2x2 chứa 4 phương án A, B, C, D giống mẫu đề tiểu học/THCS. */
+    const optionGrid = (a: string, b: string, c: string, d: string): string =>
+      "<w:tbl>" +
+      [
+        [a, b],
+        [c, d],
+      ]
+        .map((row) => "<w:tr>" + row.map((cell) => "<w:tc>" + para(run(cell)) + "</w:tc>").join("") + "</w:tr>")
+        .join("") +
+      "</w:tbl>";
+
+    const body = [
+      para(run("Khoanh tròn vào chữ cái trước đáp án đúng.", "<w:b/>")),
+      para(run("Câu 1. Kết quả của phép tính 3 475 + 2 618 là:", "<w:b/>")),
+      optionGrid("A. 6 083", "B. 6 093", "C. 6 193", "D. 5 093"),
+      para(run("Câu 2. Kết quả của phép chia 864 : 8 là:", "<w:b/>")),
+      para(run("A. 108   B. 118")),
+      para(run("C. 106D. 98")),
+      para(run("ĐÁP ÁN", "<w:b/>")),
+      "<w:tbl><w:tr>" +
+        ["1. B", "2. A"].map((cell) => "<w:tc>" + para(run(cell, "<w:b/>")) + "</w:tc>").join("") +
+        "</w:tr></w:tbl>",
+      para(run("Chúc em làm bài tốt!")),
+    ].join("");
+
+    const result = await scan(body);
+    expect(result.questions).toHaveLength(2);
+    expect(result.questions[0]).toMatchObject({
+      options: ["6 083", "6 093", "6 193", "5 093"],
+      correctAnswers: ["6 093"],
+      warnings: [],
+    });
+    expect(result.questions[1]).toMatchObject({
+      options: ["108", "118", "106", "98"],
+      correctAnswers: ["108"],
+      warnings: [],
+    });
+  });
+
+  it("khôi phục danh sách đánh số tự động (w:numPr) và nhận diện đáp án tô màu đỏ trong Word", async () => {
+    const zip = new JSZip();
+    zip.file(
+      "[Content_Types].xml",
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>',
+    );
+    zip.file(
+      "_rels/.rels",
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    );
+    zip.file(
+      "word/numbering.xml",
+      '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+        '<w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="Câu %1."/></w:lvl><w:lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>' +
+        '<w:num w:numId="1"><w:abstractNumId w:val="1"/></w:num></w:numbering>',
+    );
+    const docBody =
+      '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>' + run("Thủ đô của Việt Nam là gì?") + "</w:p>" +
+      '<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>' + run("Đà Nẵng") + "</w:p>" +
+      '<w:p><w:pPr><w:numPr><w:ilvl w:val="1"/><w:numId w:val="1"/></w:numPr></w:pPr>' + run("Hà Nội", '<w:color w:val="FF0000"/>') + "</w:p>";
+    zip.file(
+      "word/document.xml",
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + docBody + "</w:body></w:document>",
+    );
+
+    const buffer = await zip.generateAsync({ type: "nodebuffer" });
+    const scanned = await new AiProviderService().scanImage({
+      buffer,
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      fileName: "auto-list.docx",
+    });
+    expect(scanned.questions).toHaveLength(1);
+    expect(scanned.questions[0]).toMatchObject({
+      content: "Thủ đô của Việt Nam là gì?",
+      options: ["Đà Nẵng", "Hà Nội"],
+      correctAnswers: ["Hà Nội"],
+      warnings: [],
+    });
+  });
 });
